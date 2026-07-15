@@ -29,6 +29,7 @@ import {
 } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
 import { ArchivedPanel } from "../../components/crm/archived";
+import { fireConfetti } from "../../lib/crm/confetti";
 import {
   STAGES,
   STAGE_NAMES,
@@ -124,10 +125,18 @@ function PipelinePage() {
 
   async function onStageChange(id: string, stage: string) {
     setBusy(true);
+    // Grab the name before we refresh so the celebration can call it out.
+    const won = stage === "Launched" && (deals as Row[]).find((d) => d.id === id)?.stage !== "Launched";
+    const wonName = won ? ((deals as Row[]).find((d) => d.id === id)?.company_name as string) || ((deals as Row[]).find((d) => d.id === id)?.name as string) : "";
     try {
       await setDealStage({ data: { id, stage } });
       await refresh();
-      toast(stage === "Launched" ? "Deal won" : stage === "Lost" ? "Deal marked lost" : `Moved to ${stage}`);
+      if (won) {
+        fireConfetti();
+        toast(`🎉 ${wonName || "Deal"} is a win!`);
+      } else {
+        toast(stage === "Lost" ? "Deal marked lost" : `Moved to ${stage}`);
+      }
     } catch {
       toast("Couldn't move the deal — try again", "error");
     } finally {
@@ -299,8 +308,8 @@ function KanbanBoard({
             onDragLeave={() => setOverStage((cur) => (cur === s.name ? null : cur))}
             onDrop={() => handleDrop(s.name)}
             className={cx(
-              "flex w-72 shrink-0 flex-col rounded-xl border bg-surface/60 transition-colors",
-              isOver ? "border-signal/60 bg-surface-2/60" : "border-line",
+              "flex w-72 shrink-0 flex-col rounded-xl border bg-surface/60 transition-all duration-150",
+              isOver ? "border-signal/60 bg-surface-2/70 ring-2 ring-signal/20" : "border-line",
             )}
           >
             <div className="flex items-center justify-between px-3 py-2.5">
@@ -315,6 +324,14 @@ function KanbanBoard({
               {col.map((d) => {
                 const age = daysBetween(d.stage_changed_at as string);
                 const stale = s.kind === "open" && age >= 14;
+                const health =
+                  s.kind !== "open"
+                    ? null
+                    : age < 7
+                      ? { c: "#34d399", t: "On track" }
+                      : age < 14
+                        ? { c: "#f59e0b", t: `${age}d in stage` }
+                        : { c: "#ef4444", t: `Stuck ${age} days` };
                 return (
                   <div
                     key={d.id as string}
@@ -326,12 +343,23 @@ function KanbanBoard({
                     }}
                     onClick={() => onEdit(d)}
                     className={cx(
-                      "cursor-grab rounded-lg border border-line bg-surface p-2.5 shadow-sm transition-colors hover:border-line-strong active:cursor-grabbing",
-                      dragId === d.id ? "opacity-50" : "",
+                      "cursor-grab rounded-lg border border-line bg-surface p-2.5 shadow-sm transition-all duration-150 active:cursor-grabbing",
+                      dragId === d.id
+                        ? "rotate-[1.5deg] scale-[1.02] opacity-80 shadow-lg shadow-black/40 ring-1 ring-signal/40"
+                        : "hover:-translate-y-0.5 hover:border-line-strong hover:shadow-md",
                     )}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="text-sm font-medium text-bone">{d.name as string}</div>
+                      <div className="flex min-w-0 items-start gap-1.5">
+                        {health ? (
+                          <span
+                            className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                            style={{ backgroundColor: health.c, boxShadow: `0 0 6px ${health.c}80` }}
+                            title={health.t}
+                          />
+                        ) : null}
+                        <div className="min-w-0 text-sm font-medium text-bone">{d.name as string}</div>
+                      </div>
                       {stale ? <Pill tone="warn">{age}d</Pill> : null}
                     </div>
                     {d.company_name ? (
@@ -545,9 +573,15 @@ function DealModal({
       win_reason: (fd.get("win_reason") as string) || null,
       links: serializeLinks(links.map((l) => ({ label: l.label.trim(), url: normalizeUrl(l.url) }))),
     };
+    const won = payload.stage === "Launched" && deal?.stage !== "Launched";
     try {
       await upsertDeal({ data: payload });
-      toast(deal?.id ? "Deal updated" : "Deal added");
+      if (won) {
+        fireConfetti();
+        toast(`🎉 ${(deal?.company_name as string) || payload.name || "Deal"} is a win!`);
+      } else {
+        toast(deal?.id ? "Deal updated" : "Deal added");
+      }
       onSaved();
     } catch {
       toast("Couldn't save — please try again", "error");
