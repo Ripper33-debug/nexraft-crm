@@ -44,6 +44,11 @@ export function ensureExtraSchema(): Promise<void> {
       `ALTER TABLE companies ADD COLUMN IF NOT EXISTS archived_at TEXT`,
       `ALTER TABLE contacts ADD COLUMN IF NOT EXISTS archived_at TEXT`,
       `ALTER TABLE deals ADD COLUMN IF NOT EXISTS archived_at TEXT`,
+      // Record-level access: comma-separated user ids who may edit alongside the
+      // owner. NULL/empty means owner-only (plus admins). Powers "share edit access".
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS shared_with TEXT`,
+      `ALTER TABLE contacts ADD COLUMN IF NOT EXISTS shared_with TEXT`,
+      `ALTER TABLE deals ADD COLUMN IF NOT EXISTS shared_with TEXT`,
     ];
     for (const s of stmts) {
       await db().prepare(s).run();

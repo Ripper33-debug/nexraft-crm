@@ -3,13 +3,34 @@ import { z } from "zod";
 
 import { db, uid } from "./db.server";
 import { requireUser, requireAdmin, hashPassword, signupCode } from "./auth.server";
-import { OPEN_STAGES, STAGES, RENEWAL_SOON_DAYS } from "./constants";
+import { OPEN_STAGES, STAGES, RENEWAL_SOON_DAYS, canEditRecord, canAdministerRecord } from "./constants";
 import { ensureExtraSchema, logEvent } from "./schema.server";
 
 const WON_STAGE = "Launched";
 const LOST_STAGE = "Lost";
 
 const OPEN_LIST = OPEN_STAGES.map((s) => `'${s}'`).join(",");
+
+// Whitelisted entity tables that carry owner_id + shared_with access columns.
+const ACCESS_TABLES = { company: "companies", contact: "contacts", deal: "deals" } as const;
+type AccessEntity = keyof typeof ACCESS_TABLES;
+
+// Load a record's current owner + share list and throw FORBIDDEN if `user` may
+// not edit it. Missing records fall through so the normal path handles them.
+async function assertCanEdit(
+  user: { id: string; role: string },
+  table: (typeof ACCESS_TABLES)[AccessEntity],
+  id: string,
+): Promise<void> {
+  const row = await db()
+    .prepare(`SELECT owner_id, shared_with FROM ${table} WHERE id = ?`)
+    .bind(id)
+    .first<{ owner_id: string | null; shared_with: string | null }>();
+  if (!row) return;
+  if (!canEditRecord(user, row.owner_id, row.shared_with)) {
+    throw new Error("FORBIDDEN");
+  }
+}
 
 // ---------- Row types (concrete, serializable shapes for query results) ----------
 export type CompanyRow = {
@@ -24,6 +45,7 @@ export type CompanyRow = {
   tags: string | null;
   archived_at: string | null;
   owner_id: string | null;
+  shared_with: string | null;
   created_at: string;
   owner_name: string | null;
   deal_count: number;
@@ -38,6 +60,7 @@ export type ContactRow = {
   email: string | null;
   phone: string | null;
   owner_id: string | null;
+  shared_with: string | null;
   notes: string | null;
   archived_at: string | null;
   created_at: string;
@@ -56,6 +79,7 @@ export type DealRow = {
   company_id: string | null;
   contact_id: string | null;
   owner_id: string | null;
+  shared_with: string | null;
   stage: string;
   value: number;
   expected_close: string | null;
@@ -171,6 +195,7 @@ export const upsertCompany = createServerFn({ method: "POST" })
     const user = await requireUser();
     await ensureExtraSchema();
     if (data.id) {
+      await assertCanEdit(user, "companies", data.id);
       await db()
         .prepare(
           `UPDATE companies SET name=?, industry=?, website=?, phone=?, city=?, source=?, notes=?, tags=?, owner_id=? WHERE id=?`,
@@ -233,6 +258,7 @@ export const archiveCompany = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = await requireUser();
     await ensureExtraSchema();
+    await assertCanEdit(user, "companies", data.id);
     const now = new Date().toISOString();
     const row = await db().prepare("SELECT name FROM companies WHERE id = ?").bind(data.id).first<{ name: string }>();
     await db().prepare("UPDATE companies SET archived_at=? WHERE id=?").bind(now, data.id).run();
@@ -309,7 +335,9 @@ export const upsertContact = createServerFn({ method: "POST" })
   .validator(contactSchema)
   .handler(async ({ data }) => {
     const user = await requireUser();
+    await ensureExtraSchema();
     if (data.id) {
+      await assertCanEdit(user, "contacts", data.id);
       await db()
         .prepare(
           `UPDATE contacts SET first_name=?, last_name=?, company_id=?, title=?, email=?, phone=?, owner_id=?, notes=? WHERE id=?`,
@@ -368,6 +396,7 @@ export const archiveContact = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = await requireUser();
     await ensureExtraSchema();
+    await assertCanEdit(user, "contacts", data.id);
     const now = new Date().toISOString();
     const row = await db()
       .prepare("SELECT first_name, last_name FROM contacts WHERE id = ?")
@@ -434,8 +463,10 @@ export const upsertDeal = createServerFn({ method: "POST" })
   .validator(dealSchema)
   .handler(async ({ data }) => {
     const user = await requireUser();
+    await ensureExtraSchema();
     const now = new Date().toISOString();
     if (data.id) {
+      await assertCanEdit(user, "deals", data.id);
       const prev = await db()
         .prepare("SELECT stage FROM deals WHERE id = ?")
         .bind(data.id)
@@ -546,6 +577,8 @@ export const setDealStage = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.string(), stage: z.string() }))
   .handler(async ({ data }) => {
     const user = await requireUser();
+    await ensureExtraSchema();
+    await assertCanEdit(user, "deals", data.id);
     const now = new Date().toISOString();
     const prev = await db()
       .prepare("SELECT name, stage FROM deals WHERE id = ?")
@@ -571,6 +604,7 @@ export const archiveDeal = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = await requireUser();
     await ensureExtraSchema();
+    await assertCanEdit(user, "deals", data.id);
     const now = new Date().toISOString();
     const row = await db().prepare("SELECT name FROM deals WHERE id = ?").bind(data.id).first<{ name: string }>();
     await db().prepare("UPDATE deals SET archived_at=? WHERE id=?").bind(now, data.id).run();
@@ -590,6 +624,96 @@ export const restoreDeal = createServerFn({ method: "POST" })
     await requireUser();
     await ensureExtraSchema();
     await db().prepare("UPDATE deals SET archived_at=NULL WHERE id=?").bind(data.id).run();
+    return { ok: true };
+  });
+
+// ---------- Record access: hand off ownership / share edit rights ----------
+const ENTITY_LABEL: Record<AccessEntity, string> = { company: "company", contact: "contact", deal: "deal" };
+
+// A tiny label for feed lines — best effort, never blocks the mutation.
+async function accessRecordName(table: (typeof ACCESS_TABLES)[AccessEntity], id: string): Promise<string> {
+  try {
+    if (table === "contacts") {
+      const r = await db()
+        .prepare("SELECT first_name, last_name FROM contacts WHERE id = ?")
+        .bind(id)
+        .first<{ first_name: string; last_name: string | null }>();
+      return `${r?.first_name ?? ""} ${r?.last_name ?? ""}`.trim();
+    }
+    const r = await db().prepare(`SELECT name FROM ${table} WHERE id = ?`).bind(id).first<{ name: string }>();
+    return r?.name ?? "";
+  } catch {
+    return "";
+  }
+}
+
+// Hand a record off to another teammate — they become the new owner. Only the
+// current owner (or an admin) may do this.
+export const transferOwnership = createServerFn({ method: "POST" })
+  .validator(z.object({ entity: z.enum(["company", "contact", "deal"]), id: z.string(), to_user_id: z.string() }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    const table = ACCESS_TABLES[data.entity as AccessEntity];
+    const existing = await db()
+      .prepare(`SELECT owner_id, shared_with FROM ${table} WHERE id = ?`)
+      .bind(data.id)
+      .first<{ owner_id: string | null; shared_with: string | null }>();
+    if (!existing) throw new Error("NOT_FOUND");
+    if (!canAdministerRecord(user, existing.owner_id)) throw new Error("FORBIDDEN");
+    // New owner shouldn't linger in the shared list.
+    const stillShared = (existing.shared_with ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s && s !== data.to_user_id);
+    await db()
+      .prepare(`UPDATE ${table} SET owner_id=?, shared_with=? WHERE id=?`)
+      .bind(data.to_user_id, stillShared.length ? stillShared.join(",") : null, data.id)
+      .run();
+    const toUser = await db().prepare("SELECT name FROM users WHERE id = ?").bind(data.to_user_id).first<{ name: string }>();
+    const label = await accessRecordName(table, data.id);
+    await logEvent({
+      actorId: user.id,
+      verb: "reassigned",
+      entityType: ENTITY_LABEL[data.entity as AccessEntity],
+      entityId: data.id,
+      summary: `${user.name} handed ${ENTITY_LABEL[data.entity as AccessEntity]} ${label} to ${toUser?.name ?? "a teammate"}`.trim(),
+    });
+    return { ok: true };
+  });
+
+// Set the exact list of teammates who can edit this record alongside the owner.
+// Passing an empty list revokes all sharing. Only the owner (or admin) may share.
+export const shareRecord = createServerFn({ method: "POST" })
+  .validator(z.object({ entity: z.enum(["company", "contact", "deal"]), id: z.string(), user_ids: z.array(z.string()) }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    const table = ACCESS_TABLES[data.entity as AccessEntity];
+    const existing = await db()
+      .prepare(`SELECT owner_id FROM ${table} WHERE id = ?`)
+      .bind(data.id)
+      .first<{ owner_id: string | null }>();
+    if (!existing) throw new Error("NOT_FOUND");
+    if (!canAdministerRecord(user, existing.owner_id)) throw new Error("FORBIDDEN");
+    // Never keep the owner in their own share list; de-dupe the rest.
+    const ids = Array.from(
+      new Set(data.user_ids.map((s) => s.trim()).filter((s) => s && s !== existing.owner_id)),
+    );
+    await db()
+      .prepare(`UPDATE ${table} SET shared_with=? WHERE id=?`)
+      .bind(ids.length ? ids.join(",") : null, data.id)
+      .run();
+    const label = await accessRecordName(table, data.id);
+    await logEvent({
+      actorId: user.id,
+      verb: "shared",
+      entityType: ENTITY_LABEL[data.entity as AccessEntity],
+      entityId: data.id,
+      summary: ids.length
+        ? `${user.name} shared ${ENTITY_LABEL[data.entity as AccessEntity]} ${label} with ${ids.length} teammate${ids.length > 1 ? "s" : ""}`.trim()
+        : `${user.name} stopped sharing ${ENTITY_LABEL[data.entity as AccessEntity]} ${label}`.trim(),
+    });
     return { ok: true };
   });
 

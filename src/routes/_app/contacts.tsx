@@ -12,9 +12,10 @@ import {
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, Pill } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
 import { CallMode } from "../../components/crm/call-mode";
+import { RecordAccessButton } from "../../components/crm/record-access";
 import { ArchivedPanel } from "../../components/crm/archived";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
-import { relativeTime } from "../../lib/crm/constants";
+import { relativeTime, canEditRecord } from "../../lib/crm/constants";
 import { toast } from "../../components/crm/toast";
 
 type Row = Record<string, unknown>;
@@ -62,6 +63,7 @@ export const Route = createFileRoute("/_app/contacts")({
 
 function ContactsPage() {
   const { contacts, companies, users, deals } = Route.useLoaderData();
+  const { user: me } = Route.useRouteContext();
   const { focus, new: newParam } = Route.useSearch();
   const router = useRouter();
   const navigate = Route.useNavigate();
@@ -182,9 +184,18 @@ function ContactsPage() {
                           </svg>
                           Call
                         </button>
-                        <button onClick={() => onArchive(c.id as string)} className="text-xs text-faint hover:text-red-400">
-                          Archive
-                        </button>
+                        <RecordAccessButton
+                          entity="contact"
+                          record={{ id: c.id as string, owner_id: (c.owner_id as string) ?? null, owner_name: (c.owner_name as string) ?? null, shared_with: (c.shared_with as string) ?? null }}
+                          users={users as { id: string; name: string; email?: string; role?: string }[]}
+                          me={me}
+                          onDone={() => router.invalidate()}
+                        />
+                        {canEditRecord(me, (c.owner_id as string) ?? null, (c.shared_with as string) ?? null) ? (
+                          <button onClick={() => onArchive(c.id as string)} className="text-xs text-faint hover:text-red-400">
+                            Archive
+                          </button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -209,6 +220,7 @@ function ContactsPage() {
         companies={companies as Row[]}
         existing={contacts as Row[]}
         users={users as Row[]}
+        canEdit={!editing || canEditRecord(me, (editing.owner_id as string) ?? null, (editing.shared_with as string) ?? null)}
         onSaved={() => {
           setOpen(false);
           router.invalidate();
@@ -235,6 +247,7 @@ function ContactModal({
   existing,
   users,
   onSaved,
+  canEdit = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -243,6 +256,7 @@ function ContactModal({
   existing: Row[];
   users: Row[];
   onSaved: () => void;
+  canEdit?: boolean;
 }) {
   const [saving, setSaving] = useState(false);
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -281,7 +295,20 @@ function ContactModal({
   }
   return (
     <Modal open={open} onClose={onClose} title={contact ? "Edit contact" : "New contact"} wide>
+      {!canEdit ? (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-line-strong bg-surface-2/60 px-3 py-2 text-xs text-mute">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-faint">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <span>
+            {contact?.owner_name ? `Owned by ${contact.owner_name as string}.` : "You don't own this record."} You have
+            view-only access — ask the owner to hand it off or share edit access to make changes.
+          </span>
+        </div>
+      ) : null}
       <form onSubmit={onSubmit} className="space-y-3">
+        <fieldset disabled={!canEdit} className={canEdit ? "space-y-3" : "space-y-3 opacity-60"}>
         <div className="grid grid-cols-2 gap-3">
           <Field label="First name">
             <Input name="first_name" required defaultValue={(contact?.first_name as string) || ""} />
@@ -326,11 +353,12 @@ function ContactModal({
         <Field label="Notes">
           <Textarea name="notes" defaultValue={(contact?.notes as string) || ""} />
         </Field>
+        </fieldset>
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" disabled={saving || !canEdit}>
             {saving ? "Saving…" : "Save contact"}
           </Button>
         </div>

@@ -143,3 +143,38 @@ export function relativeTime(iso: string | null | undefined, now = new Date()): 
   if (day < 7) return `${day}d ago`;
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
+
+// ---------- Record-level access (ownership + sharing) ----------
+// Minimal "actor" shape the permission check needs.
+export type Actor = { id: string; role: string } | null | undefined;
+
+// Parse a comma-separated shared_with column into a list of user ids.
+export function parseSharedIds(shared: string | null | undefined): string[] {
+  return (shared ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// Can this user edit a record? Admins always can; the owner always can; anyone
+// explicitly shared can; an unowned record is open to all. Everyone else is
+// locked out. This is the single source of truth, mirrored on the server.
+export function canEditRecord(
+  user: Actor,
+  ownerId: string | null | undefined,
+  sharedWith: string | null | undefined,
+): boolean {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  if (!ownerId) return true;
+  if (ownerId === user.id) return true;
+  return parseSharedIds(sharedWith).includes(user.id);
+}
+
+// Only the owner (or an admin) may hand a record off or change who it's shared with.
+export function canAdministerRecord(user: Actor, ownerId: string | null | undefined): boolean {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  if (!ownerId) return true;
+  return ownerId === user.id;
+}
