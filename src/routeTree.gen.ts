@@ -20,6 +20,7 @@ import { Route as AppReportsRouteImport } from './routes/_app/reports'
 import { Route as AppPipelineRouteImport } from './routes/_app/pipeline'
 import { Route as AppContactsRouteImport } from './routes/_app/contacts'
 import { Route as AppCompaniesRouteImport } from './routes/_app/companies'
+import { Route as AppCallsRouteImport } from './routes/_app/calls'
 import { Route as AppActivitiesRouteImport } from './routes/_app/activities'
 import { Route as ApiAuthSignupRouteImport } from './routes/api/auth/signup'
 import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
@@ -79,6 +80,11 @@ const AppCompaniesRoute = AppCompaniesRouteImport.update({
   path: '/companies',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCallsRoute = AppCallsRouteImport.update({
+  id: '/calls',
+  path: '/calls',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppActivitiesRoute = AppActivitiesRouteImport.update({
   id: '/activities',
   path: '/activities',
@@ -107,6 +113,7 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/activities': typeof AppActivitiesRoute
+  '/calls': typeof AppCallsRoute
   '/companies': typeof AppCompaniesRoute
   '/contacts': typeof AppContactsRoute
   '/pipeline': typeof AppPipelineRoute
@@ -122,6 +129,7 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/activities': typeof AppActivitiesRoute
+  '/calls': typeof AppCallsRoute
   '/companies': typeof AppCompaniesRoute
   '/contacts': typeof AppContactsRoute
   '/pipeline': typeof AppPipelineRoute
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_app/activities': typeof AppActivitiesRoute
+  '/_app/calls': typeof AppCallsRoute
   '/_app/companies': typeof AppCompaniesRoute
   '/_app/contacts': typeof AppContactsRoute
   '/_app/pipeline': typeof AppPipelineRoute
@@ -159,6 +168,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/sitemap.xml'
     | '/activities'
+    | '/calls'
     | '/companies'
     | '/contacts'
     | '/pipeline'
@@ -174,6 +184,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/sitemap.xml'
     | '/activities'
+    | '/calls'
     | '/companies'
     | '/contacts'
     | '/pipeline'
@@ -191,6 +202,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/sitemap.xml'
     | '/_app/activities'
+    | '/_app/calls'
     | '/_app/companies'
     | '/_app/contacts'
     | '/_app/pipeline'
@@ -292,6 +304,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCompaniesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/calls': {
+      id: '/_app/calls'
+      path: '/calls'
+      fullPath: '/calls'
+      preLoaderRoute: typeof AppCallsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/activities': {
       id: '/_app/activities'
       path: '/activities'
@@ -325,6 +344,7 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppActivitiesRoute: typeof AppActivitiesRoute
+  AppCallsRoute: typeof AppCallsRoute
   AppCompaniesRoute: typeof AppCompaniesRoute
   AppContactsRoute: typeof AppContactsRoute
   AppPipelineRoute: typeof AppPipelineRoute
@@ -335,6 +355,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppActivitiesRoute: AppActivitiesRoute,
+  AppCallsRoute: AppCallsRoute,
   AppCompaniesRoute: AppCompaniesRoute,
   AppContactsRoute: AppContactsRoute,
   AppPipelineRoute: AppPipelineRoute,
