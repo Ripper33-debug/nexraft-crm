@@ -8,9 +8,28 @@ import {
   deleteCompany,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip } from "../../components/crm/ui";
+import { NotesThread } from "../../components/crm/notes";
 import { LEAD_SOURCES } from "../../lib/crm/constants";
+import { downloadCsv, stampedName } from "../../lib/crm/csv";
 
 type Row = Record<string, unknown>;
+
+function exportCompanies(rows: Row[]) {
+  downloadCsv(
+    stampedName("nexraft_companies"),
+    rows.map((c) => ({
+      Company: String(c.name ?? ""),
+      Industry: String(c.industry ?? ""),
+      Website: String(c.website ?? ""),
+      Phone: String(c.phone ?? ""),
+      City: String(c.city ?? ""),
+      Source: String(c.source ?? ""),
+      Deals: String(c.deal_count ?? 0),
+      Owner: String(c.owner_name ?? ""),
+      Notes: String(c.notes ?? ""),
+    })),
+  );
+}
 
 export const Route = createFileRoute("/_app/companies")({
   loader: async () => {
@@ -38,14 +57,19 @@ function CompaniesPage() {
         title="Companies"
         subtitle={`${(companies as Row[]).length} accounts · each has one owner to avoid overlap`}
         actions={
-          <Button
-            onClick={() => {
-              setEditing(null);
-              setOpen(true);
-            }}
-          >
-            + New company
-          </Button>
+          <>
+            <Button variant="outline" onClick={() => exportCompanies(companies as Row[])}>
+              Export CSV
+            </Button>
+            <Button
+              onClick={() => {
+                setEditing(null);
+                setOpen(true);
+              }}
+            >
+              + New company
+            </Button>
+          </>
         }
       />
 
@@ -206,6 +230,12 @@ function CompanyModal({
           </Button>
         </div>
       </form>
+
+      {company?.id ? (
+        <div className="mt-5 border-t border-line pt-4">
+          <NotesThread entityType="company" entityId={company.id as string} />
+        </div>
+      ) : null}
     </Modal>
   );
 }

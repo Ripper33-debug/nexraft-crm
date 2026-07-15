@@ -9,8 +9,26 @@ import {
   deleteContact,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, Pill } from "../../components/crm/ui";
+import { NotesThread } from "../../components/crm/notes";
+import { downloadCsv, stampedName } from "../../lib/crm/csv";
 
 type Row = Record<string, unknown>;
+
+function exportContacts(rows: Row[]) {
+  downloadCsv(
+    stampedName("nexraft_contacts"),
+    rows.map((c) => ({
+      "First name": String(c.first_name ?? ""),
+      "Last name": String(c.last_name ?? ""),
+      Company: String(c.company_name ?? ""),
+      Title: String(c.title ?? ""),
+      Email: String(c.email ?? ""),
+      Phone: String(c.phone ?? ""),
+      Owner: String(c.owner_name ?? ""),
+      Notes: String(c.notes ?? ""),
+    })),
+  );
+}
 
 // Flags a contact that two teammates might both be working.
 function overlapWarning(c: Row): string | null {
@@ -50,14 +68,19 @@ function ContactsPage() {
         title="Contacts"
         subtitle={`${(contacts as Row[]).length} people · overlap flags show when someone else owns the account`}
         actions={
-          <Button
-            onClick={() => {
-              setEditing(null);
-              setOpen(true);
-            }}
-          >
-            + New contact
-          </Button>
+          <>
+            <Button variant="outline" onClick={() => exportContacts(contacts as Row[])}>
+              Export CSV
+            </Button>
+            <Button
+              onClick={() => {
+                setEditing(null);
+                setOpen(true);
+              }}
+            >
+              + New contact
+            </Button>
+          </>
         }
       />
 
@@ -229,6 +252,12 @@ function ContactModal({
           </Button>
         </div>
       </form>
+
+      {contact?.id ? (
+        <div className="mt-5 border-t border-line pt-4">
+          <NotesThread entityType="contact" entityId={contact.id as string} />
+        </div>
+      ) : null}
     </Modal>
   );
 }

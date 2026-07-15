@@ -12,8 +12,24 @@ import {
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, Pill } from "../../components/crm/ui";
 import { ACTIVITY_TYPES } from "../../lib/crm/constants";
+import { downloadCsv, stampedName } from "../../lib/crm/csv";
 
 type Row = Record<string, unknown>;
+
+function exportActivities(rows: Row[]) {
+  downloadCsv(
+    stampedName("nexraft_activities"),
+    rows.map((a) => ({
+      Type: String(a.type ?? ""),
+      Subject: String(a.subject ?? ""),
+      Status: String(a.status ?? ""),
+      "Due date": String(a.due_date ?? "").slice(0, 10),
+      Deal: String(a.deal_name ?? ""),
+      Owner: String(a.owner_name ?? ""),
+      Notes: String(a.notes ?? ""),
+    })),
+  );
+}
 
 export const Route = createFileRoute("/_app/activities")({
   loader: async () => {
@@ -63,6 +79,9 @@ function ActivitiesPage() {
               <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} className="accent-signal" />
               Show completed
             </label>
+            <Button variant="outline" onClick={() => exportActivities(activities as Row[])}>
+              Export CSV
+            </Button>
             <Button
               onClick={() => {
                 setEditing(null);

@@ -1,14 +1,27 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { getDashboard } from "../../lib/crm/data";
-import { Card, StageBadge, SummaryCard, PageHeader, Eyebrow, OwnerChip, Pill } from "../../components/crm/ui";
+import { getDashboard, getActivityFeed, type FeedRow } from "../../lib/crm/data";
+import { Card, StageBadge, SummaryCard, PageHeader, Eyebrow, OwnerChip, Pill, Avatar } from "../../components/crm/ui";
 import { StageBarChart, MonthlyTrendChart } from "../../components/crm/charts";
-import { formatMoney, STALE_DAYS } from "../../lib/crm/constants";
+import { formatMoney, relativeTime, STALE_DAYS } from "../../lib/crm/constants";
 
 export const Route = createFileRoute("/_app/")({
-  loader: () => getDashboard(),
+  loader: async () => {
+    const [dash, feed] = await Promise.all([getDashboard(), getActivityFeed()]);
+    return { ...dash, feed };
+  },
   component: Dashboard,
 });
+
+// Small colored dot per event kind for the team activity feed.
+function feedDot(verb: string): string {
+  if (verb === "won") return "#22c55e";
+  if (verb === "lost") return "#ef4444";
+  if (verb === "note_added") return "#2dd4bf";
+  if (verb === "stage_changed") return "#38bdf8";
+  if (verb === "completed") return "#a855f7";
+  return "#8a978f";
+}
 
 function Dashboard() {
   const d = Route.useLoaderData();
@@ -140,6 +153,30 @@ function Dashboard() {
           </ul>
         </Card>
       </div>
+
+      {/* Team activity feed */}
+      <Card className="mt-4 overflow-hidden">
+        <div className="border-b border-line px-4 py-3">
+          <Eyebrow>Team activity</Eyebrow>
+        </div>
+        <ul className="divide-y divide-line/60">
+          {(d.feed as FeedRow[]).map((e) => (
+            <li key={e.id} className="flex items-center gap-3 px-4 py-2.5">
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: feedDot(e.verb) }} />
+              {e.actor_name ? <Avatar name={e.actor_name} size={22} /> : null}
+              <div className="min-w-0 flex-1">
+                <span className="text-sm text-mute">{e.summary}</span>
+              </div>
+              <span className="shrink-0 text-[11px] text-faint">{relativeTime(e.created_at)}</span>
+            </li>
+          ))}
+          {(d.feed as FeedRow[]).length === 0 ? (
+            <li className="px-4 py-6 text-center text-sm text-faint">
+              No activity yet — it'll fill in as your team works deals.
+            </li>
+          ) : null}
+        </ul>
+      </Card>
     </div>
   );
 }

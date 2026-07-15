@@ -27,9 +27,29 @@ import {
   Avatar,
   cx,
 } from "../../components/crm/ui";
-import { STAGES, STAGE_NAMES, formatMoney, stageInfo, daysBetween } from "../../lib/crm/constants";
+import { NotesThread } from "../../components/crm/notes";
+import { STAGES, STAGE_NAMES, LOST_REASONS, formatMoney, stageInfo, daysBetween } from "../../lib/crm/constants";
+import { downloadCsv, stampedName } from "../../lib/crm/csv";
 
 type Row = Record<string, unknown>;
+
+function exportDeals(rows: Row[]) {
+  downloadCsv(
+    stampedName("nexraft_deals"),
+    rows.map((d) => ({
+      Deal: String(d.name ?? ""),
+      Company: String(d.company_name ?? ""),
+      Contact: `${(d.contact_first as string) ?? ""} ${(d.contact_last as string) ?? ""}`.trim(),
+      Owner: String(d.owner_name ?? ""),
+      Stage: String(d.stage ?? ""),
+      Value: String(d.value ?? 0),
+      "Expected close": String(d.expected_close ?? ""),
+      "Next step": String(d.next_step ?? ""),
+      "Lost reason": String(d.lost_reason ?? ""),
+      Notes: String(d.notes ?? ""),
+    })),
+  );
+}
 
 export const Route = createFileRoute("/_app/pipeline")({
   loader: async () => {
@@ -121,6 +141,9 @@ function PipelinePage() {
                 Table
               </button>
             </div>
+            <Button variant="outline" onClick={() => exportDeals(all)}>
+              Export CSV
+            </Button>
             <Button onClick={startAdd}>+ New deal</Button>
           </div>
         }
@@ -400,6 +423,15 @@ function DealModal({
   onSaved: () => void;
 }) {
   const [saving, setSaving] = useState(false);
+  const [stage, setStage] = useState<string>((deal?.stage as string) || "Lead");
+
+  // Reset the tracked stage whenever a different deal opens in the modal.
+  const dealKey = (deal?.id as string) || "new";
+  const [lastKey, setLastKey] = useState(dealKey);
+  if (lastKey !== dealKey) {
+    setLastKey(dealKey);
+    setStage((deal?.stage as string) || "Lead");
+  }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -416,6 +448,7 @@ function DealModal({
       expected_close: (fd.get("expected_close") as string) || null,
       next_step: (fd.get("next_step") as string) || null,
       notes: (fd.get("notes") as string) || null,
+      lost_reason: (fd.get("lost_reason") as string) || null,
     };
     await upsertDeal({ data: payload });
     setSaving(false);
@@ -462,7 +495,7 @@ function DealModal({
             </Select>
           </Field>
           <Field label="Stage">
-            <Select name="stage" defaultValue={(deal?.stage as string) || "Lead"}>
+            <Select name="stage" value={stage} onChange={(e) => setStage(e.target.value)}>
               {STAGE_NAMES.map((s) => (
                 <option key={s} value={s}>
                   {s}
@@ -471,6 +504,18 @@ function DealModal({
             </Select>
           </Field>
         </div>
+        {stage === "Lost" ? (
+          <Field label="Why was it lost? (helps win/loss analytics)">
+            <Select name="lost_reason" defaultValue={(deal?.lost_reason as string) || ""}>
+              <option value="">—</option>
+              {LOST_REASONS.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Value ($)">
             <Input name="value" type="number" min="0" step="100" defaultValue={String(deal?.value ?? "")} placeholder="5000" />
@@ -494,6 +539,12 @@ function DealModal({
           </Button>
         </div>
       </form>
+
+      {deal?.id ? (
+        <div className="mt-5 border-t border-line pt-4">
+          <NotesThread entityType="deal" entityId={deal.id as string} />
+        </div>
+      ) : null}
     </Modal>
   );
 }

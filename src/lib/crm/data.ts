@@ -4,6 +4,10 @@ import { z } from "zod";
 import { db, uid } from "./db.server";
 import { requireUser, requireAdmin, hashPassword, signupCode } from "./auth.server";
 import { OPEN_STAGES, STAGES } from "./constants";
+import { ensureExtraSchema, logEvent } from "./schema.server";
+
+const WON_STAGE = "Launched";
+const LOST_STAGE = "Lost";
 
 const OPEN_LIST = OPEN_STAGES.map((s) => `'${s}'`).join(",");
 
@@ -53,6 +57,7 @@ export type DealRow = {
   expected_close: string | null;
   next_step: string | null;
   notes: string | null;
+  lost_reason: string | null;
   created_at: string;
   updated_at: string;
   stage_changed_at: string;
@@ -159,6 +164,13 @@ export const upsertCompany = createServerFn({ method: "POST" })
           data.id,
         )
         .run();
+      await logEvent({
+        actorId: user.id,
+        verb: "updated",
+        entityType: "company",
+        entityId: data.id,
+        summary: `${user.name} updated company ${data.name}`,
+      });
       return { id: data.id };
     }
     const id = uid();
@@ -179,6 +191,13 @@ export const upsertCompany = createServerFn({ method: "POST" })
         data.owner_id ?? user.id,
       )
       .run();
+    await logEvent({
+      actorId: user.id,
+      verb: "created",
+      entityType: "company",
+      entityId: id,
+      summary: `${user.name} added company ${data.name}`,
+    });
     return { id };
   });
 
@@ -243,6 +262,13 @@ export const upsertContact = createServerFn({ method: "POST" })
           data.id,
         )
         .run();
+      await logEvent({
+        actorId: user.id,
+        verb: "updated",
+        entityType: "contact",
+        entityId: data.id,
+        summary: `${user.name} updated contact ${data.first_name} ${data.last_name ?? ""}`.trim(),
+      });
       return { id: data.id };
     }
     const id = uid();
@@ -263,6 +289,13 @@ export const upsertContact = createServerFn({ method: "POST" })
         data.notes ?? null,
       )
       .run();
+    await logEvent({
+      actorId: user.id,
+      verb: "created",
+      entityType: "contact",
+      entityId: id,
+      summary: `${user.name} added contact ${data.first_name} ${data.last_name ?? ""}`.trim(),
+    });
     return { id };
   });
 
@@ -286,6 +319,7 @@ const dealSchema = z.object({
   expected_close: z.string().optional().nullable(),
   next_step: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  lost_reason: z.string().optional().nullable(),
 });
 
 export const getDeals = createServerFn({ method: "GET" }).handler(async () => {
@@ -315,10 +349,12 @@ export const upsertDeal = createServerFn({ method: "POST" })
         .bind(data.id)
         .first<{ stage: string }>();
       const stageChanged = prev && prev.stage !== data.stage;
+      // Only persist a lost reason while the deal is actually Lost.
+      const lostReason = data.stage === LOST_STAGE ? data.lost_reason ?? null : null;
       await db()
         .prepare(
           `UPDATE deals SET name=?, company_id=?, contact_id=?, owner_id=?, stage=?, value=?,
-            expected_close=?, next_step=?, notes=?, updated_at=?${stageChanged ? ", stage_changed_at=?" : ""}
+            expected_close=?, next_step=?, notes=?, lost_reason=?, updated_at=?${stageChanged ? ", stage_changed_at=?" : ""}
            WHERE id=?`,
         )
         .bind(
@@ -332,19 +368,24 @@ export const upsertDeal = createServerFn({ method: "POST" })
             data.expected_close ?? null,
             data.next_step ?? null,
             data.notes ?? null,
+            lostReason,
             now,
             ...(stageChanged ? [now] : []),
             data.id,
           ],
         )
         .run();
+      if (stageChanged) {
+        await logStageChange(user, data.id, data.name, prev!.stage, data.stage);
+      }
       return { id: data.id };
     }
     const id = uid();
+    const lostReason = data.stage === LOST_STAGE ? data.lost_reason ?? null : null;
     await db()
       .prepare(
-        `INSERT INTO deals (id, name, company_id, contact_id, owner_id, stage, value, expected_close, next_step, notes, created_at, updated_at, stage_changed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO deals (id, name, company_id, contact_id, owner_id, stage, value, expected_close, next_step, notes, lost_reason, created_at, updated_at, stage_changed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         id,
@@ -357,23 +398,68 @@ export const upsertDeal = createServerFn({ method: "POST" })
         data.expected_close ?? null,
         data.next_step ?? null,
         data.notes ?? null,
+        lostReason,
         now,
         now,
         now,
       )
       .run();
+    await logEvent({
+      actorId: user.id,
+      verb: "created",
+      entityType: "deal",
+      entityId: id,
+      summary: `${user.name} created deal ${data.name}`,
+    });
     return { id };
   });
+
+// Shared feed line for a deal moving between stages (won/lost get special verbs).
+async function logStageChange(
+  user: { id: string; name: string },
+  dealId: string,
+  dealName: string,
+  from: string,
+  to: string,
+): Promise<void> {
+  const verb = to === WON_STAGE ? "won" : to === LOST_STAGE ? "lost" : "stage_changed";
+  const summary =
+    to === WON_STAGE
+      ? `${user.name} won ${dealName} 🎉`
+      : to === LOST_STAGE
+        ? `${user.name} marked ${dealName} lost`
+        : `${user.name} moved ${dealName}: ${from} → ${to}`;
+  await logEvent({
+    actorId: user.id,
+    verb,
+    entityType: "deal",
+    entityId: dealId,
+    summary,
+    meta: { from, to },
+  });
+}
 
 export const setDealStage = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.string(), stage: z.string() }))
   .handler(async ({ data }) => {
-    await requireUser();
+    const user = await requireUser();
     const now = new Date().toISOString();
+    const prev = await db()
+      .prepare("SELECT name, stage FROM deals WHERE id = ?")
+      .bind(data.id)
+      .first<{ name: string; stage: string }>();
+    // Clear any stale lost reason when moving out of Lost.
     await db()
-      .prepare("UPDATE deals SET stage=?, updated_at=?, stage_changed_at=? WHERE id=?")
-      .bind(data.stage, now, now, data.id)
+      .prepare(
+        `UPDATE deals SET stage=?, updated_at=?, stage_changed_at=?,
+           lost_reason = CASE WHEN ? = '${LOST_STAGE}' THEN lost_reason ELSE NULL END
+         WHERE id=?`,
+      )
+      .bind(data.stage, now, now, data.stage, data.id)
       .run();
+    if (prev && prev.stage !== data.stage) {
+      await logStageChange(user, data.id, prev.name, prev.stage, data.stage);
+    }
     return { ok: true };
   });
 
@@ -461,11 +547,24 @@ export const upsertActivity = createServerFn({ method: "POST" })
 export const toggleActivity = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.string(), done: z.boolean() }))
   .handler(async ({ data }) => {
-    await requireUser();
+    const user = await requireUser();
     await db()
       .prepare("UPDATE activities SET status=?, completed_at=? WHERE id=?")
       .bind(data.done ? "done" : "open", data.done ? new Date().toISOString() : null, data.id)
       .run();
+    if (data.done) {
+      const act = await db()
+        .prepare("SELECT subject FROM activities WHERE id = ?")
+        .bind(data.id)
+        .first<{ subject: string }>();
+      await logEvent({
+        actorId: user.id,
+        verb: "completed",
+        entityType: "activity",
+        entityId: data.id,
+        summary: `${user.name} completed “${act?.subject ?? "a task"}”`,
+      });
+    }
     return { ok: true };
   });
 
@@ -824,4 +923,272 @@ export const adminDeleteUser = createServerFn({ method: "POST" })
 export const getSignupCode = createServerFn({ method: "GET" }).handler(async () => {
   await requireAdmin();
   return { code: signupCode() };
+});
+
+// ================= NOTES (threaded comments) =================
+export type NoteRow = {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  author_id: string | null;
+  author_name: string | null;
+  body: string;
+  created_at: string;
+};
+
+const entityTypeSchema = z.enum(["company", "contact", "deal"]);
+
+export const getNotes = createServerFn({ method: "GET" })
+  .validator(z.object({ entity_type: entityTypeSchema, entity_id: z.string() }))
+  .handler(async ({ data }) => {
+    await requireUser();
+    await ensureExtraSchema();
+    const { results } = await db()
+      .prepare(
+        `SELECT n.id, n.entity_type, n.entity_id, n.author_id, u.name AS author_name, n.body, n.created_at
+         FROM notes n LEFT JOIN users u ON u.id = n.author_id
+         WHERE n.entity_type = ? AND n.entity_id = ?
+         ORDER BY n.created_at DESC`,
+      )
+      .bind(data.entity_type, data.entity_id)
+      .all<NoteRow>();
+    return (results ?? []) as NoteRow[];
+  });
+
+export const addNote = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      entity_type: entityTypeSchema,
+      entity_id: z.string(),
+      body: z.string().min(1),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    const id = uid();
+    await db()
+      .prepare("INSERT INTO notes (id, entity_type, entity_id, author_id, body) VALUES (?, ?, ?, ?, ?)")
+      .bind(id, data.entity_type, data.entity_id, user.id, data.body.trim())
+      .run();
+    // Resolve a friendly label for the feed line.
+    let label: string = data.entity_type;
+    if (data.entity_type === "company") {
+      const r = await db().prepare("SELECT name FROM companies WHERE id = ?").bind(data.entity_id).first<{ name: string }>();
+      label = r?.name ?? "a company";
+    } else if (data.entity_type === "deal") {
+      const r = await db().prepare("SELECT name FROM deals WHERE id = ?").bind(data.entity_id).first<{ name: string }>();
+      label = r?.name ?? "a deal";
+    } else {
+      const r = await db()
+        .prepare("SELECT first_name, last_name FROM contacts WHERE id = ?")
+        .bind(data.entity_id)
+        .first<{ first_name: string; last_name: string | null }>();
+      label = r ? `${r.first_name} ${r.last_name ?? ""}`.trim() : "a contact";
+    }
+    await logEvent({
+      actorId: user.id,
+      verb: "note_added",
+      entityType: data.entity_type,
+      entityId: data.entity_id,
+      summary: `${user.name} noted on ${label}: “${data.body.trim().slice(0, 80)}”`,
+    });
+    return { id };
+  });
+
+// ================= ACTIVITY FEED =================
+export type FeedRow = {
+  id: string;
+  actor_id: string | null;
+  actor_name: string | null;
+  verb: string;
+  entity_type: string;
+  entity_id: string | null;
+  summary: string;
+  created_at: string;
+};
+
+export const getActivityFeed = createServerFn({ method: "GET" }).handler(async () => {
+  await requireUser();
+  await ensureExtraSchema();
+  const { results } = await db()
+    .prepare(
+      `SELECT e.id, e.actor_id, u.name AS actor_name, e.verb, e.entity_type, e.entity_id, e.summary, e.created_at
+       FROM events e LEFT JOIN users u ON u.id = e.actor_id
+       ORDER BY e.created_at DESC
+       LIMIT 40`,
+    )
+    .all<FeedRow>();
+  return (results ?? []) as FeedRow[];
+});
+
+// ================= WIN / LOSS ANALYTICS =================
+export type LostReasonRow = { reason: string; n: number; value: number };
+export type RepPerfRow = {
+  id: string;
+  name: string;
+  won_count: number;
+  won_value: number;
+  lost_count: number;
+  win_rate: number | null;
+  avg_deal: number;
+  avg_cycle_days: number | null;
+};
+
+export const getAnalytics = createServerFn({ method: "GET" }).handler(async () => {
+  await requireUser();
+  await ensureExtraSchema();
+  const database = db();
+
+  const totals = await database
+    .prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN stage='${WON_STAGE}' THEN 1 END),0)::int AS won_count,
+         COALESCE(SUM(CASE WHEN stage='${WON_STAGE}' THEN value END),0) AS won_value,
+         COALESCE(SUM(CASE WHEN stage='${LOST_STAGE}' THEN 1 END),0)::int AS lost_count,
+         COALESCE(SUM(CASE WHEN stage='${LOST_STAGE}' THEN value END),0) AS lost_value,
+         COALESCE(AVG(CASE WHEN stage='${WON_STAGE}' THEN value END),0) AS avg_won_value,
+         COALESCE(AVG(CASE WHEN stage='${WON_STAGE}'
+           THEN EXTRACT(EPOCH FROM (stage_changed_at::timestamptz - created_at::timestamptz))/86400 END),0) AS avg_cycle_days
+       FROM deals`,
+    )
+    .first<{
+      won_count: number;
+      won_value: number;
+      lost_count: number;
+      lost_value: number;
+      avg_won_value: number;
+      avg_cycle_days: number;
+    }>();
+
+  const won = totals?.won_count ?? 0;
+  const lost = totals?.lost_count ?? 0;
+  const decided = won + lost;
+  const winRate = decided > 0 ? Math.round((won / decided) * 100) : null;
+
+  // Lost reasons breakdown.
+  const { results: lostRows } = await database
+    .prepare(
+      `SELECT COALESCE(NULLIF(TRIM(lost_reason), ''), 'Unspecified') AS reason,
+         COUNT(*)::int AS n, COALESCE(SUM(value),0) AS value
+       FROM deals WHERE stage='${LOST_STAGE}'
+       GROUP BY reason ORDER BY n DESC`,
+    )
+    .all<LostReasonRow>();
+
+  // Per-rep performance.
+  const { results: repRows } = await database
+    .prepare(
+      `SELECT u.id, u.name,
+         COALESCE(SUM(CASE WHEN d.stage='${WON_STAGE}' THEN 1 END),0)::int AS won_count,
+         COALESCE(SUM(CASE WHEN d.stage='${WON_STAGE}' THEN d.value END),0) AS won_value,
+         COALESCE(SUM(CASE WHEN d.stage='${LOST_STAGE}' THEN 1 END),0)::int AS lost_count,
+         COALESCE(AVG(CASE WHEN d.stage='${WON_STAGE}' THEN d.value END),0) AS avg_deal,
+         COALESCE(AVG(CASE WHEN d.stage='${WON_STAGE}'
+           THEN EXTRACT(EPOCH FROM (d.stage_changed_at::timestamptz - d.created_at::timestamptz))/86400 END),0) AS avg_cycle_days
+       FROM users u LEFT JOIN deals d ON d.owner_id = u.id
+       GROUP BY u.id, u.name
+       ORDER BY won_value DESC, u.name`,
+    )
+    .all<{
+      id: string;
+      name: string;
+      won_count: number;
+      won_value: number;
+      lost_count: number;
+      avg_deal: number;
+      avg_cycle_days: number;
+    }>();
+  const reps: RepPerfRow[] = (repRows ?? []).map((r) => {
+    const d = r.won_count + r.lost_count;
+    return {
+      id: r.id,
+      name: r.name,
+      won_count: r.won_count,
+      won_value: r.won_value,
+      lost_count: r.lost_count,
+      win_rate: d > 0 ? Math.round((r.won_count / d) * 100) : null,
+      avg_deal: Math.round(r.avg_deal),
+      avg_cycle_days: r.won_count > 0 ? Math.round(r.avg_cycle_days) : null,
+    };
+  });
+
+  return {
+    won_count: won,
+    won_value: totals?.won_value ?? 0,
+    lost_count: lost,
+    lost_value: totals?.lost_value ?? 0,
+    win_rate: winRate,
+    avg_won_value: Math.round(totals?.avg_won_value ?? 0),
+    avg_cycle_days: won > 0 ? Math.round(totals?.avg_cycle_days ?? 0) : null,
+    lost_reasons: (lostRows ?? []) as LostReasonRow[],
+    reps,
+  };
+});
+
+// ================= EXPORT (for the eventual Monday migration) =================
+export type ExportBundle = {
+  companies: Record<string, string>[];
+  contacts: Record<string, string>[];
+  deals: Record<string, string>[];
+  activities: Record<string, string>[];
+};
+
+// Flat, fully-denormalized rows (names resolved, no internal ids) so the export
+// opens cleanly in Excel / imports into Monday without any lookups.
+export const getExportBundle = createServerFn({ method: "GET" }).handler(async (): Promise<ExportBundle> => {
+  await requireUser();
+  const database = db();
+
+  const [companies, contacts, deals, activities] = await Promise.all([
+    database
+      .prepare(
+        `SELECT c.name, c.industry, c.website, c.phone, c.city, c.source, u.name AS owner, c.notes, c.created_at
+         FROM companies c LEFT JOIN users u ON u.id = c.owner_id ORDER BY c.name`,
+      )
+      .all<Record<string, unknown>>(),
+    database
+      .prepare(
+        `SELECT ct.first_name, ct.last_name, ct.title, ct.email, ct.phone, co.name AS company,
+           u.name AS owner, ct.notes, ct.created_at
+         FROM contacts ct LEFT JOIN companies co ON co.id = ct.company_id
+         LEFT JOIN users u ON u.id = ct.owner_id ORDER BY ct.first_name, ct.last_name`,
+      )
+      .all<Record<string, unknown>>(),
+    database
+      .prepare(
+        `SELECT d.name, d.stage, d.value, co.name AS company,
+           (ct.first_name || ' ' || COALESCE(ct.last_name,'')) AS contact,
+           u.name AS owner, d.expected_close, d.next_step, d.lost_reason, d.notes,
+           d.created_at, d.updated_at, d.stage_changed_at
+         FROM deals d LEFT JOIN companies co ON co.id = d.company_id
+         LEFT JOIN contacts ct ON ct.id = d.contact_id
+         LEFT JOIN users u ON u.id = d.owner_id ORDER BY d.updated_at DESC`,
+      )
+      .all<Record<string, unknown>>(),
+    database
+      .prepare(
+        `SELECT a.type, a.subject, a.status, a.due_date, d.name AS deal,
+           (ct.first_name || ' ' || COALESCE(ct.last_name,'')) AS contact,
+           u.name AS owner, a.notes, a.created_at, a.completed_at
+         FROM activities a LEFT JOIN deals d ON d.id = a.deal_id
+         LEFT JOIN contacts ct ON ct.id = a.contact_id
+         LEFT JOIN users u ON u.id = a.owner_id ORDER BY a.created_at DESC`,
+      )
+      .all<Record<string, unknown>>(),
+  ]);
+
+  const clean = (rows: Record<string, unknown>[] | undefined): Record<string, string>[] =>
+    (rows ?? []).map((row) => {
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(row)) out[k] = v == null ? "" : String(v);
+      return out;
+    });
+
+  return {
+    companies: clean(companies.results),
+    contacts: clean(contacts.results),
+    deals: clean(deals.results),
+    activities: clean(activities.results),
+  };
 });
