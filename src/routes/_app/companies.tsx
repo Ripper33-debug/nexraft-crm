@@ -7,7 +7,7 @@ import {
   upsertCompany,
   deleteCompany,
 } from "../../lib/crm/data";
-import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState } from "../../components/crm/ui";
+import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip } from "../../components/crm/ui";
 import { LEAD_SOURCES } from "../../lib/crm/constants";
 
 type Row = Record<string, unknown>;
@@ -34,59 +34,59 @@ function CompaniesPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Companies</h1>
-          <p className="text-sm text-slate-500">{(companies as Row[]).length} companies</p>
-        </div>
-        <Button
-          onClick={() => {
-            setEditing(null);
-            setOpen(true);
-          }}
-        >
-          + New company
-        </Button>
-      </div>
+      <PageHeader
+        title="Companies"
+        subtitle={`${(companies as Row[]).length} accounts · each has one owner to avoid overlap`}
+        actions={
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setOpen(true);
+            }}
+          >
+            + New company
+          </Button>
+        }
+      />
 
       <Card className="mt-5 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs text-slate-500">
-                <th className="px-4 py-2 font-medium">Company</th>
-                <th className="px-4 py-2 font-medium">Industry</th>
-                <th className="px-4 py-2 font-medium">City</th>
-                <th className="px-4 py-2 font-medium">Source</th>
-                <th className="px-4 py-2 font-medium">Deals</th>
-                <th className="px-4 py-2 font-medium">Owner</th>
-                <th className="px-4 py-2"></th>
+              <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-wider text-faint">
+                <th className="px-4 py-2.5 font-medium">Company</th>
+                <th className="px-4 py-2.5 font-medium">Industry</th>
+                <th className="px-4 py-2.5 font-medium">City</th>
+                <th className="px-4 py-2.5 font-medium">Source</th>
+                <th className="px-4 py-2.5 font-medium">Deals</th>
+                <th className="px-4 py-2.5 font-medium">Account owner</th>
+                <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
             <tbody>
               {(companies as Row[]).map((c) => (
-                <tr key={c.id as string} className="border-t border-slate-100 hover:bg-slate-50">
+                <tr key={c.id as string} className="border-b border-line/60 last:border-0 hover:bg-surface-2/60">
                   <td className="px-4 py-2.5">
                     <button
                       onClick={() => {
                         setEditing(c);
                         setOpen(true);
                       }}
-                      className="font-medium text-slate-800 hover:text-indigo-600"
+                      className="font-medium text-bone hover:text-signal"
                     >
                       {c.name as string}
                     </button>
                     {c.website ? (
-                      <div className="text-xs text-slate-400">{c.website as string}</div>
+                      <div className="text-xs text-faint">{c.website as string}</div>
                     ) : null}
                   </td>
-                  <td className="px-4 py-2.5 text-slate-600">{(c.industry as string) || "—"}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{(c.city as string) || "—"}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{(c.source as string) || "—"}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{Number(c.deal_count) || 0}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{(c.owner_name as string) || "—"}</td>
+                  <td className="px-4 py-2.5 text-mute">{(c.industry as string) || "—"}</td>
+                  <td className="px-4 py-2.5 text-mute">{(c.city as string) || "—"}</td>
+                  <td className="px-4 py-2.5 text-mute">{(c.source as string) || "—"}</td>
+                  <td className="px-4 py-2.5 text-mute">{Number(c.deal_count) || 0}</td>
+                  <td className="px-4 py-2.5"><OwnerChip name={c.owner_name as string} /></td>
                   <td className="px-4 py-2.5 text-right">
-                    <button onClick={() => onDelete(c.id as string)} className="text-xs text-slate-400 hover:text-red-600">
+                    <button onClick={() => onDelete(c.id as string)} className="text-xs text-faint hover:text-red-400">
                       Delete
                     </button>
                   </td>

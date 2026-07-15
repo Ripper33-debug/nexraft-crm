@@ -8,9 +8,21 @@ import {
   upsertContact,
   deleteContact,
 } from "../../lib/crm/data";
-import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState } from "../../components/crm/ui";
+import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, Pill } from "../../components/crm/ui";
 
 type Row = Record<string, unknown>;
+
+// Flags a contact that two teammates might both be working.
+function overlapWarning(c: Row): string | null {
+  const ownerId = (c.owner_id as string) || null;
+  const companyOwnerId = (c.company_owner_id as string) || null;
+  const companyOwner = (c.company_owner_name as string) || null;
+  if (Number(c.email_dupes) > 0) return "Duplicate email on another contact";
+  if (ownerId && companyOwnerId && ownerId !== companyOwnerId && companyOwner)
+    return `Account owned by ${companyOwner}`;
+  if (!ownerId && companyOwner) return `Account owned by ${companyOwner}`;
+  return null;
+}
 
 export const Route = createFileRoute("/_app/contacts")({
   loader: async () => {
@@ -34,61 +46,72 @@ function ContactsPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Contacts</h1>
-          <p className="text-sm text-slate-500">{(contacts as Row[]).length} contacts</p>
-        </div>
-        <Button
-          onClick={() => {
-            setEditing(null);
-            setOpen(true);
-          }}
-        >
-          + New contact
-        </Button>
-      </div>
+      <PageHeader
+        title="Contacts"
+        subtitle={`${(contacts as Row[]).length} people · overlap flags show when someone else owns the account`}
+        actions={
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setOpen(true);
+            }}
+          >
+            + New contact
+          </Button>
+        }
+      />
 
       <Card className="mt-5 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs text-slate-500">
-                <th className="px-4 py-2 font-medium">Name</th>
-                <th className="px-4 py-2 font-medium">Company</th>
-                <th className="px-4 py-2 font-medium">Title</th>
-                <th className="px-4 py-2 font-medium">Email</th>
-                <th className="px-4 py-2 font-medium">Phone</th>
-                <th className="px-4 py-2 font-medium">Owner</th>
-                <th className="px-4 py-2"></th>
+              <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-wider text-faint">
+                <th className="px-4 py-2.5 font-medium">Name</th>
+                <th className="px-4 py-2.5 font-medium">Company</th>
+                <th className="px-4 py-2.5 font-medium">Title</th>
+                <th className="px-4 py-2.5 font-medium">Email</th>
+                <th className="px-4 py-2.5 font-medium">Phone</th>
+                <th className="px-4 py-2.5 font-medium">Owner</th>
+                <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
             <tbody>
-              {(contacts as Row[]).map((c) => (
-                <tr key={c.id as string} className="border-t border-slate-100 hover:bg-slate-50">
-                  <td className="px-4 py-2.5">
-                    <button
-                      onClick={() => {
-                        setEditing(c);
-                        setOpen(true);
-                      }}
-                      className="font-medium text-slate-800 hover:text-indigo-600"
-                    >
-                      {`${c.first_name as string} ${(c.last_name as string) || ""}`.trim()}
-                    </button>
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-600">{(c.company_name as string) || "—"}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{(c.title as string) || "—"}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{(c.email as string) || "—"}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{(c.phone as string) || "—"}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{(c.owner_name as string) || "—"}</td>
-                  <td className="px-4 py-2.5 text-right">
-                    <button onClick={() => onDelete(c.id as string)} className="text-xs text-slate-400 hover:text-red-600">
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {(contacts as Row[]).map((c) => {
+                const warn = overlapWarning(c);
+                return (
+                  <tr key={c.id as string} className="border-b border-line/60 last:border-0 hover:bg-surface-2/60">
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setEditing(c);
+                            setOpen(true);
+                          }}
+                          className="font-medium text-bone hover:text-signal"
+                        >
+                          {`${c.first_name as string} ${(c.last_name as string) || ""}`.trim()}
+                        </button>
+                        {warn ? (
+                          <span title={warn}>
+                            <Pill tone="warn">⚠ Overlap</Pill>
+                          </span>
+                        ) : null}
+                      </div>
+                      {warn ? <div className="text-xs text-amber-400/80">{warn}</div> : null}
+                    </td>
+                    <td className="px-4 py-2.5 text-mute">{(c.company_name as string) || "—"}</td>
+                    <td className="px-4 py-2.5 text-mute">{(c.title as string) || "—"}</td>
+                    <td className="px-4 py-2.5 text-mute">{(c.email as string) || "—"}</td>
+                    <td className="px-4 py-2.5 text-mute">{(c.phone as string) || "—"}</td>
+                    <td className="px-4 py-2.5"><OwnerChip name={c.owner_name as string} /></td>
+                    <td className="px-4 py-2.5 text-right">
+                      <button onClick={() => onDelete(c.id as string)} className="text-xs text-faint hover:text-red-400">
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

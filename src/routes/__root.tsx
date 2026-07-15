@@ -76,13 +76,13 @@ function buildHead(meta: AppMeta) {
 
 function NotFoundComponent() {
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-slate-50 px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-ink px-4">
       <div className="max-w-md text-center">
-        <div className="text-4xl font-bold text-slate-900">404</div>
-        <p className="mt-2 text-slate-600">This page doesn't exist.</p>
+        <div className="text-4xl font-bold text-bone">404</div>
+        <p className="mt-2 text-mute">This page doesn't exist.</p>
         <a
           href="/"
-          className="mt-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          className="mt-4 inline-block rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-ink hover:bg-signal-strong"
         >
           Go home
         </a>
@@ -96,10 +96,10 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-slate-50 px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-ink px-4">
       <div className="max-w-md text-center">
-        <h1 className="text-xl font-semibold text-slate-900">This page didn't load</h1>
-        <p className="mt-2 text-sm text-slate-600">
+        <h1 className="text-xl font-semibold text-bone">This page didn't load</h1>
+        <p className="mt-2 text-sm text-mute">
           Something went wrong. Try refreshing or head back home.
         </p>
         <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -108,13 +108,13 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
               router.invalidate();
               reset();
             }}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            className="rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-ink hover:bg-signal-strong"
           >
             Try again
           </button>
           <a
             href="/"
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            className="rounded-lg border border-line px-4 py-2 text-sm font-medium text-bone hover:bg-surface-2"
           >
             Go home
           </a>
@@ -134,11 +134,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" style={{ colorScheme: "light" }}>
+    <html lang="en" style={{ colorScheme: "dark" }}>
       <head>
         <HeadContent />
       </head>
-      <body className="bg-slate-50 text-slate-900 antialiased">
+      <body className="bg-ink text-bone antialiased">
         {children}
         <Scripts />
       </body>

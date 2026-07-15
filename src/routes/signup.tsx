@@ -10,18 +10,18 @@ export const Route = createFileRoute("/signup")({
 function SignupPage() {
   const { error } = Route.useSearch();
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-slate-50 px-4 py-8">
+    <div className="flex min-h-dvh items-center justify-center bg-ink px-4 py-8">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center">
-          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-600 text-lg font-bold text-white">
+          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-signal text-lg font-bold text-ink">
             N
           </div>
-          <h1 className="text-xl font-semibold text-slate-900">Create your account</h1>
-          <p className="text-sm text-slate-500">Join the Nexraft team workspace</p>
+          <h1 className="text-xl font-semibold tracking-tight text-bone">Create your account</h1>
+          <p className="text-sm text-mute">Join the Nexraft team workspace</p>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="rounded-xl border border-line bg-surface p-6 shadow-xl">
           {error ? (
-            <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>
+            <div className="mb-4 rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-400">{error}</div>
           ) : null}
           <form method="post" action="/api/auth/signup" className="space-y-4">
             <Field label="Full name">
@@ -41,9 +41,9 @@ function SignupPage() {
             </Button>
           </form>
         </div>
-        <p className="mt-4 text-center text-sm text-slate-500">
+        <p className="mt-4 text-center text-sm text-mute">
           Already have an account?{" "}
-          <Link to="/login" search={{ error: "" }} className="font-medium text-indigo-600 hover:text-indigo-700">
+          <Link to="/login" search={{ error: "" }} className="font-medium text-signal hover:text-signal-strong">
             Sign in
           </Link>
         </p>

@@ -122,6 +122,12 @@ export async function requireUser(): Promise<AuthUser> {
   return user;
 }
 
+export async function requireAdmin(): Promise<AuthUser> {
+  const user = await requireUser();
+  if (user.role !== "admin") throw new Error("FORBIDDEN");
+  return user;
+}
+
 // ---- registration / login core (used by /api/auth routes) ----
 export async function registerUser(input: {
   name: string;

@@ -41,6 +41,19 @@
  */
 @theme {
   --spacing: 0.25rem;
+
+  /* ---- Nexraft brand palette (dark, premium, teal "signal" accent) ---- */
+  --color-ink: #0a0e0c; /* app background */
+  --color-surface: #0f1512; /* cards, sidebar, modals */
+  --color-surface-2: #141b17; /* inputs, hover rows, raised chips */
+  --color-line: #222c26; /* hairline borders */
+  --color-line-strong: #2e3a33; /* stronger dividers */
+  --color-bone: #e8ede9; /* primary text */
+  --color-mute: #8a978f; /* secondary text */
+  --color-faint: #5c6862; /* tertiary / placeholders */
+  --color-signal: #2dd4bf; /* teal accent */
+  --color-signal-strong: #14b8a6; /* accent hover / pressed */
+  --color-signal-soft: #0e2b28; /* tinted accent background */
 }
 
 @theme inline {

@@ -23,7 +23,7 @@ export default defineConfig(() => {
     // resolves it from node_modules at runtime (it uses node: builtins /
     // dynamic requires that don't bundle cleanly).
     ssr: {
-      noExternal: true,
+      noExternal: true as const,
       external: ["postgres"],
     },
     plugins: [

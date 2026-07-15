@@ -19,8 +19,17 @@ function useMounted() {
 }
 
 function Skeleton() {
-  return <div className="h-56 w-full animate-pulse rounded-lg bg-slate-100" />;
+  return <div className="h-56 w-full animate-pulse rounded-lg bg-surface-2" />;
 }
+
+const AXIS_TICK = { fontSize: 11, fill: "#8a978f" } as const;
+const TOOLTIP_STYLE = {
+  backgroundColor: "#0f1512",
+  border: "1px solid #222c26",
+  borderRadius: 8,
+  color: "#e8ede9",
+  fontSize: 12,
+} as const;
 
 export function StageBarChart({
   data,
@@ -32,9 +41,9 @@ export function StageBarChart({
   return (
     <ResponsiveContainer width="100%" height={224}>
       <BarChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-        <XAxis dataKey="stage" tick={{ fontSize: 11, fill: "#64748b" }} interval={0} angle={-15} textAnchor="end" height={50} />
-        <YAxis tickFormatter={(v) => `$${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`} tick={{ fontSize: 11, fill: "#64748b" }} width={44} />
-        <Tooltip formatter={(v: number) => formatMoney(v)} cursor={{ fill: "#f1f5f9" }} />
+        <XAxis dataKey="stage" tick={AXIS_TICK} interval={0} angle={-15} textAnchor="end" height={50} axisLine={{ stroke: "#222c26" }} tickLine={false} />
+        <YAxis tickFormatter={(v) => `$${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`} tick={AXIS_TICK} width={44} axisLine={false} tickLine={false} />
+        <Tooltip formatter={(v: number) => formatMoney(v)} cursor={{ fill: "rgba(255,255,255,0.04)" }} contentStyle={TOOLTIP_STYLE} labelStyle={{ color: "#8a978f" }} />
         <Bar dataKey="value" radius={[4, 4, 0, 0]}>
           {data.map((d, i) => (
             <Cell key={i} fill={d.color} />
@@ -55,10 +64,10 @@ export function MonthlyTrendChart({
   return (
     <ResponsiveContainer width="100%" height={224}>
       <BarChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-        <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} />
-        <YAxis tickFormatter={(v) => `$${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`} tick={{ fontSize: 11, fill: "#64748b" }} width={44} />
-        <Tooltip formatter={(v: number) => formatMoney(v)} cursor={{ fill: "#f1f5f9" }} />
-        <Bar dataKey="value" fill="#22c55e" radius={[4, 4, 0, 0]} />
+        <XAxis dataKey="label" tick={AXIS_TICK} axisLine={{ stroke: "#222c26" }} tickLine={false} />
+        <YAxis tickFormatter={(v) => `$${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`} tick={AXIS_TICK} width={44} axisLine={false} tickLine={false} />
+        <Tooltip formatter={(v: number) => formatMoney(v)} cursor={{ fill: "rgba(255,255,255,0.04)" }} contentStyle={TOOLTIP_STYLE} labelStyle={{ color: "#8a978f" }} />
+        <Bar dataKey="value" fill="#2dd4bf" radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );

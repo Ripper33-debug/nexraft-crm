@@ -10,7 +10,7 @@ import {
   toggleActivity,
   deleteActivity,
 } from "../../lib/crm/data";
-import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState } from "../../components/crm/ui";
+import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, Pill } from "../../components/crm/ui";
 import { ACTIVITY_TYPES } from "../../lib/crm/constants";
 
 type Row = Record<string, unknown>;
@@ -54,29 +54,29 @@ function ActivitiesPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Activities & follow-ups</h1>
-          <p className="text-sm text-slate-500">Calls, meetings, tasks and reminders.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-xs text-slate-500">
-            <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />
-            Show completed
-          </label>
-          <Button
-            onClick={() => {
-              setEditing(null);
-              setOpen(true);
-            }}
-          >
-            + New activity
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Activities & follow-ups"
+        subtitle="Calls, meetings, tasks and reminders."
+        actions={
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-xs text-mute">
+              <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} className="accent-signal" />
+              Show completed
+            </label>
+            <Button
+              onClick={() => {
+                setEditing(null);
+                setOpen(true);
+              }}
+            >
+              + New activity
+            </Button>
+          </div>
+        }
+      />
 
       <Card className="mt-5 overflow-hidden">
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-line/60">
           {rows.map((a) => {
             const done = a.status === "done";
             const overdue = !done && isOverdue(a.due_date);
@@ -86,7 +86,7 @@ function ActivitiesPage() {
                   type="checkbox"
                   checked={done}
                   onChange={(e) => onToggle(a.id as string, e.target.checked)}
-                  className="mt-1"
+                  className="mt-1 accent-signal"
                 />
                 <div className="min-w-0 flex-1">
                   <button
@@ -95,14 +95,14 @@ function ActivitiesPage() {
                       setOpen(true);
                     }}
                     className={
-                      "text-left text-sm font-medium hover:text-indigo-600 " +
-                      (done ? "text-slate-400 line-through" : "text-slate-800")
+                      "text-left text-sm font-medium hover:text-signal " +
+                      (done ? "text-faint line-through" : "text-bone")
                     }
                   >
                     {a.subject as string}
                   </button>
-                  <div className="text-xs text-slate-400">
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">
+                  <div className="text-xs text-faint">
+                    <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] text-mute">
                       {a.type as string}
                     </span>
                     {a.deal_name ? ` · ${a.deal_name as string}` : ""}
@@ -111,16 +111,9 @@ function ActivitiesPage() {
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
                   {a.due_date ? (
-                    <span
-                      className={
-                        "rounded-full px-2 py-0.5 text-xs font-medium " +
-                        (overdue ? "bg-red-50 text-red-600" : "bg-slate-100 text-slate-500")
-                      }
-                    >
-                      {String(a.due_date).slice(0, 10)}
-                    </span>
+                    <Pill tone={overdue ? "danger" : "neutral"}>{String(a.due_date).slice(0, 10)}</Pill>
                   ) : null}
-                  <button onClick={() => onDelete(a.id as string)} className="text-xs text-slate-400 hover:text-red-600">
+                  <button onClick={() => onDelete(a.id as string)} className="text-xs text-faint hover:text-red-400">
                     Delete
                   </button>
                 </div>

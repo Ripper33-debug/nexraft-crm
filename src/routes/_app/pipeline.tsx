@@ -10,8 +10,24 @@ import {
   setDealStage,
   deleteDeal,
 } from "../../lib/crm/data";
-import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState } from "../../components/crm/ui";
-import { STAGE_NAMES, formatMoney, stageInfo, daysBetween } from "../../lib/crm/constants";
+import {
+  Button,
+  Card,
+  Field,
+  Input,
+  Modal,
+  Select,
+  Textarea,
+  EmptyState,
+  PageHeader,
+  SummaryCard,
+  StageBadge,
+  OwnerChip,
+  Pill,
+  Avatar,
+  cx,
+} from "../../components/crm/ui";
+import { STAGES, STAGE_NAMES, formatMoney, stageInfo, daysBetween } from "../../lib/crm/constants";
 
 type Row = Record<string, unknown>;
 
@@ -34,6 +50,7 @@ function PipelinePage() {
   const [editing, setEditing] = useState<Row | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<"board" | "table">("board");
   const [filter, setFilter] = useState("all");
 
   const refresh = () => router.invalidate();
@@ -61,7 +78,8 @@ function PipelinePage() {
     setBusy(false);
   }
 
-  const visible = (deals as Row[]).filter((d) =>
+  const all = deals as Row[];
+  const visible = all.filter((d) =>
     filter === "all"
       ? true
       : filter === "open"
@@ -69,115 +87,69 @@ function PipelinePage() {
         : d.stage === filter,
   );
 
-  const openValue = (deals as Row[])
-    .filter((d) => stageInfo(d.stage as string).kind === "open")
-    .reduce((s, d) => s + Number(d.value), 0);
+  const openDeals = all.filter((d) => stageInfo(d.stage as string).kind === "open");
+  const openValue = openDeals.reduce((s, d) => s + Number(d.value), 0);
+  const weighted = openDeals.reduce(
+    (s, d) => s + Number(d.value) * (stageInfo(d.stage as string).prob ?? 0),
+    0,
+  );
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Pipeline</h1>
-          <p className="text-sm text-slate-500">
-            {(deals as Row[]).length} deals · {formatMoney(openValue)} open
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Select value={filter} onChange={(e) => setFilter(e.target.value)} className="w-auto">
-            <option value="all">All stages</option>
-            <option value="open">Open only</option>
-            {STAGE_NAMES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </Select>
-          <Button onClick={startAdd}>+ New deal</Button>
-        </div>
+    <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
+      <PageHeader
+        title="Pipeline"
+        subtitle={`${all.length} deals · ${openDeals.length} open`}
+        actions={
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-lg border border-line bg-surface p-0.5">
+              <button
+                onClick={() => setView("board")}
+                className={cx(
+                  "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  view === "board" ? "bg-signal-soft text-signal" : "text-mute hover:text-bone",
+                )}
+              >
+                Board
+              </button>
+              <button
+                onClick={() => setView("table")}
+                className={cx(
+                  "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  view === "table" ? "bg-signal-soft text-signal" : "text-mute hover:text-bone",
+                )}
+              >
+                Table
+              </button>
+            </div>
+            <Button onClick={startAdd}>+ New deal</Button>
+          </div>
+        }
+      />
+
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <SummaryCard label="Open pipeline" value={formatMoney(openValue)} sub={`${openDeals.length} open deals`} accent />
+        <SummaryCard label="Weighted forecast" value={formatMoney(weighted)} sub="Probability-adjusted" />
+        <SummaryCard label="Total deals" value={String(all.length)} sub="All stages" />
       </div>
 
-      <Card className="mt-5 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-slate-500">
-                <th className="px-4 py-2 font-medium">Deal</th>
-                <th className="px-4 py-2 font-medium">Company</th>
-                <th className="px-4 py-2 font-medium">Owner</th>
-                <th className="px-4 py-2 font-medium">Stage</th>
-                <th className="px-4 py-2 font-medium">Value</th>
-                <th className="px-4 py-2 font-medium">Weighted</th>
-                <th className="px-4 py-2 font-medium">Age</th>
-                <th className="px-4 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((d) => {
-                const info = stageInfo(d.stage as string);
-                const age = daysBetween(d.stage_changed_at as string);
-                return (
-                  <tr key={d.id as string} className="border-t border-slate-100 hover:bg-slate-50">
-                    <td className="px-4 py-2.5">
-                      <button onClick={() => startEdit(d)} className="font-medium text-slate-800 hover:text-indigo-600">
-                        {d.name as string}
-                      </button>
-                      {d.next_step ? (
-                        <div className="text-xs text-slate-400">Next: {d.next_step as string}</div>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-600">{(d.company_name as string) || "—"}</td>
-                    <td className="px-4 py-2.5 text-slate-600">{(d.owner_name as string) || "—"}</td>
-                    <td className="px-4 py-2.5">
-                      <select
-                        value={d.stage as string}
-                        disabled={busy}
-                        onChange={(e) => onStageChange(d.id as string, e.target.value)}
-                        className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium"
-                        style={{ color: info.color }}
-                      >
-                        {STAGE_NAMES.map((s) => (
-                          <option key={s} value={s} style={{ color: "#0f172a" }}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-700">{formatMoney(Number(d.value))}</td>
-                    <td className="px-4 py-2.5 text-slate-500">
-                      {info.kind === "open" ? formatMoney(Number(d.value) * info.prob) : "—"}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span
-                        className={
-                          "rounded-full px-2 py-0.5 text-xs " +
-                          (info.kind === "open" && age >= 14
-                            ? "bg-amber-50 text-amber-600"
-                            : "text-slate-400")
-                        }
-                      >
-                        {info.kind === "open" ? `${age}d` : "—"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <button
-                        onClick={() => onDelete(d.id as string)}
-                        className="text-xs text-slate-400 hover:text-red-600"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        {visible.length === 0 ? (
-          <div className="p-4">
-            <EmptyState title="No deals here yet" hint="Click “New deal” to add your first one." />
-          </div>
-        ) : null}
-      </Card>
+      {view === "board" ? (
+        <KanbanBoard
+          deals={all}
+          busy={busy}
+          onStageChange={onStageChange}
+          onEdit={startEdit}
+        />
+      ) : (
+        <PipelineTable
+          deals={visible}
+          filter={filter}
+          setFilter={setFilter}
+          busy={busy}
+          onStageChange={onStageChange}
+          onEdit={startEdit}
+          onDelete={onDelete}
+        />
+      )}
 
       <DealModal
         open={open}
@@ -192,6 +164,221 @@ function PipelinePage() {
         }}
       />
     </div>
+  );
+}
+
+// ---------- Kanban board (drag a card between stages to move the deal) ----------
+function KanbanBoard({
+  deals,
+  busy,
+  onStageChange,
+  onEdit,
+}: {
+  deals: Row[];
+  busy: boolean;
+  onStageChange: (id: string, stage: string) => void;
+  onEdit: (d: Row) => void;
+}) {
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overStage, setOverStage] = useState<string | null>(null);
+
+  function handleDrop(stage: string) {
+    if (dragId) {
+      const deal = deals.find((d) => d.id === dragId);
+      if (deal && deal.stage !== stage) onStageChange(dragId, stage);
+    }
+    setDragId(null);
+    setOverStage(null);
+  }
+
+  return (
+    <div className="mt-4 flex gap-3 overflow-x-auto pb-3">
+      {STAGES.map((s) => {
+        const col = deals.filter((d) => d.stage === s.name);
+        const total = col.reduce((sum, d) => sum + Number(d.value), 0);
+        const isOver = overStage === s.name;
+        return (
+          <div
+            key={s.name}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setOverStage(s.name);
+            }}
+            onDragLeave={() => setOverStage((cur) => (cur === s.name ? null : cur))}
+            onDrop={() => handleDrop(s.name)}
+            className={cx(
+              "flex w-72 shrink-0 flex-col rounded-xl border bg-surface/60 transition-colors",
+              isOver ? "border-signal/60 bg-surface-2/60" : "border-line",
+            )}
+          >
+            <div className="flex items-center justify-between px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: s.color }} />
+                <span className="text-sm font-semibold text-bone">{s.name}</span>
+                <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[11px] text-mute">{col.length}</span>
+              </div>
+              <span className="font-mono text-[11px] text-faint">{formatMoney(total)}</span>
+            </div>
+            <div className="flex min-h-24 flex-1 flex-col gap-2 px-2 pb-2">
+              {col.map((d) => {
+                const age = daysBetween(d.stage_changed_at as string);
+                const stale = s.kind === "open" && age >= 14;
+                return (
+                  <div
+                    key={d.id as string}
+                    draggable={!busy}
+                    onDragStart={() => setDragId(d.id as string)}
+                    onDragEnd={() => {
+                      setDragId(null);
+                      setOverStage(null);
+                    }}
+                    onClick={() => onEdit(d)}
+                    className={cx(
+                      "cursor-grab rounded-lg border border-line bg-surface p-2.5 shadow-sm transition-colors hover:border-line-strong active:cursor-grabbing",
+                      dragId === d.id ? "opacity-50" : "",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="text-sm font-medium text-bone">{d.name as string}</div>
+                      {stale ? <Pill tone="warn">{age}d</Pill> : null}
+                    </div>
+                    {d.company_name ? (
+                      <div className="mt-0.5 truncate text-xs text-faint">{d.company_name as string}</div>
+                    ) : null}
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="font-mono text-xs text-signal">{formatMoney(Number(d.value))}</span>
+                      {d.owner_name ? <Avatar name={d.owner_name as string} size={20} /> : null}
+                    </div>
+                    {d.next_step ? (
+                      <div className="mt-1.5 truncate border-t border-line/60 pt-1.5 text-[11px] text-faint">
+                        Next: {d.next_step as string}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+              {col.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-line/70 px-2 py-6 text-center text-[11px] text-faint">
+                  Drop deals here
+                </div>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------- Table view ----------
+function PipelineTable({
+  deals,
+  filter,
+  setFilter,
+  busy,
+  onStageChange,
+  onEdit,
+  onDelete,
+}: {
+  deals: Row[];
+  filter: string;
+  setFilter: (v: string) => void;
+  busy: boolean;
+  onStageChange: (id: string, stage: string) => void;
+  onEdit: (d: Row) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <>
+      <div className="mt-4 flex justify-end">
+        <Select value={filter} onChange={(e) => setFilter(e.target.value)} className="w-auto">
+          <option value="all">All stages</option>
+          <option value="open">Open only</option>
+          {STAGE_NAMES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <Card className="mt-3 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-wider text-faint">
+                <th className="px-4 py-2.5 font-medium">Deal</th>
+                <th className="px-4 py-2.5 font-medium">Company</th>
+                <th className="px-4 py-2.5 font-medium">Owner</th>
+                <th className="px-4 py-2.5 font-medium">Stage</th>
+                <th className="px-4 py-2.5 font-medium">Value</th>
+                <th className="px-4 py-2.5 font-medium">Weighted</th>
+                <th className="px-4 py-2.5 font-medium">Age</th>
+                <th className="px-4 py-2.5"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {deals.map((d) => {
+                const info = stageInfo(d.stage as string);
+                const age = daysBetween(d.stage_changed_at as string);
+                return (
+                  <tr key={d.id as string} className="border-b border-line/60 last:border-0 hover:bg-surface-2/60">
+                    <td className="px-4 py-2.5">
+                      <button onClick={() => onEdit(d)} className="font-medium text-bone hover:text-signal">
+                        {d.name as string}
+                      </button>
+                      {d.next_step ? (
+                        <div className="text-xs text-faint">Next: {d.next_step as string}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-2.5 text-mute">{(d.company_name as string) || "—"}</td>
+                    <td className="px-4 py-2.5"><OwnerChip name={d.owner_name as string} /></td>
+                    <td className="px-4 py-2.5">
+                      <select
+                        value={d.stage as string}
+                        disabled={busy}
+                        onChange={(e) => onStageChange(d.id as string, e.target.value)}
+                        className="rounded-md border border-line bg-surface-2 px-2 py-1 text-xs font-semibold outline-none"
+                        style={{ color: info.color }}
+                      >
+                        {STAGE_NAMES.map((s) => (
+                          <option key={s} value={s} style={{ color: "#e8ede9", backgroundColor: "#0f1512" }}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-4 py-2.5 font-medium text-bone">{formatMoney(Number(d.value))}</td>
+                    <td className="px-4 py-2.5 text-mute">
+                      {info.kind === "open" ? formatMoney(Number(d.value) * info.prob) : "—"}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {info.kind === "open" ? (
+                        <Pill tone={age >= 14 ? "warn" : "neutral"}>{age}d</Pill>
+                      ) : (
+                        <span className="text-faint">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <button
+                        onClick={() => onDelete(d.id as string)}
+                        className="text-xs text-faint hover:text-red-400"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {deals.length === 0 ? (
+          <div className="p-4">
+            <EmptyState title="No deals here yet" hint="Click “New deal” to add your first one." />
+          </div>
+        ) : null}
+      </Card>
+    </>
   );
 }
 
