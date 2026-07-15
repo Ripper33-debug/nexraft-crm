@@ -75,6 +75,7 @@ function exportDeals(rows: Row[]) {
 export const Route = createFileRoute("/_app/pipeline")({
   validateSearch: (search: Record<string, unknown>) => ({
     focus: typeof search.focus === "string" ? search.focus : undefined,
+    new: search.new === true || search.new === "true" ? true : undefined,
   }),
   loader: async () => {
     const [deals, companies, contacts, users] = await Promise.all([
@@ -90,7 +91,7 @@ export const Route = createFileRoute("/_app/pipeline")({
 
 function PipelinePage() {
   const { deals, companies, contacts, users } = Route.useLoaderData();
-  const { focus } = Route.useSearch();
+  const { focus, new: newParam } = Route.useSearch();
   const router = useRouter();
   const navigate = Route.useNavigate();
   const [editing, setEditing] = useState<Row | null>(null);
@@ -104,9 +105,18 @@ function PipelinePage() {
       setEditing(match);
       setOpen(true);
     }
-    navigate({ search: { focus: undefined }, replace: true });
+    navigate({ search: (prev) => ({ ...prev, focus: undefined }), replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus]);
+
+  // Quick-create deep link (?new=true) from the command palette.
+  useEffect(() => {
+    if (!newParam) return;
+    setEditing(null);
+    setOpen(true);
+    navigate({ search: (prev) => ({ ...prev, new: undefined }), replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newParam]);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<"board" | "table">("board");
   const [filter, setFilter] = useState("all");

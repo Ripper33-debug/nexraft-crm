@@ -1,12 +1,13 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { createFileRoute, redirect, Link, Outlet, useLocation, useRouterState } from "@tanstack/react-router";
 
 import { getMe } from "../lib/crm/data";
 import { Avatar } from "../components/crm/ui";
-import { GlobalSearch } from "../components/crm/search";
+import { CommandPalette, CommandPaletteTrigger } from "../components/crm/command-palette";
 import { Wordmark } from "../components/crm/brand";
 import { Toaster } from "../components/crm/toast";
 import { useLiveRefresh, subscribeSyncing, isBackgroundSyncing } from "../lib/crm/live";
+import { useKonamiCode, installConsoleEgg } from "../lib/crm/easter-eggs";
 
 // Thin top progress bar that appears while a route loader is in flight — the
 // small "this app is alive" cue that polished tools have. Background live-sync
@@ -107,10 +108,17 @@ function AppLayout() {
   // whenever a form is open so nobody's typing is ever interrupted.
   useLiveRefresh(10000);
 
+  // Tiny surprises: a console hello + the Konami code.
+  useKonamiCode();
+  useEffect(() => {
+    installConsoleEgg();
+  }, []);
+
   return (
     <div className="flex min-h-dvh bg-ink">
       <RouteProgress />
       <Toaster />
+      <CommandPalette isAdmin={isAdmin} />
       {/* Sidebar (desktop) */}
       <aside className="hidden w-60 flex-col border-r border-line bg-gradient-to-b from-surface to-[#0b100d] md:flex">
         <div className="border-b border-line/60 px-5 py-4">
@@ -148,7 +156,7 @@ function AppLayout() {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Desktop top bar with global search */}
         <header className="hidden items-center gap-4 border-b border-line bg-surface/80 px-6 py-2.5 backdrop-blur md:flex">
-          <GlobalSearch />
+          <CommandPaletteTrigger />
         </header>
 
         {/* Mobile top bar */}
@@ -159,7 +167,7 @@ function AppLayout() {
           </form>
         </header>
         <div className="border-b border-line bg-surface px-3 py-2 md:hidden">
-          <GlobalSearch />
+          <CommandPaletteTrigger />
         </div>
         <nav className="flex gap-1 overflow-x-auto border-b border-line bg-surface px-3 py-2 md:hidden">
           <NavLinks pathname={pathname} isAdmin={isAdmin} />

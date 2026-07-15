@@ -34,6 +34,13 @@ function fullName(c: Row): string {
   return `${(c.first_name as string) ?? ""} ${(c.last_name as string) ?? ""}`.trim();
 }
 
+// Seconds → m:ss for the live call timer.
+function fmtClock(total: number): string {
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 function dealLabel(d: Row): string {
   return (d.name as string) || "the project";
 }
@@ -273,11 +280,44 @@ function buildSignals(firstName: string | null, companyName: string): Signal[] {
   ];
 }
 
-function LineRow({ line }: { line: Line }) {
+function LineRow({ line, covered, onToggle }: { line: Line; covered?: boolean; onToggle?: () => void }) {
   if (line.kind === "tip") {
     return <p className="pl-3 text-xs italic text-faint">{line.text}</p>;
   }
-  if (line.kind === "ask") {
+
+  const isAsk = line.kind === "ask";
+  const border = isAsk ? "border-sky-500/40" : "border-signal/50";
+
+  // Tap a say/ask line to tick it off as you say it — a quiet progress cue.
+  if (onToggle) {
+    return (
+      <button
+        onClick={onToggle}
+        className={cx(
+          "group flex w-full items-start gap-2 border-l-2 pl-3 text-left text-sm leading-relaxed transition-colors",
+          border,
+          covered ? "text-faint line-through decoration-faint/50" : "text-bone hover:text-white",
+        )}
+      >
+        <span
+          className={cx(
+            "mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+            covered ? "border-signal/60 bg-signal/20 text-signal" : "border-line-strong text-transparent group-hover:border-signal/40",
+          )}
+        >
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        </span>
+        <span className="min-w-0">
+          {isAsk ? <span className="mr-1.5 font-mono text-[10px] uppercase tracking-wider text-sky-400/80">ask</span> : null}
+          {line.text}
+        </span>
+      </button>
+    );
+  }
+
+  if (isAsk) {
     return (
       <p className="border-l-2 border-sky-500/40 pl-3 text-sm text-bone">
         <span className="mr-1.5 font-mono text-[10px] uppercase tracking-wider text-sky-400/80">ask</span>
@@ -319,6 +359,8 @@ export function CallMode({
   const [followup, setFollowup] = useState("");
   const [saving, setSaving] = useState(false);
   const [activeSignal, setActiveSignal] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [covered, setCovered] = useState<Set<string>>(new Set());
 
   // Reset the log form + live prompt each time Call Mode opens on a fresh subject.
   useEffect(() => {
@@ -327,8 +369,36 @@ export function CallMode({
       setNotes("");
       setFollowup("");
       setActiveSignal(null);
+      setElapsed(0);
+      setCovered(new Set());
     }
   }, [open, subject]);
+
+  // A gentle call timer so the rep can feel the call's length at a glance.
+  useEffect(() => {
+    if (!open) return;
+    const id = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [open, subject]);
+
+  // Escape closes Call Mode from anywhere in the overlay.
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  function toggleCovered(key: string) {
+    setCovered((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   // Everything below is derived, so the hooks must run every render — guard the
   // null subject with safe fallbacks rather than an early return.
@@ -431,8 +501,10 @@ export function CallMode({
                   <span className="text-xs text-mute">{subject.title as string}</span>
                 ) : null}
               </div>
-              <div className="font-mono text-[10px] uppercase tracking-wider text-faint">
-                Call mode{isContact && companyName ? ` · ${companyName}` : ""}
+              <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-faint">
+                <span>Call mode{isContact && companyName ? ` · ${companyName}` : ""}</span>
+                <span className="text-line-strong">·</span>
+                <span className="tnum text-signal/80">{fmtClock(elapsed)}</span>
               </div>
             </div>
           </div>
@@ -465,27 +537,38 @@ export function CallMode({
         {/* During the call — tap what they say, get the line to say back */}
         <div className="border-b border-line px-5 py-3">
           <Eyebrow>During the call · tap what they say</Eyebrow>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {signals.map((s) => {
-              const on = activeSignal === s.id;
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => setActiveSignal(on ? null : s.id)}
-                  className={cx(
-                    "rounded-full px-3 py-1.5 text-xs font-medium transition-all",
-                    on
-                      ? "bg-signal-soft text-signal ring-1 ring-signal/40"
-                      : s.group === "buying"
-                        ? "border border-emerald-500/25 bg-emerald-500/5 text-emerald-300/90 hover:border-emerald-500/50 hover:text-emerald-200"
-                        : "border border-line bg-surface text-mute hover:border-signal/30 hover:text-bone",
-                  )}
-                >
-                  {s.label}
-                </button>
-              );
-            })}
-          </div>
+          {(["objection", "buying"] as const).map((grp) => {
+            const chips = signals.filter((s) => s.group === grp);
+            if (chips.length === 0) return null;
+            return (
+              <div key={grp} className="mt-2">
+                <div className="mb-1 font-mono text-[9px] uppercase tracking-wider text-faint">
+                  {grp === "objection" ? "If they push back" : "Buying signals"}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {chips.map((s) => {
+                    const on = activeSignal === s.id;
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => setActiveSignal(on ? null : s.id)}
+                        className={cx(
+                          "rounded-full px-3 py-1.5 text-xs font-medium transition-all",
+                          on
+                            ? "bg-signal-soft text-signal ring-1 ring-signal/40"
+                            : grp === "buying"
+                              ? "border border-emerald-500/25 bg-emerald-500/5 text-emerald-300/90 hover:border-emerald-500/50 hover:text-emerald-200"
+                              : "border border-line bg-surface text-mute hover:border-signal/30 hover:text-bone",
+                        )}
+                      >
+                        {s.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
 
           {activeResp ? (
             <div
@@ -515,7 +598,14 @@ export function CallMode({
         <div className="grid gap-0 md:grid-cols-[minmax(0,1fr)_260px]">
           {/* Left — the live script */}
           <div className="min-w-0 space-y-4 px-5 py-4">
-            <Eyebrow>Live script · adapts to this account</Eyebrow>
+            <div className="flex items-center justify-between gap-2">
+              <Eyebrow>Live script · tap a line as you say it</Eyebrow>
+              {covered.size > 0 ? (
+                <button onClick={() => setCovered(new Set())} className="text-[10px] text-faint hover:text-bone">
+                  {covered.size} covered · reset
+                </button>
+              ) : null}
+            </div>
             {script.map((sec, i) => (
               <div
                 key={sec.heading}
@@ -524,9 +614,14 @@ export function CallMode({
               >
                 <div className="text-xs font-semibold text-signal">{sec.heading}</div>
                 <div className="space-y-1.5">
-                  {sec.lines.map((l, j) => (
-                    <LineRow key={j} line={l} />
-                  ))}
+                  {sec.lines.map((l, j) => {
+                    const key = `${i}-${j}`;
+                    return l.kind === "tip" ? (
+                      <LineRow key={j} line={l} />
+                    ) : (
+                      <LineRow key={j} line={l} covered={covered.has(key)} onToggle={() => toggleCovered(key)} />
+                    );
+                  })}
                 </div>
               </div>
             ))}

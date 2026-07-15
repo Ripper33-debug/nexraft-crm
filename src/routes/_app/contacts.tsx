@@ -51,6 +51,7 @@ function overlapWarning(c: Row): string | null {
 export const Route = createFileRoute("/_app/contacts")({
   validateSearch: (search: Record<string, unknown>) => ({
     focus: typeof search.focus === "string" ? search.focus : undefined,
+    new: search.new === true || search.new === "true" ? true : undefined,
   }),
   loader: async () => {
     const [contacts, companies, users, deals] = await Promise.all([getContacts(), getCompanies(), getUsers(), getDeals()]);
@@ -61,7 +62,7 @@ export const Route = createFileRoute("/_app/contacts")({
 
 function ContactsPage() {
   const { contacts, companies, users, deals } = Route.useLoaderData();
-  const { focus } = Route.useSearch();
+  const { focus, new: newParam } = Route.useSearch();
   const router = useRouter();
   const navigate = Route.useNavigate();
   const [open, setOpen] = useState(false);
@@ -76,9 +77,18 @@ function ContactsPage() {
       setEditing(match);
       setOpen(true);
     }
-    navigate({ search: { focus: undefined }, replace: true });
+    navigate({ search: (prev) => ({ ...prev, focus: undefined }), replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus]);
+
+  // Quick-create deep link (?new=true) from the command palette.
+  useEffect(() => {
+    if (!newParam) return;
+    setEditing(null);
+    setOpen(true);
+    navigate({ search: (prev) => ({ ...prev, new: undefined }), replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newParam]);
 
   async function onArchive(id: string) {
     if (!confirm("Archive this contact? You can restore it anytime.")) return;
