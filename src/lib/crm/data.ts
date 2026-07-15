@@ -237,7 +237,20 @@ export const restoreCompany = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await requireUser();
     await ensureExtraSchema();
+    // Read the archive timestamp first so we only un-archive the deals that
+    // were cascade-archived *with* this company (same stamp) — deals archived
+    // separately earlier keep their own timestamp and stay archived.
+    const co = await db()
+      .prepare("SELECT archived_at FROM companies WHERE id=?")
+      .bind(data.id)
+      .first<{ archived_at: string | null }>();
     await db().prepare("UPDATE companies SET archived_at=NULL WHERE id=?").bind(data.id).run();
+    if (co?.archived_at) {
+      await db()
+        .prepare("UPDATE deals SET archived_at=NULL WHERE company_id=? AND archived_at=?")
+        .bind(data.id, co.archived_at)
+        .run();
+    }
     return { ok: true };
   });
 
@@ -812,6 +825,7 @@ export type TeamMemberRow = {
 // Per-worker rollup: what every teammate has in their CRM.
 export const getTeamOverview = createServerFn({ method: "GET" }).handler(async () => {
   await requireAdmin();
+  await ensureExtraSchema();
   const { results } = await db()
     .prepare(
       `SELECT u.id, u.name, u.email, u.role, u.created_at,
@@ -820,12 +834,12 @@ export const getTeamOverview = createServerFn({ method: "GET" }).handler(async (
         COALESCE(SUM(CASE WHEN d.stage='Launched' THEN d.value END),0) AS won_value,
         COALESCE(SUM(CASE WHEN d.stage='Launched' THEN 1 END),0)::int AS won_count,
         COALESCE(SUM(CASE WHEN d.stage='Lost' THEN 1 END),0)::int AS lost_count,
-        (SELECT COUNT(*)::int FROM companies c WHERE c.owner_id = u.id) AS companies_count,
-        (SELECT COUNT(*)::int FROM contacts ct WHERE ct.owner_id = u.id) AS contacts_count,
+        (SELECT COUNT(*)::int FROM companies c WHERE c.owner_id = u.id AND c.archived_at IS NULL) AS companies_count,
+        (SELECT COUNT(*)::int FROM contacts ct WHERE ct.owner_id = u.id AND ct.archived_at IS NULL) AS contacts_count,
         (SELECT COUNT(*)::int FROM activities a WHERE a.owner_id = u.id AND a.status='open') AS open_activities,
         (SELECT COUNT(*)::int FROM activities a WHERE a.owner_id = u.id AND a.status='open'
            AND a.due_date IS NOT NULL AND a.due_date::date < now()::date) AS overdue_activities
-       FROM users u LEFT JOIN deals d ON d.owner_id = u.id
+       FROM users u LEFT JOIN deals d ON d.owner_id = u.id AND d.archived_at IS NULL
        GROUP BY u.id, u.name, u.email, u.role, u.created_at
        ORDER BY won_value DESC, open_value DESC, u.name`,
     )
@@ -865,6 +879,7 @@ export const getUserDetail = createServerFn({ method: "GET" })
   .validator(z.object({ id: z.string() }))
   .handler(async ({ data }) => {
     await requireAdmin();
+    await ensureExtraSchema();
     const database = db();
     const user = await database
       .prepare("SELECT id, name, email, role, created_at FROM users WHERE id = ?")
@@ -877,18 +892,18 @@ export const getUserDetail = createServerFn({ method: "GET" })
         .prepare(
           `SELECT d.id, d.name, d.stage, d.value, d.next_step, d.expected_close, co.name AS company_name
            FROM deals d LEFT JOIN companies co ON co.id = d.company_id
-           WHERE d.owner_id = ? ORDER BY d.updated_at DESC`,
+           WHERE d.owner_id = ? AND d.archived_at IS NULL ORDER BY d.updated_at DESC`,
         )
         .bind(data.id)
         .all<UserDealRow>(),
       database
-        .prepare("SELECT id, name, industry, city FROM companies WHERE owner_id = ? ORDER BY name")
+        .prepare("SELECT id, name, industry, city FROM companies WHERE owner_id = ? AND archived_at IS NULL ORDER BY name")
         .bind(data.id)
         .all<UserCompanyRow>(),
       database
         .prepare(
           `SELECT id, first_name, last_name, title, email, phone FROM contacts
-           WHERE owner_id = ? ORDER BY first_name, last_name`,
+           WHERE owner_id = ? AND archived_at IS NULL ORDER BY first_name, last_name`,
         )
         .bind(data.id)
         .all<UserContactRow>(),
