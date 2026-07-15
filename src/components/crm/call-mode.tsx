@@ -154,6 +154,125 @@ function buildScript(opts: {
   return sections;
 }
 
+// Live "they just said X → say this back" responses. The rep taps whatever the
+// customer raised and the matching rebuttal surfaces instantly — no audio, works
+// on any phone. Tuned for a web-design studio's sales calls.
+type Signal = { id: string; label: string; group: "objection" | "buying"; lines: Line[] };
+
+function buildSignals(firstName: string | null, companyName: string): Signal[] {
+  const who = companyName || "your business";
+  return [
+    {
+      id: "price",
+      label: "Too expensive",
+      group: "objection",
+      lines: [
+        { kind: "say", text: `I hear you. Most of our clients find the site pays for itself once it starts pulling in enquiries — can I show you how we'd get you there?` },
+        { kind: "tip", text: `Don't discount yet. Anchor on the outcome, then ask what budget they had in mind.` },
+      ],
+    },
+    {
+      id: "think",
+      label: "Let me think about it",
+      group: "objection",
+      lines: [
+        { kind: "say", text: `Totally fair. So I can actually be useful — what's the main thing you'd want to feel sure about before going ahead?` },
+        { kind: "tip", text: `"I'll think about it" almost always hides one specific concern. Surface it now.` },
+      ],
+    },
+    {
+      id: "email",
+      label: "Just email me info",
+      group: "objection",
+      lines: [
+        { kind: "say", text: `Happy to — and so I send the right thing, what matters most: examples of our work, pricing, or timeline?` },
+        { kind: "ask", text: `When's a good day for me to follow up once you've had a look?` },
+      ],
+    },
+    {
+      id: "happy",
+      label: "Happy with our site",
+      group: "objection",
+      lines: [
+        { kind: "say", text: `Love that it's working for you. Just out of curiosity — if there were one thing the site did better, what would it be?` },
+        { kind: "tip", text: `Open a small gap. You're looking for the itch, not a fight.` },
+      ],
+    },
+    {
+      id: "notime",
+      label: "No time right now",
+      group: "objection",
+      lines: [
+        { kind: "say", text: `No problem — I'll be quick, or we grab a better time. Is later this week or early next easier for you?` },
+        { kind: "tip", text: `Offer two concrete windows, not "whenever suits."` },
+      ],
+    },
+    {
+      id: "who",
+      label: "Who is this / not interested",
+      group: "objection",
+      lines: [
+        { kind: "say", text: `Fair enough, I'll be upfront: we build websites that bring ${who} more enquiries. If that's ever on your radar, worth 30 seconds?` },
+        { kind: "tip", text: `Stay warm, don't get defensive. One line, then let them react.` },
+      ],
+    },
+    {
+      id: "partner",
+      label: "Need to ask my team",
+      group: "objection",
+      lines: [
+        { kind: "say", text: `Makes sense, it's a team call. Would a short summary you can share help — or a quick call with both of you?` },
+        { kind: "ask", text: `What do you think they'll want to know most?` },
+      ],
+    },
+    {
+      id: "howmuch",
+      label: "How much does it cost?",
+      group: "objection",
+      lines: [
+        { kind: "say", text: `Good question — it depends on what you need, and I want to quote you fairly. Can I ask a couple of quick things first so the number's real?` },
+        { kind: "tip", text: `Don't blurt a price cold. Qualify the scope, then frame it.` },
+      ],
+    },
+    {
+      id: "competitor",
+      label: "Looking at other options",
+      group: "objection",
+      lines: [
+        { kind: "say", text: `Smart to compare. What clients tell us is they stay for the after-launch support, not just the build. What's on your shortlist to weigh up?` },
+        { kind: "tip", text: `Differentiate on service and results, and learn their criteria.` },
+      ],
+    },
+    {
+      id: "timeline",
+      label: "What's the timeline?",
+      group: "buying",
+      lines: [
+        { kind: "say", text: `Most builds like yours take a few weeks from kickoff. If we locked it in this week, we could have you live sooner rather than later.` },
+        { kind: "tip", text: `Use timeline to build gentle momentum toward a start date.` },
+      ],
+    },
+    {
+      id: "capable",
+      label: "Can you do [X]?",
+      group: "buying",
+      lines: [
+        { kind: "say", text: `Yes — that's right in our wheelhouse. Tell me a bit more about exactly what you're picturing so I get it spot on?` },
+        { kind: "tip", text: `Confident yes, then qualify the detail. Every "can you" is a buying signal.` },
+      ],
+    },
+    {
+      id: "interested",
+      label: "Sounds good / I'm in",
+      group: "buying",
+      lines: [
+        { kind: "say", text: `Brilliant${firstName ? `, ${firstName}` : ""} — let's make it easy. I'll get the details over and we can pick a start date. Does early this week or next work to kick off?` },
+        { kind: "tip", text: `They're warm — go straight to a concrete next step. Don't keep selling.` },
+      ],
+    },
+  ];
+}
+
 function LineRow({ line }: { line: Line }) {
   if (line.kind === "tip") {
     return <p className="pl-3 text-xs italic text-faint">{line.text}</p>;
@@ -199,13 +318,15 @@ export function CallMode({
   const [notes, setNotes] = useState("");
   const [followup, setFollowup] = useState("");
   const [saving, setSaving] = useState(false);
+  const [activeSignal, setActiveSignal] = useState<string | null>(null);
 
-  // Reset the log form each time Call Mode opens on a fresh subject.
+  // Reset the log form + live prompt each time Call Mode opens on a fresh subject.
   useEffect(() => {
     if (open) {
       setOutcome(null);
       setNotes("");
       setFollowup("");
+      setActiveSignal(null);
     }
   }, [open, subject]);
 
@@ -247,6 +368,12 @@ export function CallMode({
         : [],
     [subject, kind, companyName, isContact, tags, relDeals, hasWon],
   );
+
+  const signals = useMemo(
+    () => (subject ? buildSignals(isContact ? (subject.first_name as string) : null, companyName) : []),
+    [subject, isContact, companyName],
+  );
+  const activeResp = activeSignal ? signals.find((s) => s.id === activeSignal) ?? null : null;
 
   function pickOutcome(o: { label: string; followup?: number }) {
     setOutcome(o.label);
@@ -333,6 +460,56 @@ export function CallMode({
               </svg>
             </button>
           </div>
+        </div>
+
+        {/* During the call — tap what they say, get the line to say back */}
+        <div className="border-b border-line px-5 py-3">
+          <Eyebrow>During the call · tap what they say</Eyebrow>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {signals.map((s) => {
+              const on = activeSignal === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setActiveSignal(on ? null : s.id)}
+                  className={cx(
+                    "rounded-full px-3 py-1.5 text-xs font-medium transition-all",
+                    on
+                      ? "bg-signal-soft text-signal ring-1 ring-signal/40"
+                      : s.group === "buying"
+                        ? "border border-emerald-500/25 bg-emerald-500/5 text-emerald-300/90 hover:border-emerald-500/50 hover:text-emerald-200"
+                        : "border border-line bg-surface text-mute hover:border-signal/30 hover:text-bone",
+                  )}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {activeResp ? (
+            <div
+              key={activeResp.id}
+              className="mt-3 rounded-xl border border-signal/30 bg-gradient-to-b from-signal-soft/40 to-surface p-3 shadow-[0_8px_30px_-18px_rgba(20,184,166,0.6)] duration-200 animate-in fade-in-0 slide-in-from-top-1"
+            >
+              <div className="mb-2 flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-signal">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m9 18 6-6-6-6" />
+                  </svg>
+                  Say this now
+                </span>
+                <button onClick={() => setActiveSignal(null)} className="text-xs text-faint hover:text-bone">
+                  Back to script
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                {activeResp.lines.map((l, i) => (
+                  <LineRow key={i} line={l} />
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="grid gap-0 md:grid-cols-[minmax(0,1fr)_260px]">
