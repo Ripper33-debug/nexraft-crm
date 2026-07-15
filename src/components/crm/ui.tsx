@@ -8,10 +8,15 @@ export function cx(...parts: (string | false | null | undefined)[]): string {
 
 type BtnVariant = "primary" | "outline" | "ghost" | "danger";
 const btnStyles: Record<BtnVariant, string> = {
-  primary: "bg-signal text-ink hover:bg-signal-strong disabled:opacity-50",
-  outline: "border border-line bg-surface-2 text-bone hover:border-line-strong hover:bg-surface disabled:opacity-50",
+  // Tactile gradient fill with a top highlight, teal glow on hover, and a
+  // subtle press — reads like a physical control, not a flat rectangle.
+  primary:
+    "bg-gradient-to-b from-[#3ce0cd] to-signal-strong text-ink shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.3)] hover:shadow-[0_2px_14px_rgba(20,184,166,0.4),inset_0_1px_0_rgba(255,255,255,0.3)] active:translate-y-px disabled:opacity-50 disabled:shadow-none disabled:active:translate-y-0",
+  outline:
+    "border border-line-strong bg-gradient-to-b from-surface-2 to-surface text-bone shadow-[0_1px_2px_rgba(0,0,0,0.25)] hover:border-signal/40 hover:text-bone active:translate-y-px disabled:opacity-50",
   ghost: "text-mute hover:bg-surface-2 hover:text-bone disabled:opacity-50",
-  danger: "bg-red-500/90 text-white hover:bg-red-500 disabled:opacity-50",
+  danger:
+    "bg-gradient-to-b from-red-500 to-red-600 text-white shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.2)] hover:shadow-[0_2px_14px_rgba(239,68,68,0.4)] active:translate-y-px disabled:opacity-50",
 };
 
 export function Button({
@@ -27,7 +32,7 @@ export function Button({
   return (
     <button
       className={cx(
-        "inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold transition-colors",
+        "inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/40 focus-visible:ring-offset-2 focus-visible:ring-offset-ink",
         size === "sm" ? "px-2.5 py-1.5 text-xs" : "px-3.5 py-2 text-sm",
         btnStyles[variant],
         className,
@@ -41,7 +46,12 @@ export function Button({
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
   return (
-    <div className={cx("rounded-xl border border-line bg-surface shadow-[0_1px_0_0_rgba(255,255,255,0.02)_inset]", className)}>
+    <div
+      className={cx(
+        "rounded-xl border border-line bg-gradient-to-b from-surface to-[#0c110e] shadow-[0_1px_2px_rgba(0,0,0,0.3),0_8px_24px_-16px_rgba(0,0,0,0.6),inset_0_1px_0_0_rgba(255,255,255,0.03)]",
+        className,
+      )}
+    >
       {children}
     </div>
   );
@@ -68,8 +78,8 @@ export function PageHeader({
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-bone">{title}</h1>
-        {subtitle ? <p className="mt-0.5 text-sm text-mute">{subtitle}</p> : null}
+        <h1 className="text-[1.35rem] font-semibold tracking-tight text-bone">{title}</h1>
+        {subtitle ? <p className="mt-1 text-sm text-mute">{subtitle}</p> : null}
       </div>
       {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
     </div>
@@ -89,12 +99,27 @@ export function SummaryCard({
   accent?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-line bg-surface p-4">
+    <div
+      className={cx(
+        "group relative overflow-hidden rounded-xl border p-4 transition-all duration-200",
+        accent
+          ? "border-signal/25 bg-gradient-to-br from-signal-soft/50 via-surface to-surface shadow-[0_8px_30px_-18px_rgba(20,184,166,0.6)]"
+          : "border-line bg-gradient-to-b from-surface to-[#0c110e] shadow-[0_1px_2px_rgba(0,0,0,0.3)]",
+      )}
+    >
+      {accent ? (
+        <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-signal/20 blur-2xl" />
+      ) : null}
       <Eyebrow>{label}</Eyebrow>
-      <div className={cx("mt-2 text-2xl font-semibold tracking-tight", accent ? "text-signal" : "text-bone")}>
+      <div
+        className={cx(
+          "tnum mt-2 text-[1.7rem] font-semibold leading-none tracking-tight",
+          accent ? "text-signal" : "text-bone",
+        )}
+      >
         {value}
       </div>
-      {sub ? <div className="mt-0.5 text-xs text-faint">{sub}</div> : null}
+      {sub ? <div className="mt-1.5 text-xs text-faint">{sub}</div> : null}
     </div>
   );
 }
@@ -174,7 +199,7 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 }
 
 const fieldCls =
-  "w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-bone placeholder:text-faint outline-none transition-colors focus:border-signal/60 focus:ring-2 focus:ring-signal/15";
+  "w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-bone placeholder:text-faint outline-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] transition-all duration-150 hover:border-line-strong focus:border-signal/70 focus:ring-2 focus:ring-signal/20";
 
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cx(fieldCls, props.className)} />;
@@ -201,15 +226,19 @@ export function Modal({
 }) {
   if (!open) return null;
   return (
-    <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm sm:p-8">
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-md duration-200 animate-in fade-in-0 sm:p-8"
+    >
       <div
         className={cx(
-          "w-full rounded-xl border border-line bg-surface shadow-2xl",
+          "mt-4 w-full rounded-2xl border border-line-strong bg-gradient-to-b from-surface to-[#0c110e] shadow-[0_24px_70px_-20px_rgba(0,0,0,0.85)] ring-1 ring-white/5 duration-200 animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 sm:mt-8",
           wide ? "max-w-2xl" : "max-w-md",
         )}
       >
-        <div className="flex items-center justify-between border-b border-line px-5 py-3">
-          <h3 className="text-sm font-semibold text-bone">{title}</h3>
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <h3 className="text-sm font-semibold tracking-tight text-bone">{title}</h3>
           <button
             onClick={onClose}
             className="rounded-md p-1 text-faint hover:bg-surface-2 hover:text-bone"

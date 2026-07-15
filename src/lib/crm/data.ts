@@ -497,7 +497,7 @@ async function logStageChange(
   const verb = to === WON_STAGE ? "won" : to === LOST_STAGE ? "lost" : "stage_changed";
   const summary =
     to === WON_STAGE
-      ? `${user.name} won ${dealName} 🎉`
+      ? `${user.name} won ${dealName}`
       : to === LOST_STAGE
         ? `${user.name} marked ${dealName} lost`
         : `${user.name} moved ${dealName}: ${from} → ${to}`;

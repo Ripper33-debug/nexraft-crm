@@ -72,12 +72,15 @@ function NavLinks({
             to={item.to}
             onClick={onNavigate}
             className={
-              "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors " +
+              "group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150 " +
               (active
-                ? "bg-signal-soft text-signal"
+                ? "bg-gradient-to-r from-signal-soft to-signal-soft/30 text-signal shadow-[inset_0_0_0_1px_rgba(45,212,191,0.15)]"
                 : "text-mute hover:bg-surface-2 hover:text-bone")
             }
           >
+            {active ? (
+              <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-signal shadow-[0_0_8px_rgba(45,212,191,0.7)]" />
+            ) : null}
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d={item.icon} />
             </svg>
@@ -108,8 +111,8 @@ function AppLayout() {
       <RouteProgress />
       <Toaster />
       {/* Sidebar (desktop) */}
-      <aside className="hidden w-60 flex-col border-r border-line bg-surface md:flex">
-        <div className="px-5 py-4">
+      <aside className="hidden w-60 flex-col border-r border-line bg-gradient-to-b from-surface to-[#0b100d] md:flex">
+        <div className="border-b border-line/60 px-5 py-4">
           <Wordmark />
         </div>
         <nav className="flex flex-1 flex-col gap-1 px-3 py-2">

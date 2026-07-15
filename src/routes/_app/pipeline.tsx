@@ -108,7 +108,7 @@ function PipelinePage() {
     try {
       await setDealStage({ data: { id, stage } });
       await refresh();
-      toast(stage === "Launched" ? "Deal won 🎉" : stage === "Lost" ? "Deal marked lost" : `Moved to ${stage}`);
+      toast(stage === "Launched" ? "Deal won" : stage === "Lost" ? "Deal marked lost" : `Moved to ${stage}`);
     } catch {
       toast("Couldn't move the deal — try again", "error");
     } finally {

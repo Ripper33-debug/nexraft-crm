@@ -115,12 +115,42 @@
 
   body {
     min-height: 100vh;
-    background-color: var(--hf-color-background-primary);
+    background-color: #080b09;
+    /* Layered aurora glow — gives the flat app real atmospheric depth. */
+    background-image:
+      radial-gradient(900px 520px at 88% -8%, rgba(45, 212, 191, 0.1), transparent 62%),
+      radial-gradient(760px 480px at -6% 8%, rgba(56, 189, 248, 0.055), transparent 60%),
+      radial-gradient(1100px 700px at 50% 116%, rgba(20, 184, 166, 0.07), transparent 64%);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
     color: var(--hf-color-text-primary);
     font-family: var(--hf-type-family-secondary);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 
   * {
     border-color: var(--hf-color-border-default);
   }
+
+  /* Premium numerics: money and KPI figures line up in columns. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1, "cv01" 1;
+  }
+}
+
+/* Reusable soft entrance for cards/tiles on route load. */
+@keyframes nx-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.nx-rise {
+  animation: nx-rise 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
