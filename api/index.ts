@@ -16,8 +16,6 @@ type FetchHandler = {
 
 const handler = server as FetchHandler;
 
-export const config = { runtime: "nodejs" };
-
 export default async function vercelHandler(
   req: IncomingMessage,
   res: ServerResponse,
