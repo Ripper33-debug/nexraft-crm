@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import { createFileRoute, redirect, Link, Outlet, useLocation, useRouterState } from "@tanstack/react-router";
 
 import { getMe } from "../lib/crm/data";
@@ -5,17 +6,21 @@ import { Avatar } from "../components/crm/ui";
 import { GlobalSearch } from "../components/crm/search";
 import { Wordmark } from "../components/crm/brand";
 import { Toaster } from "../components/crm/toast";
+import { useLiveRefresh, subscribeSyncing, isBackgroundSyncing } from "../lib/crm/live";
 
 // Thin top progress bar that appears while a route loader is in flight — the
-// small "this app is alive" cue that polished tools have.
+// small "this app is alive" cue that polished tools have. Background live-sync
+// refetches are flagged "silent" so this bar stays hidden for them.
 function RouteProgress() {
   const isLoading = useRouterState({ select: (s) => s.isLoading });
+  const silent = useSyncExternalStore(subscribeSyncing, isBackgroundSyncing, () => false);
+  const show = isLoading && !silent;
   return (
     <div className="pointer-events-none fixed inset-x-0 top-0 z-[110] h-0.5">
       <div
         className={
           "h-full bg-signal transition-all duration-300 ease-out " +
-          (isLoading ? "w-2/3 opacity-100" : "w-full opacity-0")
+          (show ? "w-2/3 opacity-100" : "w-full opacity-0")
         }
         style={{ boxShadow: "0 0 8px rgba(45,212,191,0.6)" }}
       />
@@ -93,6 +98,10 @@ function AppLayout() {
   const { user } = Route.useLoaderData();
   const pathname = useLocation().pathname;
   const isAdmin = user.role === "admin";
+
+  // Quietly pull teammates' changes every ~10s (and on tab focus), pausing
+  // whenever a form is open so nobody's typing is ever interrupted.
+  useLiveRefresh(10000);
 
   return (
     <div className="flex min-h-dvh bg-ink">
