@@ -66,6 +66,7 @@ function CompaniesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [ownerFilter, setOwnerFilter] = useState<string>("");
 
   // Deep-link: a global-search result routes here with ?focus=<id> to auto-open.
   useEffect(() => {
@@ -91,10 +92,15 @@ function CompaniesPage() {
   }
 
   const rows = useMemo(() => {
-    const all = companies as Row[];
-    if (!tagFilter) return all;
-    return all.filter((c) => parseTags(c.tags as string).includes(tagFilter));
-  }, [companies, tagFilter]);
+    let all = companies as Row[];
+    if (tagFilter) all = all.filter((c) => parseTags(c.tags as string).includes(tagFilter));
+    if (ownerFilter) {
+      all = ownerFilter === "__none__"
+        ? all.filter((c) => !c.owner_id)
+        : all.filter((c) => c.owner_id === ownerFilter);
+    }
+    return all;
+  }, [companies, tagFilter, ownerFilter]);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
@@ -146,6 +152,24 @@ function CompaniesPage() {
             </button>
           );
         })}
+
+        {/* Owner filter — narrow to companies a given teammate put in */}
+        <div className="ml-auto flex items-center gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Owner</span>
+          <Select
+            value={ownerFilter}
+            onChange={(e) => setOwnerFilter(e.target.value)}
+            className="h-8 w-auto min-w-[9rem] py-1 text-xs"
+          >
+            <option value="">All owners</option>
+            {(users as Row[]).map((u) => (
+              <option key={u.id as string} value={u.id as string}>
+                {u.name as string}
+              </option>
+            ))}
+            <option value="__none__">Unassigned</option>
+          </Select>
+        </div>
       </div>
 
       <Card className="mt-3 overflow-hidden">
@@ -210,8 +234,8 @@ function CompaniesPage() {
         {rows.length === 0 ? (
           <div className="p-4">
             <EmptyState
-              title={tagFilter ? `No “${tagFilter}” companies` : "No companies yet"}
-              hint={tagFilter ? "Try a different tag or clear the filter." : "Add the businesses you're selling to."}
+              title={tagFilter || ownerFilter ? "No companies match these filters" : "No companies yet"}
+              hint={tagFilter || ownerFilter ? "Try a different owner or tag, or clear the filters." : "Add the businesses you're selling to."}
             />
           </div>
         ) : null}
