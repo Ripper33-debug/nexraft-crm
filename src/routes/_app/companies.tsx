@@ -5,10 +5,11 @@ import {
   getCompanies,
   getUsers,
   upsertCompany,
-  deleteCompany,
+  archiveCompany,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
+import { ArchivedPanel } from "../../components/crm/archived";
 import { LEAD_SOURCES, COMPANY_TAGS, tagColor, parseTags, serializeTags } from "../../lib/crm/constants";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
 import { toast } from "../../components/crm/toast";
@@ -78,11 +79,15 @@ function CompaniesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus]);
 
-  async function onDelete(id: string) {
-    if (!confirm("Delete this company?")) return;
-    await deleteCompany({ data: { id } });
-    toast("Company deleted");
-    router.invalidate();
+  async function onArchive(id: string) {
+    if (!confirm("Archive this company? Its deals are archived too — you can restore it anytime.")) return;
+    try {
+      await archiveCompany({ data: { id } });
+      toast("Company archived");
+      router.invalidate();
+    } catch {
+      toast("Couldn't archive — try again", "error");
+    }
   }
 
   const rows = useMemo(() => {
@@ -192,8 +197,8 @@ function CompaniesPage() {
                     <td className="px-4 py-2.5 text-mute">{Number(c.deal_count) || 0}</td>
                     <td className="px-4 py-2.5"><OwnerChip name={c.owner_name as string} /></td>
                     <td className="px-4 py-2.5 text-right">
-                      <button onClick={() => onDelete(c.id as string)} className="text-xs text-faint hover:text-red-400">
-                        Delete
+                      <button onClick={() => onArchive(c.id as string)} className="text-xs text-faint hover:text-red-400">
+                        Archive
                       </button>
                     </td>
                   </tr>
@@ -212,10 +217,13 @@ function CompaniesPage() {
         ) : null}
       </Card>
 
+      <ArchivedPanel entity="company" onRestored={() => router.invalidate()} />
+
       <CompanyModal
         open={open}
         onClose={() => setOpen(false)}
         company={editing}
+        existing={companies as Row[]}
         users={users as Row[]}
         onSaved={() => {
           setOpen(false);
@@ -230,12 +238,14 @@ function CompanyModal({
   open,
   onClose,
   company,
+  existing,
   users,
   onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   company: Row | null;
+  existing: Row[];
   users: Row[];
   onSaved: () => void;
 }) {
@@ -253,25 +263,38 @@ function CompanyModal({
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setSaving(true);
     const fd = new FormData(e.currentTarget);
-    await upsertCompany({
-      data: {
-        id: (company?.id as string) || undefined,
-        name: String(fd.get("name") || ""),
-        industry: (fd.get("industry") as string) || null,
-        website: (fd.get("website") as string) || null,
-        phone: (fd.get("phone") as string) || null,
-        city: (fd.get("city") as string) || null,
-        source: (fd.get("source") as string) || null,
-        owner_id: (fd.get("owner_id") as string) || null,
-        notes: (fd.get("notes") as string) || null,
-        tags: serializeTags(tags) || null,
-      },
-    });
-    setSaving(false);
-    toast(company?.id ? "Company updated" : "Company added");
-    onSaved();
+    const name = String(fd.get("name") || "").trim();
+
+    // Duplicate guard: warn before creating a second company with the same name.
+    if (!company?.id) {
+      const clash = existing.find((c) => String(c.name ?? "").trim().toLowerCase() === name.toLowerCase());
+      if (clash && !confirm(`A company named “${name}” already exists. Add it anyway?`)) return;
+    }
+
+    setSaving(true);
+    try {
+      await upsertCompany({
+        data: {
+          id: (company?.id as string) || undefined,
+          name,
+          industry: (fd.get("industry") as string) || null,
+          website: (fd.get("website") as string) || null,
+          phone: (fd.get("phone") as string) || null,
+          city: (fd.get("city") as string) || null,
+          source: (fd.get("source") as string) || null,
+          owner_id: (fd.get("owner_id") as string) || null,
+          notes: (fd.get("notes") as string) || null,
+          tags: serializeTags(tags) || null,
+        },
+      });
+      toast(company?.id ? "Company updated" : "Company added");
+      onSaved();
+    } catch {
+      toast("Couldn't save — please try again", "error");
+    } finally {
+      setSaving(false);
+    }
   }
   return (
     <Modal open={open} onClose={onClose} title={company ? "Edit company" : "New company"} wide>
@@ -284,7 +307,13 @@ function CompanyModal({
             <Input name="industry" defaultValue={(company?.industry as string) || ""} />
           </Field>
           <Field label="Website">
-            <Input name="website" defaultValue={(company?.website as string) || ""} placeholder="acme.com" />
+            <Input
+              name="website"
+              defaultValue={(company?.website as string) || ""}
+              placeholder="acme.com"
+              pattern="^\s*(https?:\/\/)?[^\s.]+\.[^\s]+\s*$"
+              title="Enter a domain like acme.com or a full URL"
+            />
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">

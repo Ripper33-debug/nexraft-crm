@@ -111,3 +111,9 @@ ALTER TABLE deals ADD COLUMN IF NOT EXISTS lost_reason TEXT;
 
 -- Comma-separated preset labels on a company (Retainer, VIP, etc.).
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS tags TEXT;
+
+-- Soft-delete: records are archived (timestamped) rather than destroyed, so
+-- anything removed from the UI can be restored from the "Show archived" drawer.
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS archived_at TEXT;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS archived_at TEXT;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS archived_at TEXT;

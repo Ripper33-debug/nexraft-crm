@@ -33,6 +33,10 @@ export function ensureExtraSchema(): Promise<void> {
       `CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at)`,
       `ALTER TABLE deals ADD COLUMN IF NOT EXISTS lost_reason TEXT`,
       `ALTER TABLE companies ADD COLUMN IF NOT EXISTS tags TEXT`,
+      // Soft-delete: records are archived (timestamped) rather than destroyed.
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS archived_at TEXT`,
+      `ALTER TABLE contacts ADD COLUMN IF NOT EXISTS archived_at TEXT`,
+      `ALTER TABLE deals ADD COLUMN IF NOT EXISTS archived_at TEXT`,
     ];
     for (const s of stmts) {
       await db().prepare(s).run();

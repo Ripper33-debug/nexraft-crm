@@ -6,10 +6,11 @@ import {
   getCompanies,
   getUsers,
   upsertContact,
-  deleteContact,
+  archiveContact,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, Pill } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
+import { ArchivedPanel } from "../../components/crm/archived";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
 import { toast } from "../../components/crm/toast";
 
@@ -74,11 +75,15 @@ function ContactsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus]);
 
-  async function onDelete(id: string) {
-    if (!confirm("Delete this contact?")) return;
-    await deleteContact({ data: { id } });
-    toast("Contact deleted");
-    router.invalidate();
+  async function onArchive(id: string) {
+    if (!confirm("Archive this contact? You can restore it anytime.")) return;
+    try {
+      await archiveContact({ data: { id } });
+      toast("Contact archived");
+      router.invalidate();
+    } catch {
+      toast("Couldn't archive — try again", "error");
+    }
   }
 
   return (
@@ -147,8 +152,8 @@ function ContactsPage() {
                     <td className="px-4 py-2.5 text-mute">{(c.phone as string) || "—"}</td>
                     <td className="px-4 py-2.5"><OwnerChip name={c.owner_name as string} /></td>
                     <td className="px-4 py-2.5 text-right">
-                      <button onClick={() => onDelete(c.id as string)} className="text-xs text-faint hover:text-red-400">
-                        Delete
+                      <button onClick={() => onArchive(c.id as string)} className="text-xs text-faint hover:text-red-400">
+                        Archive
                       </button>
                     </td>
                   </tr>
@@ -164,11 +169,14 @@ function ContactsPage() {
         ) : null}
       </Card>
 
+      <ArchivedPanel entity="contact" onRestored={() => router.invalidate()} />
+
       <ContactModal
         open={open}
         onClose={() => setOpen(false)}
         contact={editing}
         companies={companies as Row[]}
+        existing={contacts as Row[]}
         users={users as Row[]}
         onSaved={() => {
           setOpen(false);
@@ -184,6 +192,7 @@ function ContactModal({
   onClose,
   contact,
   companies,
+  existing,
   users,
   onSaved,
 }: {
@@ -191,14 +200,24 @@ function ContactModal({
   onClose: () => void;
   contact: Row | null;
   companies: Row[];
+  existing: Row[];
   users: Row[];
   onSaved: () => void;
 }) {
   const [saving, setSaving] = useState(false);
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setSaving(true);
     const fd = new FormData(e.currentTarget);
+    const email = ((fd.get("email") as string) || "").trim();
+
+    // Duplicate guard: warn if this email already belongs to another contact.
+    if (!contact?.id && email) {
+      const clash = existing.find((c) => String(c.email ?? "").trim().toLowerCase() === email.toLowerCase());
+      if (clash && !confirm(`${email} is already on ${String(clash.first_name ?? "another contact")}. Add anyway?`)) return;
+    }
+
+    setSaving(true);
+    try {
     await upsertContact({
       data: {
         id: (contact?.id as string) || undefined,
@@ -212,9 +231,13 @@ function ContactModal({
         notes: (fd.get("notes") as string) || null,
       },
     });
-    setSaving(false);
-    toast(contact?.id ? "Contact updated" : "Contact added");
-    onSaved();
+      toast(contact?.id ? "Contact updated" : "Contact added");
+      onSaved();
+    } catch {
+      toast("Couldn't save — please try again", "error");
+    } finally {
+      setSaving(false);
+    }
   }
   return (
     <Modal open={open} onClose={onClose} title={contact ? "Edit contact" : "New contact"} wide>

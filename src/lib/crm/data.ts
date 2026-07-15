@@ -22,6 +22,7 @@ export type CompanyRow = {
   source: string | null;
   notes: string | null;
   tags: string | null;
+  archived_at: string | null;
   owner_id: string | null;
   created_at: string;
   owner_name: string | null;
@@ -38,6 +39,7 @@ export type ContactRow = {
   phone: string | null;
   owner_id: string | null;
   notes: string | null;
+  archived_at: string | null;
   created_at: string;
   company_name: string | null;
   owner_name: string | null;
@@ -59,6 +61,7 @@ export type DealRow = {
   next_step: string | null;
   notes: string | null;
   lost_reason: string | null;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
   stage_changed_at: string;
@@ -138,8 +141,9 @@ export const getCompanies = createServerFn({ method: "GET" }).handler(async () =
   const { results } = await db()
     .prepare(
       `SELECT c.*, u.name AS owner_name,
-        (SELECT COUNT(*)::int FROM deals d WHERE d.company_id = c.id) AS deal_count
+        (SELECT COUNT(*)::int FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL) AS deal_count
        FROM companies c LEFT JOIN users u ON u.id = c.owner_id
+       WHERE c.archived_at IS NULL
        ORDER BY c.name`,
     )
     .all<CompanyRow>();
@@ -207,11 +211,33 @@ export const upsertCompany = createServerFn({ method: "POST" })
     return { id };
   });
 
-export const deleteCompany = createServerFn({ method: "POST" })
+// Archive (soft-delete) rather than destroy, so a client's history is never lost
+// and can be restored. Also archives the company's deals so they leave the board.
+export const archiveCompany = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string() }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    const now = new Date().toISOString();
+    const row = await db().prepare("SELECT name FROM companies WHERE id = ?").bind(data.id).first<{ name: string }>();
+    await db().prepare("UPDATE companies SET archived_at=? WHERE id=?").bind(now, data.id).run();
+    await db().prepare("UPDATE deals SET archived_at=? WHERE company_id=? AND archived_at IS NULL").bind(now, data.id).run();
+    await logEvent({
+      actorId: user.id,
+      verb: "archived",
+      entityType: "company",
+      entityId: data.id,
+      summary: `${user.name} archived company ${row?.name ?? ""}`.trim(),
+    });
+    return { ok: true };
+  });
+
+export const restoreCompany = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.string() }))
   .handler(async ({ data }) => {
     await requireUser();
-    await db().prepare("DELETE FROM companies WHERE id = ?").bind(data.id).run();
+    await ensureExtraSchema();
+    await db().prepare("UPDATE companies SET archived_at=NULL WHERE id=?").bind(data.id).run();
     return { ok: true };
   });
 
@@ -230,17 +256,20 @@ const contactSchema = z.object({
 
 export const getContacts = createServerFn({ method: "GET" }).handler(async () => {
   await requireUser();
+  await ensureExtraSchema();
   const { results } = await db()
     .prepare(
       `SELECT ct.*, co.name AS company_name, u.name AS owner_name,
         co.owner_id AS company_owner_id, cu.name AS company_owner_name,
         (SELECT COUNT(*)::int FROM contacts c2
           WHERE ct.email IS NOT NULL AND ct.email <> ''
-            AND lower(c2.email) = lower(ct.email) AND c2.id <> ct.id) AS email_dupes
+            AND lower(c2.email) = lower(ct.email) AND c2.id <> ct.id
+            AND c2.archived_at IS NULL) AS email_dupes
        FROM contacts ct
        LEFT JOIN companies co ON co.id = ct.company_id
        LEFT JOIN users u ON u.id = ct.owner_id
        LEFT JOIN users cu ON cu.id = co.owner_id
+       WHERE ct.archived_at IS NULL
        ORDER BY ct.first_name, ct.last_name`,
     )
     .all<ContactRow>();
@@ -305,11 +334,33 @@ export const upsertContact = createServerFn({ method: "POST" })
     return { id };
   });
 
-export const deleteContact = createServerFn({ method: "POST" })
+export const archiveContact = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string() }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    const now = new Date().toISOString();
+    const row = await db()
+      .prepare("SELECT first_name, last_name FROM contacts WHERE id = ?")
+      .bind(data.id)
+      .first<{ first_name: string; last_name: string | null }>();
+    await db().prepare("UPDATE contacts SET archived_at=? WHERE id=?").bind(now, data.id).run();
+    await logEvent({
+      actorId: user.id,
+      verb: "archived",
+      entityType: "contact",
+      entityId: data.id,
+      summary: `${user.name} archived contact ${row?.first_name ?? ""} ${row?.last_name ?? ""}`.trim(),
+    });
+    return { ok: true };
+  });
+
+export const restoreContact = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.string() }))
   .handler(async ({ data }) => {
     await requireUser();
-    await db().prepare("DELETE FROM contacts WHERE id = ?").bind(data.id).run();
+    await ensureExtraSchema();
+    await db().prepare("UPDATE contacts SET archived_at=NULL WHERE id=?").bind(data.id).run();
     return { ok: true };
   });
 
@@ -330,6 +381,7 @@ const dealSchema = z.object({
 
 export const getDeals = createServerFn({ method: "GET" }).handler(async () => {
   await requireUser();
+  await ensureExtraSchema();
   const { results } = await db()
     .prepare(
       `SELECT d.*, co.name AS company_name, u.name AS owner_name,
@@ -338,6 +390,7 @@ export const getDeals = createServerFn({ method: "GET" }).handler(async () => {
        LEFT JOIN companies co ON co.id = d.company_id
        LEFT JOIN users u ON u.id = d.owner_id
        LEFT JOIN contacts ct ON ct.id = d.contact_id
+       WHERE d.archived_at IS NULL
        ORDER BY d.updated_at DESC`,
     )
     .all<DealRow>();
@@ -469,11 +522,30 @@ export const setDealStage = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-export const deleteDeal = createServerFn({ method: "POST" })
+export const archiveDeal = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string() }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    const now = new Date().toISOString();
+    const row = await db().prepare("SELECT name FROM deals WHERE id = ?").bind(data.id).first<{ name: string }>();
+    await db().prepare("UPDATE deals SET archived_at=? WHERE id=?").bind(now, data.id).run();
+    await logEvent({
+      actorId: user.id,
+      verb: "archived",
+      entityType: "deal",
+      entityId: data.id,
+      summary: `${user.name} archived deal ${row?.name ?? ""}`.trim(),
+    });
+    return { ok: true };
+  });
+
+export const restoreDeal = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.string() }))
   .handler(async ({ data }) => {
     await requireUser();
-    await db().prepare("DELETE FROM deals WHERE id = ?").bind(data.id).run();
+    await ensureExtraSchema();
+    await db().prepare("UPDATE deals SET archived_at=NULL WHERE id=?").bind(data.id).run();
     return { ok: true };
   });
 
@@ -585,6 +657,7 @@ export const deleteActivity = createServerFn({ method: "POST" })
 // ---------- Dashboard ----------
 export const getDashboard = createServerFn({ method: "GET" }).handler(async () => {
   await requireUser();
+  await ensureExtraSchema();
   const database = db();
 
   // KPI totals
@@ -596,7 +669,7 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
         COALESCE(SUM(CASE WHEN stage='Launched' THEN value END),0) AS won_value,
         COALESCE(SUM(CASE WHEN stage='Launched' THEN 1 END),0)::int AS won_count,
         COALESCE(SUM(CASE WHEN stage='Lost' THEN 1 END),0)::int AS lost_count
-       FROM deals`,
+       FROM deals WHERE archived_at IS NULL`,
     )
     .first<{
       open_value: number;
@@ -608,7 +681,7 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
 
   // Stage breakdown
   const { results: stageRows } = await database
-    .prepare("SELECT stage, COUNT(*)::int AS n, COALESCE(SUM(value),0) AS v FROM deals GROUP BY stage")
+    .prepare("SELECT stage, COUNT(*)::int AS n, COALESCE(SUM(value),0) AS v FROM deals WHERE archived_at IS NULL GROUP BY stage")
     .all<{ stage: string; n: number; v: number }>();
   const byStage = STAGES.map((s) => {
     const r = (stageRows ?? []).find((x) => x.stage === s.name);
@@ -632,7 +705,7 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
         COALESCE(SUM(CASE WHEN d.stage='Launched' THEN d.value END),0) AS won_value,
         COALESCE(SUM(CASE WHEN d.stage='Launched' THEN 1 END),0)::int AS won_count,
         COALESCE(SUM(CASE WHEN d.stage='Lost' THEN 1 END),0)::int AS lost_count
-       FROM users u LEFT JOIN deals d ON d.owner_id = u.id
+       FROM users u LEFT JOIN deals d ON d.owner_id = u.id AND d.archived_at IS NULL
        GROUP BY u.id, u.name
        ORDER BY won_value DESC, open_value DESC`,
     )
@@ -657,7 +730,7 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
   const { results: wonRows } = await database
     .prepare(
       `SELECT to_char(stage_changed_at::timestamptz, 'YYYY-MM') AS ym, COALESCE(SUM(value),0) AS v, COUNT(*)::int AS n
-       FROM deals WHERE stage='Launched'
+       FROM deals WHERE stage='Launched' AND archived_at IS NULL
        GROUP BY ym ORDER BY ym`,
     )
     .all<{ ym: string; v: number; n: number }>();
@@ -681,7 +754,7 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
       `SELECT d.id, d.name, d.stage, d.value, u.name AS owner_name,
         CAST(EXTRACT(EPOCH FROM (now() - d.stage_changed_at::timestamptz)) / 86400 AS INTEGER) AS days_in_stage
        FROM deals d LEFT JOIN users u ON u.id = d.owner_id
-       WHERE d.stage IN (${OPEN_LIST})
+       WHERE d.stage IN (${OPEN_LIST}) AND d.archived_at IS NULL
        ORDER BY days_in_stage DESC LIMIT 8`,
     )
     .all<StaleDealRow>();
@@ -1041,10 +1114,25 @@ export type RepPerfRow = {
   avg_cycle_days: number | null;
 };
 
-export const getAnalytics = createServerFn({ method: "GET" }).handler(async () => {
+const RANGE_DAYS: Record<string, number> = { month: 30, quarter: 90, year: 365 };
+
+// Build the deal-scope condition for a given column prefix. Always excludes
+// archived deals; for a bounded range it limits to deals decided in the window.
+function dealScope(range: string, prefix = ""): string {
+  const p = prefix ? `${prefix}.` : "";
+  const base = `${p}archived_at IS NULL`;
+  const days = RANGE_DAYS[range];
+  if (!days) return base;
+  return `${base} AND ${p}stage_changed_at::timestamptz >= now() - interval '${days} days'`;
+}
+
+export const getAnalytics = createServerFn({ method: "GET" })
+  .validator(z.object({ range: z.enum(["all", "month", "quarter", "year"]).default("all") }))
+  .handler(async ({ data }) => {
   await requireUser();
   await ensureExtraSchema();
   const database = db();
+  const range = data.range;
 
   const totals = await database
     .prepare(
@@ -1056,7 +1144,7 @@ export const getAnalytics = createServerFn({ method: "GET" }).handler(async () =
          COALESCE(AVG(CASE WHEN stage='${WON_STAGE}' THEN value END),0) AS avg_won_value,
          COALESCE(AVG(CASE WHEN stage='${WON_STAGE}'
            THEN EXTRACT(EPOCH FROM (stage_changed_at::timestamptz - created_at::timestamptz))/86400 END),0) AS avg_cycle_days
-       FROM deals`,
+       FROM deals WHERE ${dealScope(range)}`,
     )
     .first<{
       won_count: number;
@@ -1077,7 +1165,7 @@ export const getAnalytics = createServerFn({ method: "GET" }).handler(async () =
     .prepare(
       `SELECT COALESCE(NULLIF(TRIM(lost_reason), ''), 'Unspecified') AS reason,
          COUNT(*)::int AS n, COALESCE(SUM(value),0) AS value
-       FROM deals WHERE stage='${LOST_STAGE}'
+       FROM deals WHERE stage='${LOST_STAGE}' AND ${dealScope(range)}
        GROUP BY reason ORDER BY n DESC`,
     )
     .all<LostReasonRow>();
@@ -1092,7 +1180,7 @@ export const getAnalytics = createServerFn({ method: "GET" }).handler(async () =
          COALESCE(AVG(CASE WHEN d.stage='${WON_STAGE}' THEN d.value END),0) AS avg_deal,
          COALESCE(AVG(CASE WHEN d.stage='${WON_STAGE}'
            THEN EXTRACT(EPOCH FROM (d.stage_changed_at::timestamptz - d.created_at::timestamptz))/86400 END),0) AS avg_cycle_days
-       FROM users u LEFT JOIN deals d ON d.owner_id = u.id
+       FROM users u LEFT JOIN deals d ON d.owner_id = u.id AND ${dealScope(range, "d")}
        GROUP BY u.id, u.name
        ORDER BY won_value DESC, u.name`,
     )
@@ -1151,7 +1239,8 @@ export const getExportBundle = createServerFn({ method: "GET" }).handler(async (
     database
       .prepare(
         `SELECT c.name, c.industry, c.website, c.phone, c.city, c.source, u.name AS owner, c.tags, c.notes, c.created_at
-         FROM companies c LEFT JOIN users u ON u.id = c.owner_id ORDER BY c.name`,
+         FROM companies c LEFT JOIN users u ON u.id = c.owner_id
+         WHERE c.archived_at IS NULL ORDER BY c.name`,
       )
       .all<Record<string, unknown>>(),
     database
@@ -1159,7 +1248,8 @@ export const getExportBundle = createServerFn({ method: "GET" }).handler(async (
         `SELECT ct.first_name, ct.last_name, ct.title, ct.email, ct.phone, co.name AS company,
            u.name AS owner, ct.notes, ct.created_at
          FROM contacts ct LEFT JOIN companies co ON co.id = ct.company_id
-         LEFT JOIN users u ON u.id = ct.owner_id ORDER BY ct.first_name, ct.last_name`,
+         LEFT JOIN users u ON u.id = ct.owner_id
+         WHERE ct.archived_at IS NULL ORDER BY ct.first_name, ct.last_name`,
       )
       .all<Record<string, unknown>>(),
     database
@@ -1170,7 +1260,8 @@ export const getExportBundle = createServerFn({ method: "GET" }).handler(async (
            d.created_at, d.updated_at, d.stage_changed_at
          FROM deals d LEFT JOIN companies co ON co.id = d.company_id
          LEFT JOIN contacts ct ON ct.id = d.contact_id
-         LEFT JOIN users u ON u.id = d.owner_id ORDER BY d.updated_at DESC`,
+         LEFT JOIN users u ON u.id = d.owner_id
+         WHERE d.archived_at IS NULL ORDER BY d.updated_at DESC`,
       )
       .all<Record<string, unknown>>(),
     database
@@ -1215,6 +1306,7 @@ export const globalSearch = createServerFn({ method: "GET" })
   .validator(z.object({ q: z.string() }))
   .handler(async ({ data }): Promise<SearchHit[]> => {
     await requireUser();
+    await ensureExtraSchema();
     const q = data.q.trim();
     if (q.length < 1) return [];
     const like = `%${q.toLowerCase()}%`;
@@ -1224,7 +1316,8 @@ export const globalSearch = createServerFn({ method: "GET" })
       database
         .prepare(
           `SELECT id, name, industry, city FROM companies
-           WHERE lower(name) LIKE ? OR lower(COALESCE(industry,'')) LIKE ? OR lower(COALESCE(city,'')) LIKE ?
+           WHERE archived_at IS NULL
+             AND (lower(name) LIKE ? OR lower(COALESCE(industry,'')) LIKE ? OR lower(COALESCE(city,'')) LIKE ?)
            ORDER BY name LIMIT 6`,
         )
         .bind(like, like, like)
@@ -1233,8 +1326,9 @@ export const globalSearch = createServerFn({ method: "GET" })
         .prepare(
           `SELECT ct.id, ct.first_name, ct.last_name, ct.email, ct.title, co.name AS company_name
            FROM contacts ct LEFT JOIN companies co ON co.id = ct.company_id
-           WHERE lower(ct.first_name) LIKE ? OR lower(COALESCE(ct.last_name,'')) LIKE ?
-             OR lower(COALESCE(ct.email,'')) LIKE ? OR lower(COALESCE(co.name,'')) LIKE ?
+           WHERE ct.archived_at IS NULL
+             AND (lower(ct.first_name) LIKE ? OR lower(COALESCE(ct.last_name,'')) LIKE ?
+               OR lower(COALESCE(ct.email,'')) LIKE ? OR lower(COALESCE(co.name,'')) LIKE ?)
            ORDER BY ct.first_name, ct.last_name LIMIT 6`,
         )
         .bind(like, like, like, like)
@@ -1250,7 +1344,8 @@ export const globalSearch = createServerFn({ method: "GET" })
         .prepare(
           `SELECT d.id, d.name, d.stage, co.name AS company_name
            FROM deals d LEFT JOIN companies co ON co.id = d.company_id
-           WHERE lower(d.name) LIKE ? OR lower(COALESCE(co.name,'')) LIKE ?
+           WHERE d.archived_at IS NULL
+             AND (lower(d.name) LIKE ? OR lower(COALESCE(co.name,'')) LIKE ?)
            ORDER BY d.updated_at DESC LIMIT 6`,
         )
         .bind(like, like)
@@ -1284,4 +1379,48 @@ export const globalSearch = createServerFn({ method: "GET" })
       });
     }
     return hits;
+  });
+
+// ---------- Archived records (for the "Show archived" view + restore) ----------
+export type ArchivedRow = { id: string; label: string; sub: string | null; archived_at: string };
+
+export const getArchived = createServerFn({ method: "GET" })
+  .validator(z.object({ entity: z.enum(["company", "contact", "deal"]) }))
+  .handler(async ({ data }): Promise<ArchivedRow[]> => {
+    await requireUser();
+    await ensureExtraSchema();
+    const database = db();
+    if (data.entity === "company") {
+      const { results } = await database
+        .prepare(
+          `SELECT id, name AS label,
+             NULLIF(TRIM(COALESCE(industry,'') || CASE WHEN city IS NOT NULL AND city <> '' THEN ' · ' || city ELSE '' END), '') AS sub,
+             archived_at
+           FROM companies WHERE archived_at IS NOT NULL ORDER BY archived_at DESC`,
+        )
+        .all<ArchivedRow>();
+      return (results ?? []) as ArchivedRow[];
+    }
+    if (data.entity === "contact") {
+      const { results } = await database
+        .prepare(
+          `SELECT ct.id, TRIM(ct.first_name || ' ' || COALESCE(ct.last_name,'')) AS label,
+             NULLIF(TRIM(COALESCE(ct.title,'') || CASE WHEN co.name IS NOT NULL THEN ' · ' || co.name ELSE '' END), '') AS sub,
+             ct.archived_at
+           FROM contacts ct LEFT JOIN companies co ON co.id = ct.company_id
+           WHERE ct.archived_at IS NOT NULL ORDER BY ct.archived_at DESC`,
+        )
+        .all<ArchivedRow>();
+      return (results ?? []) as ArchivedRow[];
+    }
+    const { results } = await database
+      .prepare(
+        `SELECT d.id, d.name AS label,
+           NULLIF(TRIM(COALESCE(co.name,'') || ' · ' || d.stage), '') AS sub,
+           d.archived_at
+         FROM deals d LEFT JOIN companies co ON co.id = d.company_id
+         WHERE d.archived_at IS NOT NULL ORDER BY d.archived_at DESC`,
+      )
+      .all<ArchivedRow>();
+    return (results ?? []) as ArchivedRow[];
   });

@@ -1,6 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 
+const RANGES = [
+  { value: "all", label: "All time" },
+  { value: "year", label: "Last 12 months" },
+  { value: "quarter", label: "This quarter" },
+  { value: "month", label: "This month" },
+] as const;
+
+type RangeValue = (typeof RANGES)[number]["value"];
+
 import { getAnalytics, getExportBundle } from "../../lib/crm/data";
 import {
   Card,
@@ -15,13 +24,23 @@ import { formatMoney } from "../../lib/crm/constants";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
 
 export const Route = createFileRoute("/_app/reports")({
-  loader: () => getAnalytics(),
+  validateSearch: (search: Record<string, unknown>) => ({
+    range: (["all", "month", "quarter", "year"].includes(search.range as string)
+      ? (search.range as RangeValue)
+      : "all") as RangeValue,
+  }),
+  loaderDeps: ({ search: { range } }) => ({ range }),
+  loader: ({ deps: { range } }) => getAnalytics({ data: { range } }),
   component: ReportsPage,
 });
 
 function ReportsPage() {
   const a = Route.useLoaderData();
+  const { range } = Route.useSearch();
+  const navigate = Route.useNavigate();
   const [exporting, setExporting] = useState(false);
+
+  const rangeSub = RANGES.find((r) => r.value === range)?.label ?? "All time";
 
   async function exportAll() {
     setExporting(true);
@@ -51,9 +70,25 @@ function ReportsPage() {
         title="Reports"
         subtitle="Win/loss performance and a clean export for your Monday migration."
         actions={
-          <Button variant="outline" onClick={exportAll} disabled={exporting}>
-            {exporting ? "Preparing…" : "Export all (CSV)"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-lg border border-line bg-surface p-0.5">
+              {RANGES.map((r) => (
+                <button
+                  key={r.value}
+                  onClick={() => navigate({ search: { range: r.value }, replace: true })}
+                  className={
+                    "rounded-md px-2.5 py-1 text-xs font-medium transition-colors " +
+                    (range === r.value ? "bg-signal-soft text-signal" : "text-mute hover:text-bone")
+                  }
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            <Button variant="outline" onClick={exportAll} disabled={exporting}>
+              {exporting ? "Preparing…" : "Export all (CSV)"}
+            </Button>
+          </div>
         }
       />
 
@@ -65,7 +100,7 @@ function ReportsPage() {
           sub={`${a.won_count} won · ${a.lost_count} lost`}
           accent
         />
-        <SummaryCard label="Won revenue" value={formatMoney(a.won_value)} sub="All time" />
+        <SummaryCard label="Won revenue" value={formatMoney(a.won_value)} sub={rangeSub} />
         <SummaryCard label="Avg deal size" value={formatMoney(a.avg_won_value)} sub="Won deals" />
         <SummaryCard
           label="Avg sales cycle"

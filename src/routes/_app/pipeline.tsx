@@ -8,7 +8,7 @@ import {
   getUsers,
   upsertDeal,
   setDealStage,
-  deleteDeal,
+  archiveDeal,
 } from "../../lib/crm/data";
 import {
   Button,
@@ -28,6 +28,7 @@ import {
   cx,
 } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
+import { ArchivedPanel } from "../../components/crm/archived";
 import { STAGES, STAGE_NAMES, LOST_REASONS, formatMoney, stageInfo, daysBetween } from "../../lib/crm/constants";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
 import { toast } from "../../components/crm/toast";
@@ -104,18 +105,28 @@ function PipelinePage() {
 
   async function onStageChange(id: string, stage: string) {
     setBusy(true);
-    await setDealStage({ data: { id, stage } });
-    await refresh();
-    setBusy(false);
-    toast(stage === "Launched" ? "Deal won 🎉" : stage === "Lost" ? "Deal marked lost" : `Moved to ${stage}`);
+    try {
+      await setDealStage({ data: { id, stage } });
+      await refresh();
+      toast(stage === "Launched" ? "Deal won 🎉" : stage === "Lost" ? "Deal marked lost" : `Moved to ${stage}`);
+    } catch {
+      toast("Couldn't move the deal — try again", "error");
+    } finally {
+      setBusy(false);
+    }
   }
-  async function onDelete(id: string) {
-    if (!confirm("Delete this deal?")) return;
+  async function onArchive(id: string) {
+    if (!confirm("Archive this deal? You can restore it anytime.")) return;
     setBusy(true);
-    await deleteDeal({ data: { id } });
-    await refresh();
-    setBusy(false);
-    toast("Deal deleted");
+    try {
+      await archiveDeal({ data: { id } });
+      await refresh();
+      toast("Deal archived");
+    } catch {
+      toast("Couldn't archive — try again", "error");
+    } finally {
+      setBusy(false);
+    }
   }
 
   const all = deals as Row[];
@@ -190,9 +201,11 @@ function PipelinePage() {
           busy={busy}
           onStageChange={onStageChange}
           onEdit={startEdit}
-          onDelete={onDelete}
+          onArchive={onArchive}
         />
       )}
+
+      <ArchivedPanel entity="deal" onRestored={() => router.invalidate()} />
 
       <DealModal
         open={open}
@@ -321,7 +334,7 @@ function PipelineTable({
   busy,
   onStageChange,
   onEdit,
-  onDelete,
+  onArchive,
 }: {
   deals: Row[];
   filter: string;
@@ -329,7 +342,7 @@ function PipelineTable({
   busy: boolean;
   onStageChange: (id: string, stage: string) => void;
   onEdit: (d: Row) => void;
-  onDelete: (id: string) => void;
+  onArchive: (id: string) => void;
 }) {
   return (
     <>
@@ -403,10 +416,10 @@ function PipelineTable({
                     </td>
                     <td className="px-4 py-2.5 text-right">
                       <button
-                        onClick={() => onDelete(d.id as string)}
+                        onClick={() => onArchive(d.id as string)}
                         className="text-xs text-faint hover:text-red-400"
                       >
-                        Delete
+                        Archive
                       </button>
                     </td>
                   </tr>
@@ -470,10 +483,15 @@ function DealModal({
       notes: (fd.get("notes") as string) || null,
       lost_reason: (fd.get("lost_reason") as string) || null,
     };
-    await upsertDeal({ data: payload });
-    setSaving(false);
-    toast(deal?.id ? "Deal updated" : "Deal added");
-    onSaved();
+    try {
+      await upsertDeal({ data: payload });
+      toast(deal?.id ? "Deal updated" : "Deal added");
+      onSaved();
+    } catch {
+      toast("Couldn't save — please try again", "error");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
