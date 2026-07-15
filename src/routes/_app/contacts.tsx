@@ -12,6 +12,7 @@ import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHe
 import { NotesThread } from "../../components/crm/notes";
 import { ArchivedPanel } from "../../components/crm/archived";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
+import { relativeTime } from "../../lib/crm/constants";
 import { toast } from "../../components/crm/toast";
 
 type Row = Record<string, unknown>;
@@ -27,6 +28,7 @@ function exportContacts(rows: Row[]) {
       Email: String(c.email ?? ""),
       Phone: String(c.phone ?? ""),
       Owner: String(c.owner_name ?? ""),
+      "Last contacted": c.last_contacted ? String(c.last_contacted).slice(0, 10) : "",
       Notes: String(c.notes ?? ""),
     })),
   );
@@ -119,6 +121,7 @@ function ContactsPage() {
                 <th className="px-4 py-2.5 font-medium">Email</th>
                 <th className="px-4 py-2.5 font-medium">Phone</th>
                 <th className="px-4 py-2.5 font-medium">Owner</th>
+                <th className="px-4 py-2.5 font-medium">Last contacted</th>
                 <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
@@ -151,6 +154,9 @@ function ContactsPage() {
                     <td className="px-4 py-2.5 text-mute">{(c.email as string) || "—"}</td>
                     <td className="px-4 py-2.5 text-mute">{(c.phone as string) || "—"}</td>
                     <td className="px-4 py-2.5"><OwnerChip name={c.owner_name as string} /></td>
+                    <td className="px-4 py-2.5 text-mute">
+                      {c.last_contacted ? relativeTime(c.last_contacted as string) : <span className="text-faint">Never</span>}
+                    </td>
                     <td className="px-4 py-2.5 text-right">
                       <button onClick={() => onArchive(c.id as string)} className="text-xs text-faint hover:text-red-400">
                         Archive

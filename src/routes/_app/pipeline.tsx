@@ -29,7 +29,19 @@ import {
 } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
 import { ArchivedPanel } from "../../components/crm/archived";
-import { STAGES, STAGE_NAMES, LOST_REASONS, formatMoney, stageInfo, daysBetween } from "../../lib/crm/constants";
+import {
+  STAGES,
+  STAGE_NAMES,
+  LOST_REASONS,
+  WIN_REASONS,
+  formatMoney,
+  stageInfo,
+  daysBetween,
+  parseLinks,
+  serializeLinks,
+  normalizeUrl,
+  type DealLink,
+} from "../../lib/crm/constants";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
 import { toast } from "../../components/crm/toast";
 
@@ -45,9 +57,15 @@ function exportDeals(rows: Row[]) {
       Owner: String(d.owner_name ?? ""),
       Stage: String(d.stage ?? ""),
       Value: String(d.value ?? 0),
+      "Monthly value": String(d.monthly_value ?? 0),
+      "Renewal date": String(d.renewal_date ?? ""),
       "Expected close": String(d.expected_close ?? ""),
       "Next step": String(d.next_step ?? ""),
+      "Win reason": String(d.win_reason ?? ""),
       "Lost reason": String(d.lost_reason ?? ""),
+      Links: parseLinks(d.links as string)
+        .map((l) => (l.label ? `${l.label}: ${l.url}` : l.url))
+        .join(" | "),
       Notes: String(d.notes ?? ""),
     })),
   );
@@ -91,6 +109,7 @@ function PipelinePage() {
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<"board" | "table">("board");
   const [filter, setFilter] = useState("all");
+  const [ownerFilter, setOwnerFilter] = useState("");
 
   const refresh = () => router.invalidate();
 
@@ -129,7 +148,11 @@ function PipelinePage() {
     }
   }
 
-  const all = deals as Row[];
+  const allDeals = deals as Row[];
+  // Scope everything (board, table, KPIs) to the selected owner.
+  const all = ownerFilter
+    ? allDeals.filter((d) => (ownerFilter === "__none__" ? !d.owner_id : d.owner_id === ownerFilter))
+    : allDeals;
   const visible = all.filter((d) =>
     filter === "all"
       ? true
@@ -152,6 +175,19 @@ function PipelinePage() {
         subtitle={`${all.length} deals · ${openDeals.length} open`}
         actions={
           <div className="flex items-center gap-2">
+            <Select
+              value={ownerFilter}
+              onChange={(e) => setOwnerFilter(e.target.value)}
+              className="h-9 w-auto min-w-[9rem] py-1.5 text-xs"
+            >
+              <option value="">All owners</option>
+              {(users as Row[]).map((u) => (
+                <option key={u.id as string} value={u.id as string}>
+                  {u.name as string}
+                </option>
+              ))}
+              <option value="__none__">Unassigned</option>
+            </Select>
             <div className="flex rounded-lg border border-line bg-surface p-0.5">
               <button
                 onClick={() => setView("board")}
@@ -172,7 +208,7 @@ function PipelinePage() {
                 Table
               </button>
             </div>
-            <Button variant="outline" onClick={() => exportDeals(all)}>
+            <Button variant="outline" onClick={() => exportDeals(allDeals)}>
               Export CSV
             </Button>
             <Button onClick={startAdd}>+ New deal</Button>
@@ -305,6 +341,16 @@ function KanbanBoard({
                       <span className="font-mono text-xs text-signal">{formatMoney(Number(d.value))}</span>
                       {d.owner_name ? <Avatar name={d.owner_name as string} size={20} /> : null}
                     </div>
+                    {Number(d.monthly_value) > 0 || parseLinks(d.links as string).length > 0 ? (
+                      <div className="mt-1.5 flex items-center gap-2 text-[11px] text-faint">
+                        {Number(d.monthly_value) > 0 ? (
+                          <span className="text-signal/80">↻ {formatMoney(Number(d.monthly_value))}/mo</span>
+                        ) : null}
+                        {parseLinks(d.links as string).length > 0 ? (
+                          <span>{parseLinks(d.links as string).length} link{parseLinks(d.links as string).length > 1 ? "s" : ""}</span>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {d.next_step ? (
                       <div className="mt-1.5 truncate border-t border-line/60 pt-1.5 text-[11px] text-faint">
                         Next: {d.next_step as string}
@@ -457,13 +503,25 @@ function DealModal({
 }) {
   const [saving, setSaving] = useState(false);
   const [stage, setStage] = useState<string>((deal?.stage as string) || "Lead");
+  const [links, setLinks] = useState<DealLink[]>(parseLinks(deal?.links as string));
 
-  // Reset the tracked stage whenever a different deal opens in the modal.
+  // Reset the tracked stage + links whenever a different deal opens in the modal.
   const dealKey = (deal?.id as string) || "new";
   const [lastKey, setLastKey] = useState(dealKey);
   if (lastKey !== dealKey) {
     setLastKey(dealKey);
     setStage((deal?.stage as string) || "Lead");
+    setLinks(parseLinks(deal?.links as string));
+  }
+
+  function updateLink(i: number, patch: Partial<DealLink>) {
+    setLinks((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  }
+  function addLink() {
+    setLinks((prev) => [...prev, { label: "", url: "" }]);
+  }
+  function removeLink(i: number) {
+    setLinks((prev) => prev.filter((_, idx) => idx !== i));
   }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -478,10 +536,14 @@ function DealModal({
       owner_id: (fd.get("owner_id") as string) || null,
       stage: String(fd.get("stage") || "Lead"),
       value: parseFloat(String(fd.get("value") || "0")) || 0,
+      monthly_value: parseFloat(String(fd.get("monthly_value") || "0")) || 0,
+      renewal_date: (fd.get("renewal_date") as string) || null,
       expected_close: (fd.get("expected_close") as string) || null,
       next_step: (fd.get("next_step") as string) || null,
       notes: (fd.get("notes") as string) || null,
       lost_reason: (fd.get("lost_reason") as string) || null,
+      win_reason: (fd.get("win_reason") as string) || null,
+      links: serializeLinks(links.map((l) => ({ label: l.label.trim(), url: normalizeUrl(l.url) }))),
     };
     try {
       await upsertDeal({ data: payload });
@@ -555,6 +617,18 @@ function DealModal({
             </Select>
           </Field>
         ) : null}
+        {stage === "Launched" ? (
+          <Field label="Why did we win? (helps win/loss analytics)">
+            <Select name="win_reason" defaultValue={(deal?.win_reason as string) || ""}>
+              <option value="">—</option>
+              {WIN_REASONS.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Value ($)">
             <Input name="value" type="number" min="0" step="100" defaultValue={String(deal?.value ?? "")} placeholder="5000" />
@@ -563,9 +637,80 @@ function DealModal({
             <Input name="expected_close" type="date" defaultValue={((deal?.expected_close as string) || "").slice(0, 10)} />
           </Field>
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Monthly value ($) — retainer / hosting">
+            <Input
+              name="monthly_value"
+              type="number"
+              min="0"
+              step="50"
+              defaultValue={deal?.monthly_value ? String(deal.monthly_value) : ""}
+              placeholder="0"
+            />
+          </Field>
+          <Field label="Renewal date">
+            <Input name="renewal_date" type="date" defaultValue={((deal?.renewal_date as string) || "").slice(0, 10)} />
+          </Field>
+        </div>
         <Field label="Next step">
           <Input name="next_step" defaultValue={(deal?.next_step as string) || ""} placeholder="Send proposal by Friday" />
         </Field>
+
+        {/* Labelled links — Figma, proposal, staging URL, contract, etc. */}
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-xs font-medium text-mute">Links</span>
+            <button
+              type="button"
+              onClick={addLink}
+              className="text-xs font-medium text-signal hover:text-signal-strong"
+            >
+              + Add link
+            </button>
+          </div>
+          {links.length === 0 ? (
+            <p className="text-xs text-faint">Attach a Figma file, proposal, staging URL, contract…</p>
+          ) : (
+            <div className="space-y-2">
+              {links.map((l, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Input
+                    value={l.label}
+                    onChange={(e) => updateLink(i, { label: e.target.value })}
+                    placeholder="Label (Figma)"
+                    className="w-1/3"
+                  />
+                  <Input
+                    value={l.url}
+                    onChange={(e) => updateLink(i, { url: e.target.value })}
+                    placeholder="paste URL"
+                    className="flex-1"
+                  />
+                  {l.url.trim() ? (
+                    <a
+                      href={normalizeUrl(l.url)}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="shrink-0 rounded-md px-1.5 text-xs font-medium text-signal hover:text-signal-strong"
+                      title="Open in new tab"
+                    >
+                      Open
+                    </a>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => removeLink(i)}
+                    className="shrink-0 px-1 text-faint hover:text-red-400"
+                    aria-label="Remove link"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <Field label="Notes">
           <Textarea name="notes" defaultValue={(deal?.notes as string) || ""} />
         </Field>

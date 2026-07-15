@@ -137,23 +137,50 @@ function ReportsPage() {
           )}
         </Card>
 
-        {/* Export panel */}
+        {/* Source conversion */}
         <Card className="p-4">
-          <Eyebrow className="mb-3">Export your data</Eyebrow>
-          <p className="mb-3 text-sm text-mute">
-            Download clean, denormalized CSVs — names resolved, no internal IDs — ready to import into
-            Monday CRM or open in Excel.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={exportAll} disabled={exporting}>
-              {exporting ? "Preparing…" : "Export all (CSV)"}
-            </Button>
-          </div>
-          <p className="mt-3 text-xs text-faint">
-            Companies, contacts, deals and activities each download as a separate CSV.
-          </p>
+          <Eyebrow className="mb-3">Where your wins come from</Eyebrow>
+          {a.sources.length === 0 ? (
+            <p className="py-6 text-center text-sm text-faint">No decided deals yet.</p>
+          ) : (
+            <ul className="space-y-2.5">
+              {a.sources.map((s) => (
+                <li key={s.source}>
+                  <div className="mb-1 flex items-center justify-between text-xs">
+                    <span className="text-mute">{s.source}</span>
+                    <span className="font-mono text-faint">
+                      {s.win_rate === null ? "—" : `${s.win_rate}% win`} · {s.won}/{s.won + s.lost} · {formatMoney(s.won_value)}
+                    </span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-surface-2">
+                    <div
+                      className="h-full rounded-full bg-signal/70"
+                      style={{ width: `${s.win_rate ?? 0}%` }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
       </div>
+
+      {/* Export panel */}
+      <Card className="mt-4 p-4">
+        <Eyebrow className="mb-3">Export your data</Eyebrow>
+        <p className="mb-3 text-sm text-mute">
+          Download clean, denormalized CSVs — names resolved, no internal IDs — ready to import into
+          Monday CRM or open in Excel.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={exportAll} disabled={exporting}>
+            {exporting ? "Preparing…" : "Export all (CSV)"}
+          </Button>
+        </div>
+        <p className="mt-3 text-xs text-faint">
+          Companies, contacts, deals and activities each download as a separate CSV.
+        </p>
+      </Card>
 
       {/* Per-rep performance */}
       <Card className="mt-4 overflow-hidden">

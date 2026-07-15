@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { getDashboard, getActivityFeed, type FeedRow } from "../../lib/crm/data";
 import { Card, StageBadge, SummaryCard, PageHeader, Eyebrow, OwnerChip, Pill, Avatar } from "../../components/crm/ui";
 import { StageBarChart, MonthlyTrendChart } from "../../components/crm/charts";
-import { formatMoney, relativeTime, STALE_DAYS } from "../../lib/crm/constants";
+import { formatMoney, relativeTime, STALE_DAYS, daysBetween } from "../../lib/crm/constants";
 
 export const Route = createFileRoute("/_app/")({
   loader: async () => {
@@ -39,6 +39,16 @@ function Dashboard() {
         <SummaryCard label="Weighted forecast" value={formatMoney(d.weighted)} sub="Probability-adjusted" />
         <SummaryCard label="Won (all time)" value={formatMoney(d.kpi.won_value)} sub={`${d.kpi.won_count} launched`} />
         <SummaryCard label="Win rate" value={winRate === null ? "—" : `${winRate}%`} sub={`${d.kpi.lost_count} lost`} />
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <SummaryCard
+          label="Recurring revenue"
+          value={`${formatMoney(d.mrr)}/mo`}
+          sub={`${d.retainer_count} active retainer${d.retainer_count === 1 ? "" : "s"}`}
+          accent
+        />
+        <SummaryCard label="Annual recurring" value={formatMoney(d.mrr * 12)} sub="MRR × 12" />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -153,6 +163,39 @@ function Dashboard() {
           </ul>
         </Card>
       </div>
+
+      {/* Renewals coming up */}
+      {d.renewals.length > 0 ? (
+        <Card className="mt-4 overflow-hidden">
+          <div className="border-b border-line px-4 py-3">
+            <Eyebrow>Renewals coming up</Eyebrow>
+          </div>
+          <ul className="divide-y divide-line/60">
+            {d.renewals.map((r: Record<string, unknown>) => {
+              const overdue = Number(r.overdue) === 1;
+              const days = Math.abs(daysBetween(r.renewal_date as string));
+              return (
+                <li key={r.id as string} className="flex items-center justify-between px-4 py-2.5">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm text-bone">{r.name as string}</div>
+                    <div className="truncate text-xs text-faint">
+                      {r.company_name ? `${r.company_name as string} · ` : ""}
+                      {Number(r.monthly_value) > 0 ? `${formatMoney(Number(r.monthly_value))}/mo` : ""}
+                      {r.owner_name ? ` · ${r.owner_name as string}` : ""}
+                    </div>
+                  </div>
+                  <div className="ml-3 flex shrink-0 items-center gap-2">
+                    <Pill tone={overdue ? "danger" : "neutral"}>
+                      {overdue ? `${days}d overdue` : `in ${days}d`}
+                    </Pill>
+                    <span className="text-[11px] text-faint">{String(r.renewal_date).slice(0, 10)}</span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      ) : null}
 
       {/* Team activity feed */}
       <Card className="mt-4 overflow-hidden">

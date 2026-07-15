@@ -32,6 +32,13 @@ export function ensureExtraSchema(): Promise<void> {
        )`,
       `CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at)`,
       `ALTER TABLE deals ADD COLUMN IF NOT EXISTS lost_reason TEXT`,
+      // Won-deal reason (mirror of lost_reason) for win/loss analytics.
+      `ALTER TABLE deals ADD COLUMN IF NOT EXISTS win_reason TEXT`,
+      // Recurring revenue: monthly retainer/hosting value + renewal date.
+      `ALTER TABLE deals ADD COLUMN IF NOT EXISTS monthly_value NUMERIC DEFAULT 0`,
+      `ALTER TABLE deals ADD COLUMN IF NOT EXISTS renewal_date TEXT`,
+      // Labelled links (JSON array of {label,url}) — Figma, proposal, staging, etc.
+      `ALTER TABLE deals ADD COLUMN IF NOT EXISTS links TEXT`,
       `ALTER TABLE companies ADD COLUMN IF NOT EXISTS tags TEXT`,
       // Soft-delete: records are archived (timestamped) rather than destroyed.
       `ALTER TABLE companies ADD COLUMN IF NOT EXISTS archived_at TEXT`,

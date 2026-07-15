@@ -275,11 +275,27 @@ function CompanyModal({
 }) {
   const [saving, setSaving] = useState(false);
   const [tags, setTags] = useState<string[]>([]);
+  const [nameVal, setNameVal] = useState("");
 
-  // Reset the selected tags whenever the modal opens on a different record.
+  // Reset the selected tags + name whenever the modal opens on a different record.
   useEffect(() => {
-    if (open) setTags(parseTags(company?.tags as string));
+    if (open) {
+      setTags(parseTags(company?.tags as string));
+      setNameVal((company?.name as string) || "");
+    }
   }, [open, company]);
+
+  // Live duplicate detection: match an existing company by name (case-insensitive),
+  // excluding the one being edited. Shown as a warning before the user saves.
+  const dupMatch = useMemo(() => {
+    const n = nameVal.trim().toLowerCase();
+    if (!n) return null;
+    return (
+      existing.find(
+        (c) => c.id !== company?.id && String(c.name ?? "").trim().toLowerCase() === n,
+      ) ?? null
+    );
+  }, [nameVal, existing, company]);
 
   function toggleTag(name: string) {
     setTags((prev) => (prev.includes(name) ? prev.filter((t) => t !== name) : [...prev, name]));
@@ -324,8 +340,17 @@ function CompanyModal({
     <Modal open={open} onClose={onClose} title={company ? "Edit company" : "New company"} wide>
       <form onSubmit={onSubmit} className="space-y-3">
         <Field label="Company name">
-          <Input name="name" required defaultValue={(company?.name as string) || ""} />
+          <Input name="name" required value={nameVal} onChange={(e) => setNameVal(e.target.value)} />
         </Field>
+        {dupMatch ? (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            <span className="mt-0.5 font-semibold">Possible duplicate</span>
+            <span className="text-amber-100/90">
+              “{dupMatch.name as string}” is already in the CRM
+              {dupMatch.owner_name ? `, owned by ${dupMatch.owner_name as string}` : ""}. Check before adding it again.
+            </span>
+          </div>
+        ) : null}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Industry">
             <Input name="industry" defaultValue={(company?.industry as string) || ""} />

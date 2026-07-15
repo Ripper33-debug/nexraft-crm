@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { db, uid } from "./db.server";
 import { requireUser, requireAdmin, hashPassword, signupCode } from "./auth.server";
-import { OPEN_STAGES, STAGES } from "./constants";
+import { OPEN_STAGES, STAGES, RENEWAL_SOON_DAYS } from "./constants";
 import { ensureExtraSchema, logEvent } from "./schema.server";
 
 const WON_STAGE = "Launched";
@@ -47,6 +47,7 @@ export type ContactRow = {
   company_owner_id: string | null;
   company_owner_name: string | null;
   email_dupes: number;
+  last_contacted: string | null;
 };
 
 export type DealRow = {
@@ -61,6 +62,10 @@ export type DealRow = {
   next_step: string | null;
   notes: string | null;
   lost_reason: string | null;
+  win_reason: string | null;
+  monthly_value: number | null;
+  renewal_date: string | null;
+  links: string | null;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
@@ -105,6 +110,16 @@ export type FollowupRow = {
   due_date: string | null;
   owner_name: string | null;
   deal_name: string | null;
+  overdue: number;
+};
+
+export type RenewalRow = {
+  id: string;
+  name: string;
+  renewal_date: string | null;
+  monthly_value: number | null;
+  company_name: string | null;
+  owner_name: string | null;
   overdue: number;
 };
 
@@ -277,7 +292,8 @@ export const getContacts = createServerFn({ method: "GET" }).handler(async () =>
         (SELECT COUNT(*)::int FROM contacts c2
           WHERE ct.email IS NOT NULL AND ct.email <> ''
             AND lower(c2.email) = lower(ct.email) AND c2.id <> ct.id
-            AND c2.archived_at IS NULL) AS email_dupes
+            AND c2.archived_at IS NULL) AS email_dupes,
+        (SELECT MAX(a.created_at) FROM activities a WHERE a.contact_id = ct.id) AS last_contacted
        FROM contacts ct
        LEFT JOIN companies co ON co.id = ct.company_id
        LEFT JOIN users u ON u.id = ct.owner_id
@@ -390,6 +406,10 @@ const dealSchema = z.object({
   next_step: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   lost_reason: z.string().optional().nullable(),
+  win_reason: z.string().optional().nullable(),
+  monthly_value: z.number().nonnegative().default(0),
+  renewal_date: z.string().optional().nullable(),
+  links: z.string().optional().nullable(),
 });
 
 export const getDeals = createServerFn({ method: "GET" }).handler(async () => {
@@ -421,12 +441,14 @@ export const upsertDeal = createServerFn({ method: "POST" })
         .bind(data.id)
         .first<{ stage: string }>();
       const stageChanged = prev && prev.stage !== data.stage;
-      // Only persist a lost reason while the deal is actually Lost.
+      // Only persist a lost/win reason while the deal is actually in that stage.
       const lostReason = data.stage === LOST_STAGE ? data.lost_reason ?? null : null;
+      const winReason = data.stage === WON_STAGE ? data.win_reason ?? null : null;
       await db()
         .prepare(
           `UPDATE deals SET name=?, company_id=?, contact_id=?, owner_id=?, stage=?, value=?,
-            expected_close=?, next_step=?, notes=?, lost_reason=?, updated_at=?${stageChanged ? ", stage_changed_at=?" : ""}
+            expected_close=?, next_step=?, notes=?, lost_reason=?, win_reason=?, monthly_value=?,
+            renewal_date=?, links=?, updated_at=?${stageChanged ? ", stage_changed_at=?" : ""}
            WHERE id=?`,
         )
         .bind(
@@ -441,6 +463,10 @@ export const upsertDeal = createServerFn({ method: "POST" })
             data.next_step ?? null,
             data.notes ?? null,
             lostReason,
+            winReason,
+            data.monthly_value ?? 0,
+            data.renewal_date ?? null,
+            data.links ?? null,
             now,
             ...(stageChanged ? [now] : []),
             data.id,
@@ -454,10 +480,11 @@ export const upsertDeal = createServerFn({ method: "POST" })
     }
     const id = uid();
     const lostReason = data.stage === LOST_STAGE ? data.lost_reason ?? null : null;
+    const winReason = data.stage === WON_STAGE ? data.win_reason ?? null : null;
     await db()
       .prepare(
-        `INSERT INTO deals (id, name, company_id, contact_id, owner_id, stage, value, expected_close, next_step, notes, lost_reason, created_at, updated_at, stage_changed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO deals (id, name, company_id, contact_id, owner_id, stage, value, expected_close, next_step, notes, lost_reason, win_reason, monthly_value, renewal_date, links, created_at, updated_at, stage_changed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         id,
@@ -471,6 +498,10 @@ export const upsertDeal = createServerFn({ method: "POST" })
         data.next_step ?? null,
         data.notes ?? null,
         lostReason,
+        winReason,
+        data.monthly_value ?? 0,
+        data.renewal_date ?? null,
+        data.links ?? null,
         now,
         now,
         now,
@@ -785,6 +816,29 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
     )
     .all<FollowupRow>();
 
+  // Recurring revenue: monthly value across won (active) clients.
+  const mrrRow = await database
+    .prepare(
+      `SELECT COALESCE(SUM(monthly_value),0) AS mrr,
+        COALESCE(SUM(CASE WHEN monthly_value > 0 THEN 1 END),0)::int AS retainer_count
+       FROM deals WHERE stage='${WON_STAGE}' AND archived_at IS NULL`,
+    )
+    .first<{ mrr: number; retainer_count: number }>();
+
+  // Renewals coming up in the next RENEWAL_SOON_DAYS days.
+  const { results: renewalRows } = await database
+    .prepare(
+      `SELECT d.id, d.name, d.renewal_date, d.monthly_value, co.name AS company_name, u.name AS owner_name,
+        CASE WHEN d.renewal_date::date < now()::date THEN 1 ELSE 0 END AS overdue
+       FROM deals d
+       LEFT JOIN companies co ON co.id = d.company_id
+       LEFT JOIN users u ON u.id = d.owner_id
+       WHERE d.archived_at IS NULL AND d.renewal_date IS NOT NULL AND d.renewal_date <> ''
+         AND d.renewal_date::date <= (now()::date + ${RENEWAL_SOON_DAYS})
+       ORDER BY d.renewal_date ASC LIMIT 8`,
+    )
+    .all<RenewalRow>();
+
   return {
     kpi: kpi ?? {
       open_value: 0,
@@ -794,11 +848,14 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
       lost_count: 0,
     },
     weighted,
+    mrr: mrrRow?.mrr ?? 0,
+    retainer_count: mrrRow?.retainer_count ?? 0,
     byStage,
     leaderboard,
     months,
     stale: staleRows ?? [],
     followups: followRows ?? [],
+    renewals: renewalRows ?? [],
   };
 });
 
@@ -1118,6 +1175,14 @@ export const getActivityFeed = createServerFn({ method: "GET" }).handler(async (
 
 // ================= WIN / LOSS ANALYTICS =================
 export type LostReasonRow = { reason: string; n: number; value: number };
+export type SourceConvRow = {
+  source: string;
+  total: number;
+  won: number;
+  lost: number;
+  won_value: number;
+  win_rate: number | null;
+};
 export type RepPerfRow = {
   id: string;
   name: string;
@@ -1222,6 +1287,31 @@ export const getAnalytics = createServerFn({ method: "GET" })
     };
   });
 
+  // Source conversion: which lead sources actually turn into won work.
+  const { results: sourceRows } = await database
+    .prepare(
+      `SELECT COALESCE(NULLIF(TRIM(co.source), ''), 'Unknown') AS source,
+         COUNT(*)::int AS total,
+         COALESCE(SUM(CASE WHEN d.stage='${WON_STAGE}' THEN 1 END),0)::int AS won,
+         COALESCE(SUM(CASE WHEN d.stage='${LOST_STAGE}' THEN 1 END),0)::int AS lost,
+         COALESCE(SUM(CASE WHEN d.stage='${WON_STAGE}' THEN d.value END),0) AS won_value
+       FROM deals d LEFT JOIN companies co ON co.id = d.company_id
+       WHERE ${dealScope(range, "d")}
+       GROUP BY source ORDER BY won DESC, total DESC`,
+    )
+    .all<{ source: string; total: number; won: number; lost: number; won_value: number }>();
+  const sources: SourceConvRow[] = (sourceRows ?? []).map((r) => {
+    const decided = r.won + r.lost;
+    return {
+      source: r.source,
+      total: r.total,
+      won: r.won,
+      lost: r.lost,
+      won_value: r.won_value,
+      win_rate: decided > 0 ? Math.round((r.won / decided) * 100) : null,
+    };
+  });
+
   return {
     won_count: won,
     won_value: totals?.won_value ?? 0,
@@ -1231,6 +1321,7 @@ export const getAnalytics = createServerFn({ method: "GET" })
     avg_won_value: Math.round(totals?.avg_won_value ?? 0),
     avg_cycle_days: won > 0 ? Math.round(totals?.avg_cycle_days ?? 0) : null,
     lost_reasons: (lostRows ?? []) as LostReasonRow[],
+    sources,
     reps,
   };
 });

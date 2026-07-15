@@ -69,8 +69,49 @@ export const LOST_REASONS = [
   "Other",
 ];
 
+// Structured reasons for a won deal so win/loss analytics can group them.
+export const WIN_REASONS = [
+  "Best price / value",
+  "Strong portfolio / fit",
+  "Referral / trust",
+  "Fast turnaround",
+  "Existing relationship",
+  "Other",
+];
+
 // A deal in an open stage untouched for this many days is "stale".
 export const STALE_DAYS = 14;
+
+// A renewal within this many days counts as "coming up" on the dashboard.
+export const RENEWAL_SOON_DAYS = 60;
+
+// Labelled links attached to a deal (Figma, proposal, staging URL, contract…).
+export type DealLink = { label: string; url: string };
+
+export function parseLinks(raw: string | null | undefined): DealLink[] {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((x) => x && typeof x.url === "string" && x.url.trim())
+      .map((x) => ({ label: String(x.label ?? "").trim(), url: String(x.url).trim() }));
+  } catch {
+    return [];
+  }
+}
+
+export function serializeLinks(links: DealLink[]): string | null {
+  const clean = links.filter((l) => l.url.trim());
+  return clean.length ? JSON.stringify(clean) : null;
+}
+
+// Prefix a bare domain with https:// so links open correctly.
+export function normalizeUrl(url: string): string {
+  const u = url.trim();
+  if (!u) return u;
+  return /^https?:\/\//i.test(u) ? u : `https://${u}`;
+}
 
 export function formatMoney(n: number): string {
   return new Intl.NumberFormat("en-US", {
