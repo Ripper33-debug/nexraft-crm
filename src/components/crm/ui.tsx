@@ -1,9 +1,57 @@
+import { useEffect, useState } from "react";
 import type { ReactNode, SelectHTMLAttributes, InputHTMLAttributes, TextareaHTMLAttributes } from "react";
 
 import { stageInfo } from "../../lib/crm/constants";
 
 export function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(" ");
+}
+
+// Animates the numeric part of a preformatted string (e.g. "$12,400", "42%",
+// "18d") from zero on mount. Renders the final value on the server so hydration
+// matches, then eases up to it once mounted — no layout shift, no flicker.
+function CountUp({ value }: { value: string }) {
+  const [display, setDisplay] = useState(value);
+  useEffect(() => {
+    const match = value.match(/-?[\d,]*\.?\d+/);
+    if (!match) {
+      setDisplay(value);
+      return;
+    }
+    const raw = match[0];
+    const target = parseFloat(raw.replace(/,/g, ""));
+    if (!isFinite(target)) {
+      setDisplay(value);
+      return;
+    }
+    const decimals = raw.includes(".") ? raw.split(".")[1]?.length ?? 0 : 0;
+    const grouped = raw.includes(",");
+    const start = match.index ?? 0;
+    const before = value.slice(0, start);
+    const after = value.slice(start + raw.length);
+    const fmt = (n: number) => {
+      const s = grouped
+        ? n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
+        : n.toFixed(decimals);
+      return before + s + after;
+    };
+    let raf = 0;
+    const dur = 650;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - t0) / dur);
+      const eased = 1 - Math.pow(1 - p, 3);
+      if (p < 1) {
+        setDisplay(fmt(target * eased));
+        raf = requestAnimationFrame(tick);
+      } else {
+        setDisplay(value);
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <>{display}</>;
 }
 
 type BtnVariant = "primary" | "outline" | "ghost" | "danger";
@@ -101,10 +149,10 @@ export function SummaryCard({
   return (
     <div
       className={cx(
-        "group relative overflow-hidden rounded-xl border p-4 transition-all duration-200",
+        "group relative overflow-hidden rounded-xl border p-4 transition-all duration-200 hover:-translate-y-0.5",
         accent
-          ? "border-signal/25 bg-gradient-to-br from-signal-soft/50 via-surface to-surface shadow-[0_8px_30px_-18px_rgba(20,184,166,0.6)]"
-          : "border-line bg-gradient-to-b from-surface to-[#0c110e] shadow-[0_1px_2px_rgba(0,0,0,0.3)]",
+          ? "border-signal/25 bg-gradient-to-br from-signal-soft/50 via-surface to-surface shadow-[0_8px_30px_-18px_rgba(20,184,166,0.6)] hover:shadow-[0_14px_36px_-16px_rgba(20,184,166,0.7)]"
+          : "border-line bg-gradient-to-b from-surface to-[#0c110e] shadow-[0_1px_2px_rgba(0,0,0,0.3)] hover:border-line-strong hover:shadow-[0_12px_30px_-16px_rgba(0,0,0,0.7)]",
       )}
     >
       {accent ? (
@@ -117,7 +165,7 @@ export function SummaryCard({
           accent ? "text-signal" : "text-bone",
         )}
       >
-        {value}
+        <CountUp value={value} />
       </div>
       {sub ? <div className="mt-1.5 text-xs text-faint">{sub}</div> : null}
     </div>

@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import {
   getContacts,
   getCompanies,
+  getDeals,
   getUsers,
   upsertContact,
   archiveContact,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, Pill } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
+import { CallMode } from "../../components/crm/call-mode";
 import { ArchivedPanel } from "../../components/crm/archived";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
 import { relativeTime } from "../../lib/crm/constants";
@@ -51,19 +53,20 @@ export const Route = createFileRoute("/_app/contacts")({
     focus: typeof search.focus === "string" ? search.focus : undefined,
   }),
   loader: async () => {
-    const [contacts, companies, users] = await Promise.all([getContacts(), getCompanies(), getUsers()]);
-    return { contacts, companies, users };
+    const [contacts, companies, users, deals] = await Promise.all([getContacts(), getCompanies(), getUsers(), getDeals()]);
+    return { contacts, companies, users, deals };
   },
   component: ContactsPage,
 });
 
 function ContactsPage() {
-  const { contacts, companies, users } = Route.useLoaderData();
+  const { contacts, companies, users, deals } = Route.useLoaderData();
   const { focus } = Route.useSearch();
   const router = useRouter();
   const navigate = Route.useNavigate();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
+  const [calling, setCalling] = useState<Row | null>(null);
 
   // Deep-link from global search: ?focus=<id> auto-opens the matching contact.
   useEffect(() => {
@@ -157,10 +160,22 @@ function ContactsPage() {
                     <td className="px-4 py-2.5 text-mute">
                       {c.last_contacted ? relativeTime(c.last_contacted as string) : <span className="text-faint">Never</span>}
                     </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <button onClick={() => onArchive(c.id as string)} className="text-xs text-faint hover:text-red-400">
-                        Archive
-                      </button>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center justify-end gap-3">
+                        <button
+                          onClick={() => setCalling(c)}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-mute transition-colors hover:text-signal"
+                          title={c.phone ? `Call ${c.first_name}` : "Open call mode"}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+                          </svg>
+                          Call
+                        </button>
+                        <button onClick={() => onArchive(c.id as string)} className="text-xs text-faint hover:text-red-400">
+                          Archive
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -188,6 +203,15 @@ function ContactsPage() {
           setOpen(false);
           router.invalidate();
         }}
+      />
+
+      <CallMode
+        open={!!calling}
+        onClose={() => setCalling(null)}
+        subject={calling}
+        kind="contact"
+        deals={deals as Row[]}
+        onLogged={() => router.invalidate()}
       />
     </div>
   );

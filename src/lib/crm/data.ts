@@ -666,6 +666,65 @@ export const upsertActivity = createServerFn({ method: "POST" })
     return { id };
   });
 
+// Log an outcome from Call Mode: records a completed Call activity (which also
+// refreshes the contact's "last contacted"), optionally schedules a follow-up,
+// and writes a line to the team feed.
+export const logCall = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      contact_id: z.string().optional().nullable(),
+      deal_id: z.string().optional().nullable(),
+      subject_name: z.string().optional().nullable(),
+      outcome: z.string().min(1),
+      notes: z.string().optional().nullable(),
+      followup_date: z.string().optional().nullable(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    const now = new Date().toISOString();
+    const who = data.subject_name ? ` with ${data.subject_name}` : "";
+    await db()
+      .prepare(
+        `INSERT INTO activities (id, type, subject, deal_id, contact_id, owner_id, status, due_date, notes, completed_at)
+         VALUES (?, 'Call', ?, ?, ?, ?, 'done', NULL, ?, ?)`,
+      )
+      .bind(
+        uid(),
+        `Call${who} — ${data.outcome}`,
+        data.deal_id ?? null,
+        data.contact_id ?? null,
+        user.id,
+        data.notes ?? null,
+        now,
+      )
+      .run();
+    if (data.followup_date) {
+      await db()
+        .prepare(
+          `INSERT INTO activities (id, type, subject, deal_id, contact_id, owner_id, status, due_date, notes)
+           VALUES (?, 'Task', ?, ?, ?, ?, 'open', ?, NULL)`,
+        )
+        .bind(
+          uid(),
+          `Follow up${who}`,
+          data.deal_id ?? null,
+          data.contact_id ?? null,
+          user.id,
+          data.followup_date,
+        )
+        .run();
+    }
+    await logEvent({
+      actorId: user.id,
+      verb: "completed",
+      entityType: data.contact_id ? "contact" : "deal",
+      entityId: data.contact_id ?? data.deal_id ?? null,
+      summary: `${user.name} logged a call${who} — ${data.outcome}`,
+    });
+    return { ok: true };
+  });
+
 export const toggleActivity = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.string(), done: z.boolean() }))
   .handler(async ({ data }) => {
