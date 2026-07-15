@@ -21,6 +21,7 @@ export type CompanyRow = {
   city: string | null;
   source: string | null;
   notes: string | null;
+  tags: string | null;
   owner_id: string | null;
   created_at: string;
   owner_name: string | null;
@@ -127,11 +128,13 @@ const companySchema = z.object({
   city: z.string().optional().nullable(),
   source: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  tags: z.string().optional().nullable(),
   owner_id: z.string().optional().nullable(),
 });
 
 export const getCompanies = createServerFn({ method: "GET" }).handler(async () => {
   await requireUser();
+  await ensureExtraSchema();
   const { results } = await db()
     .prepare(
       `SELECT c.*, u.name AS owner_name,
@@ -147,10 +150,11 @@ export const upsertCompany = createServerFn({ method: "POST" })
   .validator(companySchema)
   .handler(async ({ data }) => {
     const user = await requireUser();
+    await ensureExtraSchema();
     if (data.id) {
       await db()
         .prepare(
-          `UPDATE companies SET name=?, industry=?, website=?, phone=?, city=?, source=?, notes=?, owner_id=? WHERE id=?`,
+          `UPDATE companies SET name=?, industry=?, website=?, phone=?, city=?, source=?, notes=?, tags=?, owner_id=? WHERE id=?`,
         )
         .bind(
           data.name,
@@ -160,6 +164,7 @@ export const upsertCompany = createServerFn({ method: "POST" })
           data.city ?? null,
           data.source ?? null,
           data.notes ?? null,
+          data.tags ?? null,
           data.owner_id ?? null,
           data.id,
         )
@@ -176,8 +181,8 @@ export const upsertCompany = createServerFn({ method: "POST" })
     const id = uid();
     await db()
       .prepare(
-        `INSERT INTO companies (id, name, industry, website, phone, city, source, notes, owner_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO companies (id, name, industry, website, phone, city, source, notes, tags, owner_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         id,
@@ -188,6 +193,7 @@ export const upsertCompany = createServerFn({ method: "POST" })
         data.city ?? null,
         data.source ?? null,
         data.notes ?? null,
+        data.tags ?? null,
         data.owner_id ?? user.id,
       )
       .run();
@@ -1138,12 +1144,13 @@ export type ExportBundle = {
 // opens cleanly in Excel / imports into Monday without any lookups.
 export const getExportBundle = createServerFn({ method: "GET" }).handler(async (): Promise<ExportBundle> => {
   await requireUser();
+  await ensureExtraSchema();
   const database = db();
 
   const [companies, contacts, deals, activities] = await Promise.all([
     database
       .prepare(
-        `SELECT c.name, c.industry, c.website, c.phone, c.city, c.source, u.name AS owner, c.notes, c.created_at
+        `SELECT c.name, c.industry, c.website, c.phone, c.city, c.source, u.name AS owner, c.tags, c.notes, c.created_at
          FROM companies c LEFT JOIN users u ON u.id = c.owner_id ORDER BY c.name`,
       )
       .all<Record<string, unknown>>(),
@@ -1192,3 +1199,89 @@ export const getExportBundle = createServerFn({ method: "GET" }).handler(async (
     activities: clean(activities.results),
   };
 });
+
+// ---------- Global search ----------
+export type SearchHit = {
+  kind: "company" | "contact" | "deal";
+  id: string;
+  title: string;
+  subtitle: string | null;
+};
+
+// Single fast lookup across companies, contacts and deals for the header search
+// bar. Each result carries enough to route the user to the right list page and
+// auto-open the matching record (via the ?focus= param).
+export const globalSearch = createServerFn({ method: "GET" })
+  .validator(z.object({ q: z.string() }))
+  .handler(async ({ data }): Promise<SearchHit[]> => {
+    await requireUser();
+    const q = data.q.trim();
+    if (q.length < 1) return [];
+    const like = `%${q.toLowerCase()}%`;
+    const database = db();
+
+    const [companies, contacts, deals] = await Promise.all([
+      database
+        .prepare(
+          `SELECT id, name, industry, city FROM companies
+           WHERE lower(name) LIKE ? OR lower(COALESCE(industry,'')) LIKE ? OR lower(COALESCE(city,'')) LIKE ?
+           ORDER BY name LIMIT 6`,
+        )
+        .bind(like, like, like)
+        .all<{ id: string; name: string; industry: string | null; city: string | null }>(),
+      database
+        .prepare(
+          `SELECT ct.id, ct.first_name, ct.last_name, ct.email, ct.title, co.name AS company_name
+           FROM contacts ct LEFT JOIN companies co ON co.id = ct.company_id
+           WHERE lower(ct.first_name) LIKE ? OR lower(COALESCE(ct.last_name,'')) LIKE ?
+             OR lower(COALESCE(ct.email,'')) LIKE ? OR lower(COALESCE(co.name,'')) LIKE ?
+           ORDER BY ct.first_name, ct.last_name LIMIT 6`,
+        )
+        .bind(like, like, like, like)
+        .all<{
+          id: string;
+          first_name: string;
+          last_name: string | null;
+          email: string | null;
+          title: string | null;
+          company_name: string | null;
+        }>(),
+      database
+        .prepare(
+          `SELECT d.id, d.name, d.stage, co.name AS company_name
+           FROM deals d LEFT JOIN companies co ON co.id = d.company_id
+           WHERE lower(d.name) LIKE ? OR lower(COALESCE(co.name,'')) LIKE ?
+           ORDER BY d.updated_at DESC LIMIT 6`,
+        )
+        .bind(like, like)
+        .all<{ id: string; name: string; stage: string; company_name: string | null }>(),
+    ]);
+
+    const hits: SearchHit[] = [];
+    for (const c of companies.results ?? []) {
+      hits.push({
+        kind: "company",
+        id: c.id,
+        title: c.name,
+        subtitle: [c.industry, c.city].filter(Boolean).join(" · ") || null,
+      });
+    }
+    for (const ct of contacts.results ?? []) {
+      const name = `${ct.first_name} ${ct.last_name ?? ""}`.trim();
+      hits.push({
+        kind: "contact",
+        id: ct.id,
+        title: name,
+        subtitle: [ct.title, ct.company_name, ct.email].filter(Boolean).join(" · ") || null,
+      });
+    }
+    for (const d of deals.results ?? []) {
+      hits.push({
+        kind: "deal",
+        id: d.id,
+        title: d.name,
+        subtitle: [d.company_name, d.stage].filter(Boolean).join(" · ") || null,
+      });
+    }
+    return hits;
+  });

@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { Button, Field, Input } from "../components/crm/ui";
+import { LogoMark } from "../components/crm/brand";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (s: Record<string, unknown>) => ({ error: (s.error as string) || "" }),
@@ -13,8 +14,8 @@ function LoginPage() {
     <div className="flex min-h-dvh items-center justify-center bg-ink px-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center">
-          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-signal text-lg font-bold text-ink">
-            N
+          <div className="mb-3">
+            <LogoMark size={44} radius={11} />
           </div>
           <h1 className="text-xl font-semibold tracking-tight text-bone">
             Nexraft<span className="text-signal"> CRM</span>

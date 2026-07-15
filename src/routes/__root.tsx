@@ -69,7 +69,10 @@ function buildHead(meta: AppMeta) {
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      ...(favicon ? [{ rel: "icon", href: favicon }] : []),
+      // Custom favicon override wins; otherwise fall back to the bundled brand mark.
+      favicon
+        ? { rel: "icon", href: favicon }
+        : { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
     ],
   };
 }

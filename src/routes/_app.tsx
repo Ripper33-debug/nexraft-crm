@@ -1,7 +1,27 @@
-import { createFileRoute, redirect, Link, Outlet, useLocation } from "@tanstack/react-router";
+import { createFileRoute, redirect, Link, Outlet, useLocation, useRouterState } from "@tanstack/react-router";
 
 import { getMe } from "../lib/crm/data";
 import { Avatar } from "../components/crm/ui";
+import { GlobalSearch } from "../components/crm/search";
+import { Wordmark } from "../components/crm/brand";
+import { Toaster } from "../components/crm/toast";
+
+// Thin top progress bar that appears while a route loader is in flight — the
+// small "this app is alive" cue that polished tools have.
+function RouteProgress() {
+  const isLoading = useRouterState({ select: (s) => s.isLoading });
+  return (
+    <div className="pointer-events-none fixed inset-x-0 top-0 z-[110] h-0.5">
+      <div
+        className={
+          "h-full bg-signal transition-all duration-300 ease-out " +
+          (isLoading ? "w-2/3 opacity-100" : "w-full opacity-0")
+        }
+        style={{ boxShadow: "0 0 8px rgba(45,212,191,0.6)" }}
+      />
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/_app")({
   beforeLoad: async () => {
@@ -69,29 +89,6 @@ function NavLinks({
   );
 }
 
-function Wordmark({ small }: { small?: boolean }) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <div
-        className={
-          "flex items-center justify-center rounded-lg bg-signal font-bold text-ink " +
-          (small ? "h-7 w-7 text-xs" : "h-8 w-8 text-sm")
-        }
-      >
-        N
-      </div>
-      <div className="leading-tight">
-        <div className="text-sm font-semibold tracking-tight text-bone">
-          Nexraft<span className="text-signal"> CRM</span>
-        </div>
-        {!small ? (
-          <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">Sales OS</div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 function AppLayout() {
   const { user } = Route.useLoaderData();
   const pathname = useLocation().pathname;
@@ -99,6 +96,8 @@ function AppLayout() {
 
   return (
     <div className="flex min-h-dvh bg-ink">
+      <RouteProgress />
+      <Toaster />
       {/* Sidebar (desktop) */}
       <aside className="hidden w-60 flex-col border-r border-line bg-surface md:flex">
         <div className="px-5 py-4">
@@ -133,14 +132,22 @@ function AppLayout() {
         </div>
       </aside>
 
-      {/* Mobile top bar */}
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Desktop top bar with global search */}
+        <header className="hidden items-center gap-4 border-b border-line bg-surface/80 px-6 py-2.5 backdrop-blur md:flex">
+          <GlobalSearch />
+        </header>
+
+        {/* Mobile top bar */}
         <header className="flex items-center justify-between border-b border-line bg-surface px-4 py-3 md:hidden">
           <Wordmark small />
           <form method="post" action="/api/auth/logout">
             <button className="text-xs font-medium text-mute">Sign out</button>
           </form>
         </header>
+        <div className="border-b border-line bg-surface px-3 py-2 md:hidden">
+          <GlobalSearch />
+        </div>
         <nav className="flex gap-1 overflow-x-auto border-b border-line bg-surface px-3 py-2 md:hidden">
           <NavLinks pathname={pathname} isAdmin={isAdmin} />
         </nav>

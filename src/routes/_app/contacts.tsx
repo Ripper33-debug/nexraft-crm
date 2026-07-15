@@ -1,5 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   getContacts,
@@ -11,6 +11,7 @@ import {
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, Pill } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
+import { toast } from "../../components/crm/toast";
 
 type Row = Record<string, unknown>;
 
@@ -43,6 +44,9 @@ function overlapWarning(c: Row): string | null {
 }
 
 export const Route = createFileRoute("/_app/contacts")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    focus: typeof search.focus === "string" ? search.focus : undefined,
+  }),
   loader: async () => {
     const [contacts, companies, users] = await Promise.all([getContacts(), getCompanies(), getUsers()]);
     return { contacts, companies, users };
@@ -52,13 +56,28 @@ export const Route = createFileRoute("/_app/contacts")({
 
 function ContactsPage() {
   const { contacts, companies, users } = Route.useLoaderData();
+  const { focus } = Route.useSearch();
   const router = useRouter();
+  const navigate = Route.useNavigate();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
+
+  // Deep-link from global search: ?focus=<id> auto-opens the matching contact.
+  useEffect(() => {
+    if (!focus) return;
+    const match = (contacts as Row[]).find((c) => c.id === focus);
+    if (match) {
+      setEditing(match);
+      setOpen(true);
+    }
+    navigate({ search: { focus: undefined }, replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus]);
 
   async function onDelete(id: string) {
     if (!confirm("Delete this contact?")) return;
     await deleteContact({ data: { id } });
+    toast("Contact deleted");
     router.invalidate();
   }
 
@@ -194,6 +213,7 @@ function ContactModal({
       },
     });
     setSaving(false);
+    toast(contact?.id ? "Contact updated" : "Contact added");
     onSaved();
   }
   return (

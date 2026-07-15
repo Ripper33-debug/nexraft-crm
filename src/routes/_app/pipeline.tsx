@@ -1,5 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   getDeals,
@@ -30,6 +30,7 @@ import {
 import { NotesThread } from "../../components/crm/notes";
 import { STAGES, STAGE_NAMES, LOST_REASONS, formatMoney, stageInfo, daysBetween } from "../../lib/crm/constants";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
+import { toast } from "../../components/crm/toast";
 
 type Row = Record<string, unknown>;
 
@@ -52,6 +53,9 @@ function exportDeals(rows: Row[]) {
 }
 
 export const Route = createFileRoute("/_app/pipeline")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    focus: typeof search.focus === "string" ? search.focus : undefined,
+  }),
   loader: async () => {
     const [deals, companies, contacts, users] = await Promise.all([
       getDeals(),
@@ -66,9 +70,23 @@ export const Route = createFileRoute("/_app/pipeline")({
 
 function PipelinePage() {
   const { deals, companies, contacts, users } = Route.useLoaderData();
+  const { focus } = Route.useSearch();
   const router = useRouter();
+  const navigate = Route.useNavigate();
   const [editing, setEditing] = useState<Row | null>(null);
   const [open, setOpen] = useState(false);
+
+  // Deep-link from global search: ?focus=<id> auto-opens the matching deal.
+  useEffect(() => {
+    if (!focus) return;
+    const match = (deals as Row[]).find((d) => d.id === focus);
+    if (match) {
+      setEditing(match);
+      setOpen(true);
+    }
+    navigate({ search: { focus: undefined }, replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus]);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<"board" | "table">("board");
   const [filter, setFilter] = useState("all");
@@ -89,6 +107,7 @@ function PipelinePage() {
     await setDealStage({ data: { id, stage } });
     await refresh();
     setBusy(false);
+    toast(stage === "Launched" ? "Deal won 🎉" : stage === "Lost" ? "Deal marked lost" : `Moved to ${stage}`);
   }
   async function onDelete(id: string) {
     if (!confirm("Delete this deal?")) return;
@@ -96,6 +115,7 @@ function PipelinePage() {
     await deleteDeal({ data: { id } });
     await refresh();
     setBusy(false);
+    toast("Deal deleted");
   }
 
   const all = deals as Row[];
@@ -452,6 +472,7 @@ function DealModal({
     };
     await upsertDeal({ data: payload });
     setSaving(false);
+    toast(deal?.id ? "Deal updated" : "Deal added");
     onSaved();
   }
 

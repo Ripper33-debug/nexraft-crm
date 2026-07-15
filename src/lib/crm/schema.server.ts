@@ -32,6 +32,7 @@ export function ensureExtraSchema(): Promise<void> {
        )`,
       `CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at)`,
       `ALTER TABLE deals ADD COLUMN IF NOT EXISTS lost_reason TEXT`,
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS tags TEXT`,
     ];
     for (const s of stmts) {
       await db().prepare(s).run();

@@ -28,6 +28,36 @@ export function stageInfo(name: string): StageInfo {
 export const ACTIVITY_TYPES = ["Call", "Email", "Meeting", "Task", "Note"];
 export const LEAD_SOURCES = ["Referral", "Website", "Cold Outreach", "Event", "Social", "Other"];
 
+// Preset, colored company tags (Monday-style labels). Fixed set keeps the whole
+// team consistent instead of a sprawl of freeform tags.
+export type TagInfo = { name: string; color: string };
+export const COMPANY_TAGS: TagInfo[] = [
+  { name: "Retainer", color: "#2dd4bf" },
+  { name: "One-off", color: "#38bdf8" },
+  { name: "Referral", color: "#a855f7" },
+  { name: "VIP", color: "#f59e0b" },
+  { name: "Warm", color: "#f472b6" },
+  { name: "Cold", color: "#64748b" },
+  { name: "At risk", color: "#ef4444" },
+  { name: "Upsell", color: "#22c55e" },
+];
+
+export function tagColor(name: string): string {
+  return COMPANY_TAGS.find((t) => t.name === name)?.color ?? "#8a978f";
+}
+
+// Tags persist as a comma-separated string; these helpers convert to/from an array.
+export function parseTags(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+export function serializeTags(tags: string[]): string {
+  return tags.filter(Boolean).join(",");
+}
+
 // Structured reasons for a lost deal so win/loss analytics can group them.
 export const LOST_REASONS = [
   "Price / budget",

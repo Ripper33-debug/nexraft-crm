@@ -108,3 +108,6 @@ CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
 
 -- Why a deal was lost, for win/loss analytics.
 ALTER TABLE deals ADD COLUMN IF NOT EXISTS lost_reason TEXT;
+
+-- Comma-separated preset labels on a company (Retainer, VIP, etc.).
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS tags TEXT;
