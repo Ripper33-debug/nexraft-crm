@@ -80,6 +80,18 @@ export function ensureExtraSchema(): Promise<void> {
          created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
        )`,
       `CREATE INDEX IF NOT EXISTS idx_payroll_user ON payroll_payments(user_id)`,
+      // One-time backfill: every active company should sit in the pipeline. Any
+      // company that has no active deal yet gets a $0 "To Call" deal so nothing
+      // slips through. Set-based + guarded by NOT EXISTS, so it's a no-op after
+      // the first run (and safe to keep here permanently).
+      `INSERT INTO deals (id, name, company_id, owner_id, stage, value, next_step, monthly_value, proposal_status)
+       SELECT gen_random_uuid()::text, c.name || ' — Website', c.id, c.owner_id,
+              'To Call', 0, 'Reach out & qualify', 0, 'none'
+         FROM companies c
+        WHERE c.archived_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL
+          )`,
     ];
     for (const s of stmts) {
       await db().prepare(s).run();
