@@ -8,8 +8,11 @@ export type StageInfo = {
 };
 
 // Pipeline tuned for a web-design studio (Nexraft builds websites).
+// "To Call" is the entry stage: every new company lands here automatically so
+// reps have a ready-to-work queue and nothing slips through the cracks.
 export const STAGES: StageInfo[] = [
-  { name: "Lead", prob: 0.1, kind: "open", color: "#94a3b8" },
+  { name: "To Call", prob: 0.05, kind: "open", color: "#94a3b8" },
+  { name: "Lead", prob: 0.1, kind: "open", color: "#64748b" },
   { name: "Discovery", prob: 0.25, kind: "open", color: "#38bdf8" },
   { name: "Proposal", prob: 0.5, kind: "open", color: "#6366f1" },
   { name: "Negotiation", prob: 0.7, kind: "open", color: "#a855f7" },
@@ -92,6 +95,48 @@ export const PRICING_PACKAGES: PricingPackage[] = [
 
 export function pricingPackage(id: string | null | undefined): PricingPackage | undefined {
   return PRICING_PACKAGES.find((p) => p.id === id);
+}
+
+// ---------- Open-pipeline estimate range ----------
+// Most companies enter the pipeline before their scope (and therefore price) is
+// known — they sit in "To Call" with a $0 deal. Rather than show those as $0, we
+// estimate what they *could* be worth using the studio's price band: a low-end
+// Starter build/retainer through a high-end Pro build/retainer. This gives Barry
+// a realistic "if these all closed" range instead of an undercount.
+const STARTER = PRICING_PACKAGES.find((p) => p.id === "starter")!;
+const PRO = PRICING_PACKAGES.find((p) => p.id === "pro")!;
+
+export const ESTIMATE_LOW_BUILD = STARTER.build; // 1500
+export const ESTIMATE_HIGH_BUILD = PRO.build; // 4000
+export const ESTIMATE_LOW_MONTHLY = STARTER.monthly; // 299
+export const ESTIMATE_HIGH_MONTHLY = PRO.monthly; // 599
+
+export type EstimateRange = { low: number; high: number };
+
+// One-time build range for the open pipeline. `known` is the summed value of
+// deals that already have a price; `unpriced` is how many open deals still sit
+// at $0. Each unpriced deal contributes the Starter→Pro band.
+export function pipelineValueRange(known: number, unpriced: number): EstimateRange {
+  const k = Number(known) || 0;
+  const u = Math.max(0, Number(unpriced) || 0);
+  return { low: k + u * ESTIMATE_LOW_BUILD, high: k + u * ESTIMATE_HIGH_BUILD };
+}
+
+// Monthly-retainer (MRR) range for the open pipeline, same idea as above.
+export function pipelineMrrRange(known: number, unpriced: number): EstimateRange {
+  const k = Number(known) || 0;
+  const u = Math.max(0, Number(unpriced) || 0);
+  return { low: k + u * ESTIMATE_LOW_MONTHLY, high: k + u * ESTIMATE_HIGH_MONTHLY };
+}
+
+// Render a money range as "low – high" (single value if the ends match).
+export function formatRange(low: number, high: number): string {
+  return low === high ? formatMoney(low) : `${formatMoney(low)} – ${formatMoney(high)}`;
+}
+
+// Convenience: render an EstimateRange directly.
+export function formatEstimate(r: EstimateRange): string {
+  return formatRange(r.low, r.high);
 }
 
 // ---------- Sales payroll / commission ----------

@@ -4,7 +4,15 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { getDashboard, getActivityFeed, getCompanies, type FeedRow } from "../../lib/crm/data";
 import { Card, StageBadge, SummaryCard, Eyebrow, OwnerChip, Pill, Avatar } from "../../components/crm/ui";
 import { StageBarChart, MonthlyTrendChart } from "../../components/crm/charts";
-import { formatMoney, relativeTime, STALE_DAYS, daysBetween } from "../../lib/crm/constants";
+import {
+  formatMoney,
+  formatRange,
+  pipelineValueRange,
+  pipelineMrrRange,
+  relativeTime,
+  STALE_DAYS,
+  daysBetween,
+} from "../../lib/crm/constants";
 
 export const Route = createFileRoute("/_app/")({
   loader: async () => {
@@ -101,7 +109,7 @@ function TodayBoard({
   const today = new Date().toISOString().slice(0, 10);
 
   // Fresh accounts that still need a first call.
-  const toCall = companies.filter((c) => Number(c.deal_count) === 0 && !c.call_outcome);
+  const toCall = companies.filter((c) => !c.call_outcome);
   // Follow-ups that are overdue or land today.
   const dueNow = followups.filter((f) => {
     const due = f.due_date ? String(f.due_date).slice(0, 10) : "";
@@ -238,6 +246,11 @@ function Dashboard() {
   const firstName = (user.name || "").split(" ")[0] || user.name;
   const created30 = d.dailyCreated.reduce((s, n) => s + n, 0);
   const won30 = d.dailyWon.reduce((s, n) => s + n, 0);
+  // Unpriced open deals (fresh "To Call" ones) get a Starter–Pro estimate so the
+  // pipeline shows a realistic low–high range for both build value and MRR.
+  const openUnpriced = d.kpi.open_unpriced ?? 0;
+  const openValueRange = pipelineValueRange(d.kpi.open_value, openUnpriced);
+  const openMrrRange = pipelineMrrRange(d.kpi.open_monthly ?? 0, openUnpriced);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
@@ -276,10 +289,10 @@ function Dashboard() {
       <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <SummaryCard
           label="Open pipeline"
-          value={formatMoney(d.kpi.open_value)}
-          sub={`${d.kpi.open_count} open deals`}
+          value={formatRange(openValueRange.low, openValueRange.high)}
+          sub={openUnpriced > 0 ? `${d.kpi.open_count} open · ${openUnpriced} estimated` : `${d.kpi.open_count} open deals`}
           accent
-          hint="The total dollar value of every deal that's still in progress (not yet won or lost)."
+          hint="The build value of every deal still in progress. Deals that haven't been priced yet are estimated on the Starter–Pro range, giving a low–high span."
         />
         <SummaryCard
           label="Weighted forecast"
@@ -315,6 +328,12 @@ function Dashboard() {
           sub="MRR × 12"
           hint="Your monthly recurring revenue projected over a full year (monthly recurring × 12)."
         />
+        <SummaryCard
+          label="Pipeline MRR (est.)"
+          value={formatRange(openMrrRange.low, openMrrRange.high)}
+          sub={openUnpriced > 0 ? "Includes unpriced estimates" : "Retainers in the pipeline"}
+          hint="Potential monthly recurring revenue from open deals if they close. Unpriced deals are estimated on the Starter–Pro monthly range."
+        />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -349,7 +368,12 @@ function Dashboard() {
               {d.leaderboard.map((r) => (
                 <tr key={r.id} className="border-b border-line/60 last:border-0 hover:bg-surface-2/60">
                   <td className="px-4 py-2.5"><OwnerChip name={r.name} /></td>
-                  <td className="px-4 py-2.5 font-medium text-bone">{formatMoney(r.open_value)}</td>
+                  <td className="px-4 py-2.5 font-medium text-bone">
+                    {formatRange(
+                      pipelineValueRange(r.open_value, r.open_unpriced ?? 0).low,
+                      pipelineValueRange(r.open_value, r.open_unpriced ?? 0).high,
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-mute">{r.open_count}</td>
                   <td className="px-4 py-2.5 text-mute">{formatMoney(r.won_value)}</td>
                   <td className="px-4 py-2.5 text-mute">{r.won_count}</td>

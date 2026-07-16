@@ -16,6 +16,8 @@ import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 
 const WON_STAGE = "Launched";
 const LOST_STAGE = "Lost";
+// Entry stage: every new company gets a $0 deal here so it's ready to work.
+const TO_CALL_STAGE = "To Call";
 
 const OPEN_LIST = OPEN_STAGES.map((s) => `'${s}'`).join(",");
 
@@ -259,6 +261,39 @@ export const upsertCompany = createServerFn({ method: "POST" })
       entityId: id,
       summary: `${user.name} added company ${data.name}`,
     });
+    // Drop the new company straight into the pipeline as a $0 "To Call" deal so
+    // it shows up ready to work in the call queue — no manual step for the rep.
+    const dealOwner = data.owner_id ?? user.id;
+    const now = new Date().toISOString();
+    const dealId = uid();
+    await db()
+      .prepare(
+        `INSERT INTO deals (id, name, company_id, contact_id, owner_id, stage, value, expected_close, next_step, notes, lost_reason, win_reason, monthly_value, renewal_date, links, proposal_status, proposal_sent_at, created_at, updated_at, stage_changed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        dealId,
+        `${data.name} — Website`,
+        id,
+        null,
+        dealOwner,
+        TO_CALL_STAGE,
+        0,
+        null,
+        "Reach out & qualify",
+        null,
+        null,
+        null,
+        0,
+        null,
+        null,
+        "none",
+        null,
+        now,
+        now,
+        now,
+      )
+      .run();
     return { id };
   });
 
@@ -882,11 +917,26 @@ export const setCompanyCallOutcome = createServerFn({ method: "POST" })
       .run();
 
     const name = company.name;
+    const now = new Date().toISOString();
 
-    // When they sign, create a won deal so the pipeline / revenue reflect it —
-    // but only if this company doesn't already have a won deal on the books.
+    // Keep the company's pipeline deal in step with the call outcome. Every
+    // company has an auto-created "To Call" deal, so triaging should MOVE that
+    // deal along the board rather than spawn duplicates. Prefer the To Call deal
+    // if present, otherwise the most recently touched one.
+    const deal = await db()
+      .prepare(
+        `SELECT id, stage FROM deals
+           WHERE company_id = ? AND archived_at IS NULL
+           ORDER BY (stage = ?) DESC, updated_at DESC LIMIT 1`,
+      )
+      .bind(data.id, TO_CALL_STAGE)
+      .first<{ id: string; stage: string }>();
+    const isOpen = (s: string) => OPEN_STAGES.includes(s);
+
     let createdDeal = false;
     if (data.outcome === "signed") {
+      // Convert the company's open deal to a won deal — but only if one isn't
+      // already won, so revenue never double-counts.
       const existingWon = await db()
         .prepare(
           `SELECT id FROM deals WHERE company_id = ? AND stage = ? AND archived_at IS NULL LIMIT 1`,
@@ -894,46 +944,101 @@ export const setCompanyCallOutcome = createServerFn({ method: "POST" })
         .bind(data.id, WON_STAGE)
         .first<{ id: string }>();
       if (!existingWon) {
-        const now = new Date().toISOString();
-        const dealId = uid();
         const pkg = (data.package || "").trim();
-        const dealName = pkg ? `${name} — ${pkg}` : `${name} — Website`;
+        if (deal) {
+          // Promote the existing (To Call / open) deal to Launched.
+          await db()
+            .prepare(
+              `UPDATE deals SET name = CASE WHEN ? <> '' THEN ? ELSE name END,
+                 stage=?, proposal_status='signed',
+                 value=COALESCE(?, value), monthly_value=COALESCE(?, monthly_value),
+                 stage_changed_at=?, updated_at=? WHERE id=?`,
+            )
+            .bind(
+              pkg,
+              pkg ? `${name} — ${pkg}` : "",
+              WON_STAGE,
+              data.value ?? null,
+              data.monthly_value ?? null,
+              now,
+              now,
+              deal.id,
+            )
+            .run();
+          await logEvent({
+            actorId: user.id,
+            verb: "won",
+            entityType: "deal",
+            entityId: deal.id,
+            summary: `${user.name} signed ${name}${pkg ? ` on the ${pkg} package` : ""}`,
+          });
+        } else {
+          // Fallback: no deal on file, so create the won deal outright.
+          const dealId = uid();
+          const dealName = pkg ? `${name} — ${pkg}` : `${name} — Website`;
+          await db()
+            .prepare(
+              `INSERT INTO deals (id, name, company_id, contact_id, owner_id, stage, value, expected_close, next_step, notes, lost_reason, win_reason, monthly_value, renewal_date, links, proposal_status, proposal_sent_at, created_at, updated_at, stage_changed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .bind(
+              dealId,
+              dealName,
+              data.id,
+              null,
+              company.owner_id ?? user.id,
+              WON_STAGE,
+              data.value ?? 0,
+              null,
+              null,
+              null,
+              null,
+              null,
+              data.monthly_value ?? 0,
+              null,
+              null,
+              "signed",
+              now,
+              now,
+              now,
+              now,
+            )
+            .run();
+          createdDeal = true;
+          await logEvent({
+            actorId: user.id,
+            verb: "won",
+            entityType: "deal",
+            entityId: dealId,
+            summary: `${user.name} signed ${name}${pkg ? ` on the ${pkg} package` : ""}`,
+          });
+        }
+      }
+    } else if (data.outcome === "not_interested") {
+      // A "no" drops the open deal to Lost (leave won deals untouched).
+      if (deal && isOpen(deal.stage)) {
         await db()
-          .prepare(
-            `INSERT INTO deals (id, name, company_id, contact_id, owner_id, stage, value, expected_close, next_step, notes, lost_reason, win_reason, monthly_value, renewal_date, links, proposal_status, proposal_sent_at, created_at, updated_at, stage_changed_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .bind(
-            dealId,
-            dealName,
-            data.id,
-            null,
-            company.owner_id ?? user.id,
-            WON_STAGE,
-            data.value ?? 0,
-            null,
-            null,
-            null,
-            null,
-            null,
-            data.monthly_value ?? 0,
-            null,
-            null,
-            "signed",
-            now,
-            now,
-            now,
-            now,
-          )
+          .prepare(`UPDATE deals SET stage=?, stage_changed_at=?, updated_at=? WHERE id=?`)
+          .bind(LOST_STAGE, now, now, deal.id)
           .run();
-        createdDeal = true;
-        await logEvent({
-          actorId: user.id,
-          verb: "won",
-          entityType: "deal",
-          entityId: dealId,
-          summary: `${user.name} signed ${name}${pkg ? ` on the ${pkg} package` : ""}`,
-        });
+      }
+    } else if (data.outcome === "interested" || data.outcome === "maybe") {
+      // A "yes"/"maybe" advances a fresh To Call deal to Lead (don't rewind a
+      // deal a rep has already pushed further along).
+      if (deal && deal.stage === TO_CALL_STAGE) {
+        await db()
+          .prepare(`UPDATE deals SET stage=?, stage_changed_at=?, updated_at=? WHERE id=?`)
+          .bind("Lead", now, now, deal.id)
+          .run();
+      }
+    } else if (data.outcome === null) {
+      // Reset: send a triage-moved deal back to To Call (but never a won deal or
+      // one a rep has advanced past Lead on their own).
+      if (deal && (deal.stage === LOST_STAGE || deal.stage === "Lead")) {
+        await db()
+          .prepare(`UPDATE deals SET stage=?, stage_changed_at=?, updated_at=? WHERE id=?`)
+          .bind(TO_CALL_STAGE, now, now, deal.id)
+          .run();
       }
     }
 
@@ -1474,6 +1579,8 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
       `SELECT
         COALESCE(SUM(CASE WHEN stage IN (${OPEN_LIST}) THEN value END),0) AS open_value,
         COALESCE(SUM(CASE WHEN stage IN (${OPEN_LIST}) THEN 1 END),0)::int AS open_count,
+        COALESCE(SUM(CASE WHEN stage IN (${OPEN_LIST}) AND COALESCE(value,0) <= 0 THEN 1 END),0)::int AS open_unpriced,
+        COALESCE(SUM(CASE WHEN stage IN (${OPEN_LIST}) THEN monthly_value END),0) AS open_monthly,
         COALESCE(SUM(CASE WHEN stage='Launched' THEN value END),0) AS won_value,
         COALESCE(SUM(CASE WHEN stage='Launched' THEN 1 END),0)::int AS won_count,
         COALESCE(SUM(CASE WHEN stage='Lost' THEN 1 END),0)::int AS lost_count
@@ -1482,6 +1589,8 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
     .first<{
       open_value: number;
       open_count: number;
+      open_unpriced: number;
+      open_monthly: number;
       won_value: number;
       won_count: number;
       lost_count: number;
@@ -1510,6 +1619,8 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
       `SELECT u.id, u.name,
         COALESCE(SUM(CASE WHEN d.stage IN (${OPEN_LIST}) THEN d.value END),0) AS open_value,
         COALESCE(SUM(CASE WHEN d.stage IN (${OPEN_LIST}) THEN 1 END),0)::int AS open_count,
+        COALESCE(SUM(CASE WHEN d.stage IN (${OPEN_LIST}) AND COALESCE(d.value,0) <= 0 THEN 1 END),0)::int AS open_unpriced,
+        COALESCE(SUM(CASE WHEN d.stage IN (${OPEN_LIST}) THEN d.monthly_value END),0) AS open_monthly,
         COALESCE(SUM(CASE WHEN d.stage='Launched' THEN d.value END),0) AS won_value,
         COALESCE(SUM(CASE WHEN d.stage='Launched' THEN 1 END),0)::int AS won_count,
         COALESCE(SUM(CASE WHEN d.stage='Lost' THEN 1 END),0)::int AS lost_count
@@ -1522,6 +1633,8 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
       name: string;
       open_value: number;
       open_count: number;
+      open_unpriced: number;
+      open_monthly: number;
       won_value: number;
       won_count: number;
       lost_count: number;
@@ -1635,6 +1748,8 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
     kpi: kpi ?? {
       open_value: 0,
       open_count: 0,
+      open_unpriced: 0,
+      open_monthly: 0,
       won_value: 0,
       won_count: 0,
       lost_count: 0,
@@ -1664,6 +1779,8 @@ export type TeamMemberRow = {
   created_at: string;
   open_value: number;
   open_count: number;
+  open_unpriced: number;
+  open_monthly: number;
   won_value: number;
   won_count: number;
   lost_count: number;
@@ -1682,6 +1799,8 @@ export const getTeamOverview = createServerFn({ method: "GET" }).handler(async (
       `SELECT u.id, u.name, u.email, u.role, u.created_at,
         COALESCE(SUM(CASE WHEN d.stage IN (${OPEN_LIST}) THEN d.value END),0) AS open_value,
         COALESCE(SUM(CASE WHEN d.stage IN (${OPEN_LIST}) THEN 1 END),0)::int AS open_count,
+        COALESCE(SUM(CASE WHEN d.stage IN (${OPEN_LIST}) AND COALESCE(d.value,0) <= 0 THEN 1 END),0)::int AS open_unpriced,
+        COALESCE(SUM(CASE WHEN d.stage IN (${OPEN_LIST}) THEN d.monthly_value END),0) AS open_monthly,
         COALESCE(SUM(CASE WHEN d.stage='Launched' THEN d.value END),0) AS won_value,
         COALESCE(SUM(CASE WHEN d.stage='Launched' THEN 1 END),0)::int AS won_count,
         COALESCE(SUM(CASE WHEN d.stage='Lost' THEN 1 END),0)::int AS lost_count,

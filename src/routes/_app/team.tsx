@@ -27,7 +27,7 @@ import {
   Pill,
   StageBadge,
 } from "../../components/crm/ui";
-import { formatMoney } from "../../lib/crm/constants";
+import { formatMoney, formatRange, pipelineValueRange } from "../../lib/crm/constants";
 
 export const Route = createFileRoute("/_app/team")({
   beforeLoad: ({ context }) => {
@@ -65,9 +65,11 @@ function TeamPage() {
       open_value: acc.open_value + Number(r.open_value),
       won_value: acc.won_value + Number(r.won_value),
       open_count: acc.open_count + Number(r.open_count),
+      open_unpriced: acc.open_unpriced + Number(r.open_unpriced ?? 0),
     }),
-    { open_value: 0, won_value: 0, open_count: 0 },
+    { open_value: 0, won_value: 0, open_count: 0, open_unpriced: 0 },
   );
+  const totalRange = pipelineValueRange(totals.open_value, totals.open_unpriced);
 
   async function openDetail(id: string) {
     setDetailLoading(true);
@@ -113,7 +115,7 @@ function TeamPage() {
 
       <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <SummaryCard label="Team members" value={String(rows.length)} />
-        <SummaryCard label="Open pipeline" value={formatMoney(totals.open_value)} sub={`${totals.open_count} deals`} accent />
+        <SummaryCard label="Open pipeline" value={formatRange(totalRange.low, totalRange.high)} sub={totals.open_unpriced > 0 ? `${totals.open_count} deals · ${totals.open_unpriced} est.` : `${totals.open_count} deals`} accent />
         <SummaryCard label="Won (all time)" value={formatMoney(totals.won_value)} />
         <div className="rounded-xl border border-line bg-surface p-4">
           <Eyebrow>Team access code</Eyebrow>
@@ -153,7 +155,12 @@ function TeamPage() {
                     </button>
                   </td>
                   <td className="px-4 py-2.5">
-                    <div className="font-medium text-bone">{formatMoney(Number(r.open_value))}</div>
+                    <div className="font-medium text-bone">
+                      {formatRange(
+                        pipelineValueRange(Number(r.open_value), Number(r.open_unpriced ?? 0)).low,
+                        pipelineValueRange(Number(r.open_value), Number(r.open_unpriced ?? 0)).high,
+                      )}
+                    </div>
                     <div className="text-xs text-faint">{r.open_count} open</div>
                   </td>
                   <td className="px-4 py-2.5">

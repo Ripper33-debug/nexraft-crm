@@ -47,7 +47,7 @@ function CallQueue({
   onChanged: () => void;
 }) {
   const queue = useMemo(
-    () => companies.filter((c) => Number(c.deal_count) === 0 && !c.call_outcome),
+    () => companies.filter((c) => !c.call_outcome),
     [companies],
   );
   const [busy, setBusy] = useState(false);
@@ -264,8 +264,8 @@ function colOf(c: Row): string | null {
   if (outcome === "maybe") return "maybe";
   if (outcome === "not_interested") return "not_interested";
   if (outcome === "signed") return "signed";
-  // No outcome yet: only show as "to call" if there's no deal in flight.
-  if (!outcome && Number(c.deal_count) === 0) return "to_call";
+  // No outcome yet → it still needs a first call.
+  if (!outcome) return "to_call";
   return null;
 }
 
