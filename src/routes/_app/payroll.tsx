@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -36,6 +36,14 @@ const GATE_CODE = "1029";
 const GATE_KEY = "nexraft_payroll_ok";
 
 export const Route = createFileRoute("/_app/payroll")({
+  // Admins only. Non-admins are bounced before any payroll data is fetched; the
+  // server functions independently enforce requireAdmin() as the real boundary.
+  beforeLoad: ({ context }) => {
+    const user = (context as { user?: { role?: string } }).user;
+    if (!user || user.role !== "admin") {
+      throw redirect({ to: "/" });
+    }
+  },
   loader: async () => {
     const data = await getPayroll();
     return data;
@@ -85,7 +93,7 @@ function Gate({ onUnlock }: { onUnlock: () => void }) {
           </svg>
         </div>
         <h2 className="mt-4 text-lg font-semibold text-bone">Payroll is locked</h2>
-        <p className="mt-1 text-sm text-mute">Enter the code to view sales commissions and payments.</p>
+        <p className="mt-1 text-sm text-mute">Admins only. Enter the code to view sales commissions and payments.</p>
         <form onSubmit={submit} className="mt-5">
           <Input
             autoFocus
@@ -480,9 +488,9 @@ function PayrollPage() {
 
       <p className="mt-6 text-[11px] leading-relaxed text-faint">
         Cadence is per-rep — {PAY_CADENCES.map((c) => c.label).join(" or ")} — and just changes how you
-        plan payouts; the earned/owed math is the same either way. The {GATE_CODE.length}-digit lock keeps
-        payroll off casual glances but isn't strong security, so don't treat it as protecting sensitive pay
-        data from someone determined.
+        plan payouts; the earned/owed math is the same either way. Payroll is admin-only: the server won't
+        return this data to a non-admin account, and the {GATE_CODE.length}-digit code is a second lock on
+        top of that so payroll stays private even if your session is left open.
       </p>
 
       <PayModal rep={paying} onClose={() => setPaying(null)} onSaved={() => router.invalidate()} />

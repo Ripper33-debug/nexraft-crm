@@ -914,8 +914,11 @@ export type PayrollRep = {
   payments: PayrollPaymentRow[];
 };
 
+// Payroll is admin-only: every entry point below calls requireAdmin(), so a
+// non-admin session gets FORBIDDEN even if it hits the server fn directly. The
+// UI's code lock is a second layer, not the security boundary.
 export const getPayroll = createServerFn({ method: "GET" }).handler(async () => {
-  await requireUser();
+  await requireAdmin();
   await ensureExtraSchema();
 
   const { results: users } = await db()
@@ -1019,7 +1022,7 @@ export const recordPayrollPayment = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
-    const user = await requireUser();
+    const user = await requireAdmin();
     await ensureExtraSchema();
     const id = uid();
     await db()
@@ -1046,7 +1049,7 @@ export const recordPayrollPayment = createServerFn({ method: "POST" })
 export const deletePayrollPayment = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.string() }))
   .handler(async ({ data }) => {
-    const user = await requireUser();
+    const user = await requireAdmin();
     await ensureExtraSchema();
     await db().prepare(`DELETE FROM payroll_payments WHERE id = ?`).bind(data.id).run();
     await logEvent({
@@ -1062,7 +1065,7 @@ export const deletePayrollPayment = createServerFn({ method: "POST" })
 export const setPayCadence = createServerFn({ method: "POST" })
   .validator(z.object({ user_id: z.string(), cadence: z.enum(["monthly", "biweekly"]) }))
   .handler(async ({ data }) => {
-    await requireUser();
+    await requireAdmin();
     await ensureExtraSchema();
     await db()
       .prepare(`UPDATE users SET pay_cadence = ? WHERE id = ?`)
