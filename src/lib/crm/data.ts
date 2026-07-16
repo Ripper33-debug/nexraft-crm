@@ -3,7 +3,15 @@ import { z } from "zod";
 
 import { db, uid } from "./db.server";
 import { requireUser, requireAdmin, hashPassword, signupCode } from "./auth.server";
-import { OPEN_STAGES, STAGES, RENEWAL_SOON_DAYS, canEditRecord, canAdministerRecord } from "./constants";
+import {
+  OPEN_STAGES,
+  STAGES,
+  RENEWAL_SOON_DAYS,
+  canEditRecord,
+  canAdministerRecord,
+  dealCommission,
+  salesBonus,
+} from "./constants";
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 
 const WON_STAGE = "Launched";
@@ -864,6 +872,203 @@ export const setCompanyCallOutcome = createServerFn({ method: "POST" })
       });
     }
     return { ok: true, createdDeal };
+  });
+
+// ---------- Sales payroll ----------
+// Reps earn 30% of every signed retainer for 12 months, plus a one-time $1,500
+// bonus the first month they sign 5+. This computes each rep's earned/paid/owed
+// ledger from their won deals + recorded payments. Money math lives in pure
+// helpers (dealCommission / salesBonus) so it can be unit-tested.
+export type PayrollDeal = {
+  id: string;
+  name: string;
+  company_name: string | null;
+  monthly: number;
+  signed_at: string;
+  earnedMonths: number;
+  earned: number;
+  lifetime: number;
+};
+export type PayrollPaymentRow = {
+  id: string;
+  amount: number;
+  paid_at: string;
+  note: string | null;
+};
+export type PayrollRep = {
+  id: string;
+  name: string;
+  email: string;
+  cadence: string;
+  salesTotal: number;
+  bestMonthCount: number;
+  monthlyBook: number; // sum of monthly retainers they've signed
+  commissionEarned: number;
+  lifetimeCommission: number;
+  bonusEarned: number;
+  bonusMonth: string | null;
+  earned: number;
+  paid: number;
+  owed: number;
+  deals: PayrollDeal[];
+  payments: PayrollPaymentRow[];
+};
+
+export const getPayroll = createServerFn({ method: "GET" }).handler(async () => {
+  await requireUser();
+  await ensureExtraSchema();
+
+  const { results: users } = await db()
+    .prepare(
+      `SELECT id, name, email, COALESCE(pay_cadence, 'monthly') AS pay_cadence
+       FROM users ORDER BY name`,
+    )
+    .all<{ id: string; name: string; email: string; pay_cadence: string }>();
+
+  const { results: dealRows } = await db()
+    .prepare(
+      `SELECT d.id, d.name, d.owner_id,
+        COALESCE(d.monthly_value, 0) AS monthly_value,
+        COALESCE(d.stage_changed_at, d.created_at) AS signed_at,
+        co.name AS company_name
+       FROM deals d
+       LEFT JOIN companies co ON co.id = d.company_id
+       WHERE d.stage = ? AND d.archived_at IS NULL
+       ORDER BY signed_at DESC`,
+    )
+    .bind(WON_STAGE)
+    .all<{
+      id: string;
+      name: string;
+      owner_id: string | null;
+      monthly_value: number | string;
+      signed_at: string;
+      company_name: string | null;
+    }>();
+
+  const { results: paymentRows } = await db()
+    .prepare(
+      `SELECT id, user_id, amount, paid_at, note
+       FROM payroll_payments ORDER BY paid_at DESC, created_at DESC`,
+    )
+    .all<{ id: string; user_id: string; amount: number | string; paid_at: string; note: string | null }>();
+
+  const now = new Date();
+  const reps: PayrollRep[] = (users ?? []).map((u) => {
+    const mine = (dealRows ?? []).filter((d) => d.owner_id === u.id);
+    const perMonth: Record<string, number> = {};
+    let monthlyBook = 0;
+    let commissionEarned = 0;
+    let lifetimeCommission = 0;
+    const deals: PayrollDeal[] = mine.map((d) => {
+      const monthly = Number(d.monthly_value) || 0;
+      monthlyBook += monthly;
+      const c = dealCommission(monthly, d.signed_at, now);
+      commissionEarned += c.earned;
+      lifetimeCommission += c.lifetime;
+      const mo = (d.signed_at || "").slice(0, 7); // YYYY-MM
+      if (mo) perMonth[mo] = (perMonth[mo] ?? 0) + 1;
+      return {
+        id: d.id,
+        name: d.name,
+        company_name: d.company_name,
+        monthly,
+        signed_at: d.signed_at,
+        earnedMonths: c.earnedMonths,
+        earned: c.earned,
+        lifetime: c.lifetime,
+      };
+    });
+    const bonus = salesBonus(perMonth);
+    const bestMonthCount = Object.values(perMonth).reduce((mx, n) => Math.max(mx, n), 0);
+    const payments = (paymentRows ?? [])
+      .filter((p) => p.user_id === u.id)
+      .map((p) => ({ id: p.id, amount: Number(p.amount) || 0, paid_at: p.paid_at, note: p.note }));
+    const paid = payments.reduce((s, p) => s + p.amount, 0);
+    const earned = commissionEarned + bonus.earned;
+    return {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      cadence: u.pay_cadence,
+      salesTotal: mine.length,
+      bestMonthCount,
+      monthlyBook,
+      commissionEarned,
+      lifetimeCommission,
+      bonusEarned: bonus.earned,
+      bonusMonth: bonus.month,
+      earned,
+      paid,
+      owed: Math.max(0, earned - paid),
+      deals,
+      payments,
+    };
+  });
+
+  return { reps };
+});
+
+export const recordPayrollPayment = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      user_id: z.string(),
+      amount: z.number().positive(),
+      paid_at: z.string().min(1),
+      note: z.string().optional().nullable(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    const id = uid();
+    await db()
+      .prepare(
+        `INSERT INTO payroll_payments (id, user_id, amount, paid_at, note, created_by)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(id, data.user_id, data.amount, data.paid_at, data.note ?? null, user.id)
+      .run();
+    const rep = await db()
+      .prepare(`SELECT name FROM users WHERE id = ?`)
+      .bind(data.user_id)
+      .first<{ name: string }>();
+    await logEvent({
+      actorId: user.id,
+      verb: "paid",
+      entityType: "payroll",
+      entityId: id,
+      summary: `${user.name} recorded a payroll payment to ${rep?.name ?? "a rep"}`,
+    });
+    return { id };
+  });
+
+export const deletePayrollPayment = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string() }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    await db().prepare(`DELETE FROM payroll_payments WHERE id = ?`).bind(data.id).run();
+    await logEvent({
+      actorId: user.id,
+      verb: "deleted",
+      entityType: "payroll",
+      entityId: data.id,
+      summary: `${user.name} removed a payroll payment`,
+    });
+    return { ok: true };
+  });
+
+export const setPayCadence = createServerFn({ method: "POST" })
+  .validator(z.object({ user_id: z.string(), cadence: z.enum(["monthly", "biweekly"]) }))
+  .handler(async ({ data }) => {
+    await requireUser();
+    await ensureExtraSchema();
+    await db()
+      .prepare(`UPDATE users SET pay_cadence = ? WHERE id = ?`)
+      .bind(data.cadence, data.user_id)
+      .run();
+    return { ok: true };
   });
 
 // ---------- Notifications (record handed off / shared with you) ----------

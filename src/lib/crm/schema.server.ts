@@ -68,6 +68,18 @@ export function ensureExtraSchema(): Promise<void> {
          created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
        )`,
       `CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, seen)`,
+      // Sales payroll: per-rep pay cadence + a ledger of commission/bonus payments.
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS pay_cadence TEXT`,
+      `CREATE TABLE IF NOT EXISTS payroll_payments (
+         id TEXT PRIMARY KEY,
+         user_id TEXT NOT NULL,
+         amount NUMERIC NOT NULL DEFAULT 0,
+         paid_at TEXT NOT NULL,
+         note TEXT,
+         created_by TEXT,
+         created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_payroll_user ON payroll_payments(user_id)`,
     ];
     for (const s of stmts) {
       await db().prepare(s).run();

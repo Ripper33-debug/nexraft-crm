@@ -94,6 +94,64 @@ export function pricingPackage(id: string | null | undefined): PricingPackage | 
   return PRICING_PACKAGES.find((p) => p.id === id);
 }
 
+// ---------- Sales payroll / commission ----------
+// Reps earn a cut of the monthly retainer on every signed deal, paid over the
+// first year, plus a flat bonus the first month they sign a batch of deals.
+export const COMMISSION_RATE = 0.3; // 30% of the monthly retainer
+export const COMMISSION_MONTHS = 12; // ...for the first 12 months of the deal
+export const SALES_BONUS_AMOUNT = 1500; // flat bonus...
+export const SALES_BONUS_THRESHOLD = 5; // ...for signing this many in one month
+export const SALES_BONUS_ONE_TIME = true; // only the first qualifying month counts
+
+export type PayCadence = "monthly" | "biweekly";
+export const PAY_CADENCES: { id: PayCadence; label: string; perYear: number }[] = [
+  { id: "monthly", label: "Monthly", perYear: 12 },
+  { id: "biweekly", label: "Bi-weekly", perYear: 26 },
+];
+export function payCadenceLabel(id: string | null | undefined): string {
+  return PAY_CADENCES.find((c) => c.id === id)?.label ?? "Monthly";
+}
+
+// Whole calendar months between a signed date and `to` (0 on the signing day).
+export function monthsElapsed(iso: string | null | undefined, to = new Date()): number {
+  if (!iso) return 0;
+  const d = new Date(iso.replace(" ", "T") + (iso.includes("T") ? "" : "Z"));
+  if (isNaN(d.getTime())) return 0;
+  let months = (to.getFullYear() - d.getFullYear()) * 12 + (to.getMonth() - d.getMonth());
+  if (to.getDate() < d.getDate()) months -= 1;
+  return Math.max(0, months);
+}
+
+// Commission a single signed retainer has earned so far. A rep starts earning the
+// month they sign (month 1), accruing 30% of the monthly value each month up to
+// 12 months. One-off builds (no monthly) earn nothing here.
+export function dealCommission(
+  monthly: number,
+  signedIso: string | null | undefined,
+  to = new Date(),
+): { earnedMonths: number; earned: number; lifetime: number } {
+  const m = Number(monthly) || 0;
+  if (m <= 0) return { earnedMonths: 0, earned: 0, lifetime: 0 };
+  const lifetime = m * COMMISSION_RATE * COMMISSION_MONTHS;
+  const earnedMonths = Math.min(COMMISSION_MONTHS, Math.max(1, monthsElapsed(signedIso, to) + 1));
+  return { earnedMonths, earned: m * COMMISSION_RATE * earnedMonths, lifetime };
+}
+
+// Given the count of a rep's signed deals per calendar month (e.g. {"2026-07": 6}),
+// decide whether the one-time 5-in-a-month bonus has been earned, and when.
+export function salesBonus(perMonthCounts: Record<string, number>): {
+  earned: number;
+  month: string | null;
+} {
+  const months = Object.keys(perMonthCounts).sort(); // chronological
+  for (const mo of months) {
+    if (perMonthCounts[mo] >= SALES_BONUS_THRESHOLD) {
+      return { earned: SALES_BONUS_AMOUNT, month: mo };
+    }
+  }
+  return { earned: 0, month: null };
+}
+
 // Preset, colored company tags (Monday-style labels). Fixed set keeps the whole
 // team consistent instead of a sprawl of freeform tags.
 export type TagInfo = { name: string; color: string };
