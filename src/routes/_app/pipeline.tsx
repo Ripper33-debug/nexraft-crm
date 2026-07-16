@@ -43,6 +43,8 @@ import {
   serializeLinks,
   normalizeUrl,
   canEditRecord,
+  proposalInfo,
+  PROPOSAL_STATUSES,
   type DealLink,
 } from "../../lib/crm/constants";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
@@ -64,6 +66,7 @@ function exportDeals(rows: Row[]) {
       "Renewal date": String(d.renewal_date ?? ""),
       "Expected close": String(d.expected_close ?? ""),
       "Next step": String(d.next_step ?? ""),
+      Proposal: proposalInfo(d.proposal_status as string).label,
       "Win reason": String(d.win_reason ?? ""),
       "Lost reason": String(d.lost_reason ?? ""),
       Links: parseLinks(d.links as string)
@@ -427,8 +430,19 @@ function KanbanBoard({
                         {d.owner_name ? <Avatar name={d.owner_name as string} size={20} /> : null}
                       </div>
                     </div>
-                    {Number(d.monthly_value) > 0 || parseLinks(d.links as string).length > 0 ? (
-                      <div className="mt-1.5 flex items-center gap-2 text-[11px] text-faint">
+                    {Number(d.monthly_value) > 0 || parseLinks(d.links as string).length > 0 || (d.proposal_status && d.proposal_status !== "none") ? (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-faint">
+                        {d.proposal_status && d.proposal_status !== "none" ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-medium"
+                            style={{
+                              color: proposalInfo(d.proposal_status as string).color,
+                              backgroundColor: `${proposalInfo(d.proposal_status as string).color}1a`,
+                            }}
+                          >
+                            📄 {proposalInfo(d.proposal_status as string).label}
+                          </span>
+                        ) : null}
                         {Number(d.monthly_value) > 0 ? (
                           <span className="text-signal/80">↻ {formatMoney(Number(d.monthly_value))}/mo</span>
                         ) : null}
@@ -520,6 +534,17 @@ function PipelineTable({
                       <button onClick={() => onEdit(d)} className="font-medium text-bone hover:text-signal">
                         {d.name as string}
                       </button>
+                      {d.proposal_status && d.proposal_status !== "none" ? (
+                        <span
+                          className="ml-2 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 align-middle text-[10px] font-medium"
+                          style={{
+                            color: proposalInfo(d.proposal_status as string).color,
+                            backgroundColor: `${proposalInfo(d.proposal_status as string).color}1a`,
+                          }}
+                        >
+                          📄 {proposalInfo(d.proposal_status as string).label}
+                        </span>
+                      ) : null}
                       {d.next_step ? (
                         <div className="text-xs text-faint">Next: {d.next_step as string}</div>
                       ) : null}
@@ -645,6 +670,7 @@ function DealModal({
       renewal_date: (fd.get("renewal_date") as string) || null,
       expected_close: (fd.get("expected_close") as string) || null,
       next_step: (fd.get("next_step") as string) || null,
+      proposal_status: ((fd.get("proposal_status") as string) || "none") as "none" | "sent" | "viewed" | "signed",
       notes: (fd.get("notes") as string) || null,
       lost_reason: (fd.get("lost_reason") as string) || null,
       win_reason: (fd.get("win_reason") as string) || null,
@@ -776,9 +802,20 @@ function DealModal({
             <Input name="renewal_date" type="date" defaultValue={((deal?.renewal_date as string) || "").slice(0, 10)} />
           </Field>
         </div>
-        <Field label="Next step">
-          <Input name="next_step" defaultValue={(deal?.next_step as string) || ""} placeholder="Send proposal by Friday" />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Next step">
+            <Input name="next_step" defaultValue={(deal?.next_step as string) || ""} placeholder="Send proposal by Friday" />
+          </Field>
+          <Field label="Proposal status">
+            <Select name="proposal_status" defaultValue={(deal?.proposal_status as string) || "none"}>
+              {PROPOSAL_STATUSES.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
 
         {/* Labelled links — Figma, proposal, staging URL, contract, etc. */}
         <div>

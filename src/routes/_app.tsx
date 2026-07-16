@@ -4,6 +4,7 @@ import { createFileRoute, redirect, Link, Outlet, useLocation, useRouterState } 
 import { getMe } from "../lib/crm/data";
 import { Avatar } from "../components/crm/ui";
 import { CommandPalette, CommandPaletteTrigger } from "../components/crm/command-palette";
+import { NotificationBell } from "../components/crm/notifications";
 import { Wordmark } from "../components/crm/brand";
 import { Toaster } from "../components/crm/toast";
 import { useLiveRefresh, subscribeSyncing, isBackgroundSyncing } from "../lib/crm/live";
@@ -157,14 +158,20 @@ function AppLayout() {
         {/* Desktop top bar with global search */}
         <header className="hidden items-center gap-4 border-b border-line bg-surface/80 px-6 py-2.5 backdrop-blur md:flex">
           <CommandPaletteTrigger />
+          <div className="ml-auto">
+            <NotificationBell />
+          </div>
         </header>
 
         {/* Mobile top bar */}
         <header className="flex items-center justify-between border-b border-line bg-surface px-4 py-3 md:hidden">
           <Wordmark small />
-          <form method="post" action="/api/auth/logout">
-            <button className="text-xs font-medium text-mute">Sign out</button>
-          </form>
+          <div className="flex items-center gap-3">
+            <NotificationBell />
+            <form method="post" action="/api/auth/logout">
+              <button className="text-xs font-medium text-mute">Sign out</button>
+            </form>
+          </div>
         </header>
         <div className="border-b border-line bg-surface px-3 py-2 md:hidden">
           <CommandPaletteTrigger />

@@ -28,6 +28,18 @@ export function stageInfo(name: string): StageInfo {
 export const ACTIVITY_TYPES = ["Call", "Email", "Meeting", "Task", "Note"];
 export const LEAD_SOURCES = ["Referral", "Website", "Cold Outreach", "Event", "Social", "Other"];
 
+// Proposal lifecycle on a deal — light-touch tracking for a web studio.
+export type ProposalInfo = { value: string; label: string; color: string };
+export const PROPOSAL_STATUSES: ProposalInfo[] = [
+  { value: "none", label: "No proposal", color: "#64748b" },
+  { value: "sent", label: "Sent", color: "#38bdf8" },
+  { value: "viewed", label: "Viewed", color: "#a855f7" },
+  { value: "signed", label: "Signed", color: "#22c55e" },
+];
+export function proposalInfo(value: string | null | undefined): ProposalInfo {
+  return PROPOSAL_STATUSES.find((p) => p.value === value) ?? PROPOSAL_STATUSES[0];
+}
+
 // Preset, colored company tags (Monday-style labels). Fixed set keeps the whole
 // team consistent instead of a sprawl of freeform tags.
 export type TagInfo = { name: string; color: string };
