@@ -7,12 +7,14 @@ import {
   getUsers,
   upsertCompany,
   archiveCompany,
+  importCompanies,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
 import { CallMode } from "../../components/crm/call-mode";
 import { RecordAccessButton } from "../../components/crm/record-access";
 import { ArchivedPanel } from "../../components/crm/archived";
+import { ImportCsvButton } from "../../components/crm/csv-import";
 import { LEAD_SOURCES, COMPANY_TAGS, tagColor, parseTags, serializeTags, canEditRecord } from "../../lib/crm/constants";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
 import { toast } from "../../components/crm/toast";
@@ -128,6 +130,20 @@ function CompaniesPage() {
         subtitle={`${(companies as Row[]).length} accounts · each has one owner to avoid overlap`}
         actions={
           <>
+            <ImportCsvButton
+              label="Import companies from CSV"
+              fields={[
+                { key: "name", label: "Company", required: true, aliases: ["company", "name", "company name"] },
+                { key: "industry", label: "Industry", aliases: ["industry"] },
+                { key: "website", label: "Website", aliases: ["website", "url", "site"] },
+                { key: "phone", label: "Phone", aliases: ["phone", "telephone", "tel"] },
+                { key: "city", label: "City", aliases: ["city", "location"] },
+                { key: "source", label: "Source", aliases: ["source", "lead source"] },
+              ]}
+              sampleHint="Only a Company name is required. Extra columns are ignored."
+              onImport={(rows) => importCompanies({ data: { rows: rows as { name: string }[] } })}
+              onDone={() => router.invalidate()}
+            />
             <Button variant="outline" onClick={() => exportCompanies(companies as Row[])}>
               Export CSV
             </Button>

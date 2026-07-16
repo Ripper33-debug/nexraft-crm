@@ -8,12 +8,14 @@ import {
   getUsers,
   upsertContact,
   archiveContact,
+  importContacts,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, Pill } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
 import { CallMode } from "../../components/crm/call-mode";
 import { RecordAccessButton } from "../../components/crm/record-access";
 import { ArchivedPanel } from "../../components/crm/archived";
+import { ImportCsvButton } from "../../components/crm/csv-import";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
 import { relativeTime, canEditRecord } from "../../lib/crm/constants";
 import { toast } from "../../components/crm/toast";
@@ -110,6 +112,20 @@ function ContactsPage() {
         subtitle={`${(contacts as Row[]).length} people · overlap flags show when someone else owns the account`}
         actions={
           <>
+            <ImportCsvButton
+              label="Import contacts from CSV"
+              fields={[
+                { key: "first_name", label: "First name", required: true, aliases: ["first name", "first_name", "first", "name"] },
+                { key: "last_name", label: "Last name", aliases: ["last name", "last_name", "last", "surname"] },
+                { key: "email", label: "Email", aliases: ["email", "e-mail"] },
+                { key: "phone", label: "Phone", aliases: ["phone", "telephone", "tel", "mobile"] },
+                { key: "title", label: "Title", aliases: ["title", "job title", "role"] },
+                { key: "company_name", label: "Company", aliases: ["company", "company name", "account"] },
+              ]}
+              sampleHint="Only a First name is required. A matching Company name links the contact to that account."
+              onImport={(rows) => importContacts({ data: { rows: rows as { first_name: string }[] } })}
+              onDone={() => router.invalidate()}
+            />
             <Button variant="outline" onClick={() => exportContacts(contacts as Row[])}>
               Export CSV
             </Button>

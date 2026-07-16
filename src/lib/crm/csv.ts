@@ -32,6 +32,61 @@ export function downloadCsv(filename: string, rows: Record<string, string>[]): v
   URL.revokeObjectURL(url);
 }
 
+// Parse RFC-4180-ish CSV text into an array of row objects keyed by the header
+// row. Handles quoted fields, escaped quotes ("") and commas/newlines inside
+// quotes. Header keys are lower-cased and trimmed so lookups are forgiving.
+export function parseCsv(text: string): Record<string, string>[] {
+  const clean = text.replace(/^\uFEFF/, ""); // strip BOM
+  const rows: string[][] = [];
+  let field = "";
+  let row: string[] = [];
+  let inQuotes = false;
+  for (let i = 0; i < clean.length; i++) {
+    const ch = clean[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (clean[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      row.push(field);
+      field = "";
+    } else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && clean[i + 1] === "\n") i++;
+      row.push(field);
+      field = "";
+      rows.push(row);
+      row = [];
+    } else {
+      field += ch;
+    }
+  }
+  // Flush the last field/row if the file didn't end with a newline.
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  // Drop fully-empty rows.
+  const nonEmpty = rows.filter((r) => r.some((c) => c.trim() !== ""));
+  if (nonEmpty.length === 0) return [];
+  const headers = nonEmpty[0].map((h) => h.trim().toLowerCase());
+  return nonEmpty.slice(1).map((r) => {
+    const obj: Record<string, string> = {};
+    headers.forEach((h, idx) => {
+      obj[h] = (r[idx] ?? "").trim();
+    });
+    return obj;
+  });
+}
+
 const pad = (n: number) => String(n).padStart(2, "0");
 
 export function stampedName(base: string): string {
