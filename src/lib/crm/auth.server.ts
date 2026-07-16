@@ -59,6 +59,15 @@ export function signupCode(): string {
   return fromEnv && fromEnv.length > 0 ? fromEnv : "nexraft2026";
 }
 
+// ---- account owner (always an admin, can never be locked out) ----
+// The owner's login email. Configurable via secret; defaults to Barry's.
+// Whoever signs in with this address is guaranteed admin — a safety net so
+// the business owner is never left without access to their own CRM.
+export function ownerEmail(): string {
+  const fromEnv = process.env.NEXRAFT_OWNER_EMAIL;
+  return (fromEnv && fromEnv.length > 0 ? fromEnv : "barry@nexraft.com").trim().toLowerCase();
+}
+
 // ---- cookies ----
 function readCookie(name: string): string | null {
   const req = getRequest();
@@ -113,7 +122,14 @@ export async function currentUser(): Promise<AuthUser | null> {
     await db().prepare("DELETE FROM sessions WHERE id = ?").bind(token).run();
     return null;
   }
-  return { id: row.id, email: row.email, name: row.name, role: row.role };
+  let role = row.role;
+  // Owner safety net: if the account owner ever ends up as a plain member,
+  // quietly restore their admin role so they can't be locked out.
+  if (role !== "admin" && row.email.trim().toLowerCase() === ownerEmail()) {
+    await db().prepare("UPDATE users SET role = 'admin' WHERE id = ?").bind(row.id).run();
+    role = "admin";
+  }
+  return { id: row.id, email: row.email, name: row.name, role };
 }
 
 export async function requireUser(): Promise<AuthUser> {
