@@ -1,9 +1,10 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
-import { getCompanies, getContacts, getDeals, getUsers } from "../../lib/crm/data";
-import { Card, EmptyState, PageHeader, Select, Input, OwnerChip, Pill, SummaryCard } from "../../components/crm/ui";
+import { getCompanies, getContacts, getDeals, getUsers, setCompanyCallOutcome } from "../../lib/crm/data";
+import { Button, Card, EmptyState, PageHeader, Select, Input, OwnerChip, Pill, SummaryCard, Avatar } from "../../components/crm/ui";
 import { CallMode } from "../../components/crm/call-mode";
+import { toast } from "../../components/crm/toast";
 import { OPEN_STAGES, relativeTime, daysBetween } from "../../lib/crm/constants";
 
 type Row = Record<string, unknown>;
@@ -25,6 +26,99 @@ export const Route = createFileRoute("/_app/calls")({
   },
   component: CallsPage,
 });
+
+// Swipe-style triage for fresh companies (no deal yet, not yet triaged). Go
+// through them one at a time: Interested / Not interested, or open Call mode.
+function CallQueue({
+  companies,
+  onCall,
+  onChanged,
+}: {
+  companies: Row[];
+  onCall: (c: Row) => void;
+  onChanged: () => void;
+}) {
+  const queue = useMemo(
+    () => companies.filter((c) => Number(c.deal_count) === 0 && !c.call_outcome),
+    [companies],
+  );
+  const [busy, setBusy] = useState(false);
+  const total = queue.length;
+  const current = queue[0];
+
+  async function decide(outcome: "interested" | "not_interested") {
+    if (!current || busy) return;
+    setBusy(true);
+    try {
+      await setCompanyCallOutcome({ data: { id: current.id as string, outcome } });
+      toast(outcome === "interested" ? "Marked interested" : "Marked not interested");
+      onChanged();
+    } catch {
+      toast("Couldn't save — you may not own this one", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (total === 0) return null;
+  const sub = [current.industry as string, current.city as string].filter(Boolean).join(" · ");
+
+  return (
+    <Card className="mt-5 border-signal/30 bg-gradient-to-b from-signal-soft/40 to-surface p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-signal text-[11px] font-bold text-ink">
+            {total}
+          </span>
+          <span className="text-sm font-semibold text-bone">Need to call</span>
+          <span className="text-xs text-mute">— fresh companies with no deal yet</span>
+        </div>
+        <span className="font-mono text-[11px] text-faint">{total} left</span>
+      </div>
+
+      <div className="mt-3 rounded-xl border border-line bg-surface p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-lg font-semibold text-bone">{current.name as string}</div>
+            {sub ? <div className="mt-0.5 text-xs text-mute">{sub}</div> : null}
+            <div className="mt-1 text-xs text-faint">
+              {current.phone ? (current.phone as string) : "No phone on file"}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5 text-xs text-faint">
+            <span>Added by</span>
+            {current.owner_name ? (
+              <span className="inline-flex items-center gap-1 text-mute">
+                <Avatar name={current.owner_name as string} size={18} />
+                {current.owner_name as string}
+              </span>
+            ) : (
+              <span className="text-faint">Unassigned</span>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Button variant="danger" onClick={() => decide("not_interested")} disabled={busy}>
+            ✕ Not interested
+          </Button>
+          <Button onClick={() => decide("interested")} disabled={busy}>
+            ✓ Interested
+          </Button>
+          <button
+            onClick={() => onCall(current)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-mute transition-colors hover:border-signal/50 hover:text-signal"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+            </svg>
+            Call first
+          </button>
+        </div>
+      </div>
+    </Card>
+  );
+}
 
 function CallsPage() {
   const { companies, contacts, users, deals } = Route.useLoaderData();
@@ -86,6 +180,12 @@ function CallsPage() {
       <PageHeader
         title="Calls"
         subtitle="Pick who to call and get a live, account-aware script with in-call prompts."
+      />
+
+      <CallQueue
+        companies={companies as Row[]}
+        onCall={(c) => setCalling(c)}
+        onChanged={() => router.invalidate()}
       />
 
       <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">

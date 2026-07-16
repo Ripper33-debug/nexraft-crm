@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import {
@@ -183,6 +183,11 @@ function PipelinePage() {
         : d.stage === filter,
   );
 
+  // Fresh companies with no deal yet and not triaged — the "need to call" queue.
+  const needToCall = (companies as Row[]).filter(
+    (c) => Number(c.deal_count) === 0 && !c.call_outcome,
+  ).length;
+
   const openDeals = all.filter((d) => stageInfo(d.stage as string).kind === "open");
   const openValue = openDeals.reduce((s, d) => s + Number(d.value), 0);
   const weighted = openDeals.reduce(
@@ -237,6 +242,24 @@ function PipelinePage() {
           </div>
         }
       />
+
+      {needToCall > 0 ? (
+        <Link
+          to="/calls"
+          className="mt-4 flex items-center gap-3 rounded-xl border border-signal/30 bg-signal-soft/30 px-4 py-3 transition-colors hover:bg-signal-soft/50"
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-signal text-xs font-bold text-ink">
+            {needToCall}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-bone">
+              {needToCall} compan{needToCall === 1 ? "y needs" : "ies need"} a first call
+            </div>
+            <div className="text-xs text-mute">New accounts with no deal yet — triage them into interested or not.</div>
+          </div>
+          <span className="shrink-0 text-xs font-medium text-signal">Go to call queue →</span>
+        </Link>
+      ) : null}
 
       <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
         <SummaryCard label="Open pipeline" value={formatMoney(openValue)} sub={`${openDeals.length} open deals`} accent />

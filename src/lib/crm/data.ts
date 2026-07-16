@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db, uid } from "./db.server";
 import { requireUser, requireAdmin, hashPassword, signupCode } from "./auth.server";
 import { OPEN_STAGES, STAGES, RENEWAL_SOON_DAYS, canEditRecord, canAdministerRecord } from "./constants";
-import { ensureExtraSchema, logEvent } from "./schema.server";
+import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 
 const WON_STAGE = "Launched";
 const LOST_STAGE = "Lost";
@@ -46,6 +46,7 @@ export type CompanyRow = {
   archived_at: string | null;
   owner_id: string | null;
   shared_with: string | null;
+  call_outcome: string | null;
   created_at: string;
   owner_name: string | null;
   deal_count: number;
@@ -90,6 +91,8 @@ export type DealRow = {
   monthly_value: number | null;
   renewal_date: string | null;
   links: string | null;
+  proposal_status: string | null;
+  proposal_sent_at: string | null;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
@@ -439,6 +442,7 @@ const dealSchema = z.object({
   monthly_value: z.number().nonnegative().default(0),
   renewal_date: z.string().optional().nullable(),
   links: z.string().optional().nullable(),
+  proposal_status: z.enum(["none", "sent", "viewed", "signed"]).optional().nullable(),
 });
 
 export const getDeals = createServerFn({ method: "GET" }).handler(async () => {
@@ -468,18 +472,22 @@ export const upsertDeal = createServerFn({ method: "POST" })
     if (data.id) {
       await assertCanEdit(user, "deals", data.id);
       const prev = await db()
-        .prepare("SELECT stage FROM deals WHERE id = ?")
+        .prepare("SELECT stage, proposal_sent_at FROM deals WHERE id = ?")
         .bind(data.id)
-        .first<{ stage: string }>();
+        .first<{ stage: string; proposal_sent_at: string | null }>();
       const stageChanged = prev && prev.stage !== data.stage;
       // Only persist a lost/win reason while the deal is actually in that stage.
       const lostReason = data.stage === LOST_STAGE ? data.lost_reason ?? null : null;
       const winReason = data.stage === WON_STAGE ? data.win_reason ?? null : null;
+      const proposalStatus = data.proposal_status ?? "none";
+      // Stamp the sent date the first time a proposal leaves "none"; clear if reset.
+      const proposalSentAt =
+        proposalStatus === "none" ? null : prev?.proposal_sent_at || now;
       await db()
         .prepare(
           `UPDATE deals SET name=?, company_id=?, contact_id=?, owner_id=?, stage=?, value=?,
             expected_close=?, next_step=?, notes=?, lost_reason=?, win_reason=?, monthly_value=?,
-            renewal_date=?, links=?, updated_at=?${stageChanged ? ", stage_changed_at=?" : ""}
+            renewal_date=?, links=?, proposal_status=?, proposal_sent_at=?, updated_at=?${stageChanged ? ", stage_changed_at=?" : ""}
            WHERE id=?`,
         )
         .bind(
@@ -498,6 +506,8 @@ export const upsertDeal = createServerFn({ method: "POST" })
             data.monthly_value ?? 0,
             data.renewal_date ?? null,
             data.links ?? null,
+            proposalStatus,
+            proposalSentAt,
             now,
             ...(stageChanged ? [now] : []),
             data.id,
@@ -512,10 +522,12 @@ export const upsertDeal = createServerFn({ method: "POST" })
     const id = uid();
     const lostReason = data.stage === LOST_STAGE ? data.lost_reason ?? null : null;
     const winReason = data.stage === WON_STAGE ? data.win_reason ?? null : null;
+    const proposalStatus = data.proposal_status ?? "none";
+    const proposalSentAt = proposalStatus === "none" ? null : now;
     await db()
       .prepare(
-        `INSERT INTO deals (id, name, company_id, contact_id, owner_id, stage, value, expected_close, next_step, notes, lost_reason, win_reason, monthly_value, renewal_date, links, created_at, updated_at, stage_changed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO deals (id, name, company_id, contact_id, owner_id, stage, value, expected_close, next_step, notes, lost_reason, win_reason, monthly_value, renewal_date, links, proposal_status, proposal_sent_at, created_at, updated_at, stage_changed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         id,
@@ -533,6 +545,8 @@ export const upsertDeal = createServerFn({ method: "POST" })
         data.monthly_value ?? 0,
         data.renewal_date ?? null,
         data.links ?? null,
+        proposalStatus,
+        proposalSentAt,
         now,
         now,
         now,
@@ -679,6 +693,17 @@ export const transferOwnership = createServerFn({ method: "POST" })
       entityId: data.id,
       summary: `${user.name} handed ${ENTITY_LABEL[data.entity as AccessEntity]} ${label} to ${toUser?.name ?? "a teammate"}`.trim(),
     });
+    // Let the new owner know it's now theirs (don't notify yourself).
+    if (data.to_user_id !== user.id) {
+      await notify({
+        userId: data.to_user_id,
+        actorId: user.id,
+        kind: "handoff",
+        entityType: data.entity,
+        entityId: data.id,
+        summary: `${user.name} handed you ${ENTITY_LABEL[data.entity as AccessEntity]} ${label}`.trim(),
+      });
+    }
     return { ok: true };
   });
 
@@ -691,20 +716,35 @@ export const shareRecord = createServerFn({ method: "POST" })
     await ensureExtraSchema();
     const table = ACCESS_TABLES[data.entity as AccessEntity];
     const existing = await db()
-      .prepare(`SELECT owner_id FROM ${table} WHERE id = ?`)
+      .prepare(`SELECT owner_id, shared_with FROM ${table} WHERE id = ?`)
       .bind(data.id)
-      .first<{ owner_id: string | null }>();
+      .first<{ owner_id: string | null; shared_with: string | null }>();
     if (!existing) throw new Error("NOT_FOUND");
     if (!canAdministerRecord(user, existing.owner_id)) throw new Error("FORBIDDEN");
     // Never keep the owner in their own share list; de-dupe the rest.
     const ids = Array.from(
       new Set(data.user_ids.map((s) => s.trim()).filter((s) => s && s !== existing.owner_id)),
     );
+    const before = new Set(
+      (existing.shared_with ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    );
     await db()
       .prepare(`UPDATE ${table} SET shared_with=? WHERE id=?`)
       .bind(ids.length ? ids.join(",") : null, data.id)
       .run();
     const label = await accessRecordName(table, data.id);
+    // Notify teammates newly granted access (not already shared, not yourself).
+    for (const uidTarget of ids) {
+      if (uidTarget === user.id || before.has(uidTarget)) continue;
+      await notify({
+        userId: uidTarget,
+        actorId: user.id,
+        kind: "share",
+        entityType: data.entity,
+        entityId: data.id,
+        summary: `${user.name} shared ${ENTITY_LABEL[data.entity as AccessEntity]} ${label} with you`.trim(),
+      });
+    }
     await logEvent({
       actorId: user.id,
       verb: "shared",
@@ -715,6 +755,187 @@ export const shareRecord = createServerFn({ method: "POST" })
         : `${user.name} stopped sharing ${ENTITY_LABEL[data.entity as AccessEntity]} ${label}`.trim(),
     });
     return { ok: true };
+  });
+
+// ---------- Call queue triage ----------
+// Companies with no deal yet form a "need to call" queue. Triaging a company
+// stamps an outcome so it leaves the queue and lands in an interested / not-
+// interested bucket. Passing null puts it back in the queue.
+export const setCompanyCallOutcome = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      id: z.string(),
+      outcome: z.enum(["interested", "not_interested"]).nullable(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    await assertCanEdit(user, "companies", data.id);
+    await db()
+      .prepare(`UPDATE companies SET call_outcome=? WHERE id=?`)
+      .bind(data.outcome, data.id)
+      .run();
+    const name = await accessRecordName("companies", data.id);
+    if (data.outcome) {
+      await logEvent({
+        actorId: user.id,
+        verb: "triaged",
+        entityType: "company",
+        entityId: data.id,
+        summary: `${user.name} marked ${name || "a company"} ${data.outcome === "interested" ? "interested" : "not interested"}`,
+      });
+    }
+    return { ok: true };
+  });
+
+// ---------- Notifications (record handed off / shared with you) ----------
+export type NotificationRow = {
+  id: string;
+  actor_id: string | null;
+  kind: string;
+  entity_type: string;
+  entity_id: string | null;
+  summary: string;
+  seen: boolean;
+  created_at: string;
+  actor_name: string | null;
+};
+
+export const getNotifications = createServerFn({ method: "GET" }).handler(async () => {
+  const user = await requireUser();
+  await ensureExtraSchema();
+  const { results } = await db()
+    .prepare(
+      `SELECT n.id, n.actor_id, n.kind, n.entity_type, n.entity_id, n.summary, n.seen, n.created_at,
+        u.name AS actor_name
+       FROM notifications n LEFT JOIN users u ON u.id = n.actor_id
+       WHERE n.user_id = ?
+       ORDER BY n.created_at DESC LIMIT 30`,
+    )
+    .bind(user.id)
+    .all<NotificationRow>();
+  return results ?? [];
+});
+
+export const markNotificationsSeen = createServerFn({ method: "POST" })
+  .validator(z.object({ ids: z.array(z.string()).optional() }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    if (data.ids && data.ids.length) {
+      const placeholders = data.ids.map(() => "?").join(",");
+      await db()
+        .prepare(`UPDATE notifications SET seen=true WHERE user_id=? AND id IN (${placeholders})`)
+        .bind(user.id, ...data.ids)
+        .run();
+    } else {
+      await db().prepare(`UPDATE notifications SET seen=true WHERE user_id=?`).bind(user.id).run();
+    }
+    return { ok: true };
+  });
+
+// ---------- Bulk CSV import ----------
+// Accepts rows already parsed on the client. Creates companies or contacts owned
+// by the importer. Returns how many were added so the UI can report back.
+const importCompanyRow = z.object({
+  name: z.string().min(1),
+  industry: z.string().nullable().optional(),
+  website: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  city: z.string().nullable().optional(),
+  source: z.string().nullable().optional(),
+});
+const importContactRow = z.object({
+  first_name: z.string().min(1),
+  last_name: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  title: z.string().nullable().optional(),
+  company_name: z.string().nullable().optional(),
+});
+
+export const importCompanies = createServerFn({ method: "POST" })
+  .validator(z.object({ rows: z.array(importCompanyRow) }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    let added = 0;
+    for (const r of data.rows) {
+      const name = r.name.trim();
+      if (!name) continue;
+      await db()
+        .prepare(
+          `INSERT INTO companies (id, name, industry, website, phone, city, source, owner_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          uid(),
+          name,
+          r.industry?.trim() || null,
+          r.website?.trim() || null,
+          r.phone?.trim() || null,
+          r.city?.trim() || null,
+          r.source?.trim() || null,
+          user.id,
+        )
+        .run();
+      added++;
+    }
+    if (added) {
+      await logEvent({
+        actorId: user.id,
+        verb: "imported",
+        entityType: "company",
+        summary: `${user.name} imported ${added} compan${added === 1 ? "y" : "ies"} from CSV`,
+      });
+    }
+    return { added };
+  });
+
+export const importContacts = createServerFn({ method: "POST" })
+  .validator(z.object({ rows: z.array(importContactRow) }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    // Resolve company names to ids once, case-insensitively.
+    const { results: cos } = await db()
+      .prepare(`SELECT id, name FROM companies WHERE archived_at IS NULL`)
+      .all<{ id: string; name: string }>();
+    const byName = new Map<string, string>();
+    for (const c of cos ?? []) byName.set(c.name.trim().toLowerCase(), c.id);
+    let added = 0;
+    for (const r of data.rows) {
+      const first = r.first_name.trim();
+      if (!first) continue;
+      const companyId = r.company_name ? byName.get(r.company_name.trim().toLowerCase()) ?? null : null;
+      await db()
+        .prepare(
+          `INSERT INTO contacts (id, first_name, last_name, email, phone, title, company_id, owner_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          uid(),
+          first,
+          r.last_name?.trim() || null,
+          r.email?.trim() || null,
+          r.phone?.trim() || null,
+          r.title?.trim() || null,
+          companyId,
+          user.id,
+        )
+        .run();
+      added++;
+    }
+    if (added) {
+      await logEvent({
+        actorId: user.id,
+        verb: "imported",
+        entityType: "contact",
+        summary: `${user.name} imported ${added} contact${added === 1 ? "" : "s"} from CSV`,
+      });
+    }
+    return { added };
   });
 
 // ---------- Activities ----------
@@ -1022,6 +1243,34 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
     )
     .all<RenewalRow>();
 
+  // 30-day daily sparklines: deals created per day and won value per day.
+  const { results: createdRows } = await database
+    .prepare(
+      `SELECT to_char(created_at::timestamptz, 'YYYY-MM-DD') AS d, COUNT(*)::int AS n
+       FROM deals WHERE created_at::timestamptz >= now() - INTERVAL '30 days'
+       GROUP BY d`,
+    )
+    .all<{ d: string; n: number }>();
+  const { results: wonDailyRows } = await database
+    .prepare(
+      `SELECT to_char(stage_changed_at::timestamptz, 'YYYY-MM-DD') AS d, COALESCE(SUM(value),0) AS v
+       FROM deals WHERE stage='${WON_STAGE}' AND archived_at IS NULL
+         AND stage_changed_at::timestamptz >= now() - INTERVAL '30 days'
+       GROUP BY d`,
+    )
+    .all<{ d: string; v: number }>();
+  const createdMap = new Map((createdRows ?? []).map((r) => [r.d, r.n]));
+  const wonMap = new Map((wonDailyRows ?? []).map((r) => [r.d, Number(r.v)]));
+  const dailyCreated: number[] = [];
+  const dailyWon: number[] = [];
+  const today = new Date();
+  for (let i = 29; i >= 0; i--) {
+    const dt = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+    dailyCreated.push(createdMap.get(key) ?? 0);
+    dailyWon.push(wonMap.get(key) ?? 0);
+  }
+
   return {
     kpi: kpi ?? {
       open_value: 0,
@@ -1039,6 +1288,8 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
     stale: staleRows ?? [],
     followups: followRows ?? [],
     renewals: renewalRows ?? [],
+    dailyCreated,
+    dailyWon,
   };
 });
 

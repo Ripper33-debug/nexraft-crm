@@ -72,6 +72,7 @@ function CompaniesPage() {
   const [editing, setEditing] = useState<Row | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [ownerFilter, setOwnerFilter] = useState<string>("");
+  const [callFilter, setCallFilter] = useState<string>("");
   const [calling, setCalling] = useState<Row | null>(null);
 
   // Deep-link: a global-search result routes here with ?focus=<id> to auto-open.
@@ -114,8 +115,11 @@ function CompaniesPage() {
         ? all.filter((c) => !c.owner_id)
         : all.filter((c) => c.owner_id === ownerFilter);
     }
+    if (callFilter === "need") all = all.filter((c) => Number(c.deal_count) === 0 && !c.call_outcome);
+    else if (callFilter === "interested") all = all.filter((c) => c.call_outcome === "interested");
+    else if (callFilter === "not_interested") all = all.filter((c) => c.call_outcome === "not_interested");
     return all;
-  }, [companies, tagFilter, ownerFilter]);
+  }, [companies, tagFilter, ownerFilter, callFilter]);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
@@ -168,8 +172,19 @@ function CompaniesPage() {
           );
         })}
 
-        {/* Owner filter — narrow to companies a given teammate put in */}
+        {/* Owner + call-status filters */}
         <div className="ml-auto flex items-center gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Call</span>
+          <Select
+            value={callFilter}
+            onChange={(e) => setCallFilter(e.target.value)}
+            className="h-8 w-auto min-w-[8rem] py-1 text-xs"
+          >
+            <option value="">All</option>
+            <option value="need">Need to call</option>
+            <option value="interested">Interested</option>
+            <option value="not_interested">Not interested</option>
+          </Select>
           <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Owner</span>
           <Select
             value={ownerFilter}
@@ -216,6 +231,13 @@ function CompaniesPage() {
                       >
                         {c.name as string}
                       </button>
+                      {c.call_outcome === "interested" ? (
+                        <span className="ml-2 align-middle rounded-full bg-signal-soft px-1.5 py-0.5 text-[10px] font-medium text-signal">Interested</span>
+                      ) : c.call_outcome === "not_interested" ? (
+                        <span className="ml-2 align-middle rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-faint">Not interested</span>
+                      ) : Number(c.deal_count) === 0 ? (
+                        <span className="ml-2 align-middle rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Need to call</span>
+                      ) : null}
                       {c.website ? (
                         <div className="text-xs text-faint">{c.website as string}</div>
                       ) : null}

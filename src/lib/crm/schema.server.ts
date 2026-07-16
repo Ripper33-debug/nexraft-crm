@@ -49,6 +49,25 @@ export function ensureExtraSchema(): Promise<void> {
       `ALTER TABLE companies ADD COLUMN IF NOT EXISTS shared_with TEXT`,
       `ALTER TABLE contacts ADD COLUMN IF NOT EXISTS shared_with TEXT`,
       `ALTER TABLE deals ADD COLUMN IF NOT EXISTS shared_with TEXT`,
+      // Call-queue triage outcome for companies with no deal yet:
+      // NULL = still "need to call", 'interested' or 'not_interested' once triaged.
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS call_outcome TEXT`,
+      // Proposal tracking on deals: 'none' | 'sent' | 'viewed' | 'signed' (+ sent date).
+      `ALTER TABLE deals ADD COLUMN IF NOT EXISTS proposal_status TEXT`,
+      `ALTER TABLE deals ADD COLUMN IF NOT EXISTS proposal_sent_at TEXT`,
+      // Per-user notifications (record handed off / shared with you).
+      `CREATE TABLE IF NOT EXISTS notifications (
+         id TEXT PRIMARY KEY,
+         user_id TEXT NOT NULL,
+         actor_id TEXT,
+         kind TEXT NOT NULL,
+         entity_type TEXT NOT NULL,
+         entity_id TEXT,
+         summary TEXT NOT NULL,
+         seen BOOLEAN NOT NULL DEFAULT false,
+         created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, seen)`,
     ];
     for (const s of stmts) {
       await db().prepare(s).run();
@@ -90,5 +109,36 @@ export async function logEvent(input: {
       .run();
   } catch {
     // ignore — feed logging is non-critical
+  }
+}
+
+// Drop a notification in a teammate's tray. Best-effort, like logEvent.
+export async function notify(input: {
+  userId: string;
+  actorId: string | null;
+  kind: string;
+  entityType: string;
+  entityId?: string | null;
+  summary: string;
+}): Promise<void> {
+  try {
+    await ensureExtraSchema();
+    await db()
+      .prepare(
+        `INSERT INTO notifications (id, user_id, actor_id, kind, entity_type, entity_id, summary)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        uid(),
+        input.userId,
+        input.actorId,
+        input.kind,
+        input.entityType,
+        input.entityId ?? null,
+        input.summary,
+      )
+      .run();
+  } catch {
+    // ignore — notifications are non-critical
   }
 }
