@@ -274,10 +274,31 @@ function Dashboard() {
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <SummaryCard label="Open pipeline" value={formatMoney(d.kpi.open_value)} sub={`${d.kpi.open_count} open deals`} accent />
-        <SummaryCard label="Weighted forecast" value={formatMoney(d.weighted)} sub="Probability-adjusted" />
-        <SummaryCard label="Won (all time)" value={formatMoney(d.kpi.won_value)} sub={`${d.kpi.won_count} launched`} />
-        <SummaryCard label="Win rate" value={winRate === null ? "—" : `${winRate}%`} sub={`${d.kpi.lost_count} lost`} />
+        <SummaryCard
+          label="Open pipeline"
+          value={formatMoney(d.kpi.open_value)}
+          sub={`${d.kpi.open_count} open deals`}
+          accent
+          hint="The total dollar value of every deal that's still in progress (not yet won or lost)."
+        />
+        <SummaryCard
+          label="Weighted forecast"
+          value={formatMoney(d.weighted)}
+          sub="Probability-adjusted"
+          hint="Open deal value adjusted by how likely each stage is to close — a more realistic estimate of what you'll actually land."
+        />
+        <SummaryCard
+          label="Won (all time)"
+          value={formatMoney(d.kpi.won_value)}
+          sub={`${d.kpi.won_count} launched`}
+          hint="Total value of every deal you've closed and launched, since the beginning."
+        />
+        <SummaryCard
+          label="Win rate"
+          value={winRate === null ? "—" : `${winRate}%`}
+          sub={`${d.kpi.lost_count} lost`}
+          hint="Of the deals that were decided, the share you won — won ÷ (won + lost)."
+        />
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -286,8 +307,14 @@ function Dashboard() {
           value={`${formatMoney(d.mrr)}/mo`}
           sub={`${d.retainer_count} active retainer${d.retainer_count === 1 ? "" : "s"}`}
           accent
+          hint="Predictable monthly income from retainers and hosting on active clients — often called MRR (monthly recurring revenue)."
         />
-        <SummaryCard label="Annual recurring" value={formatMoney(d.mrr * 12)} sub="MRR × 12" />
+        <SummaryCard
+          label="Annual recurring"
+          value={formatMoney(d.mrr * 12)}
+          sub="MRR × 12"
+          hint="Your monthly recurring revenue projected over a full year (monthly recurring × 12)."
+        />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">

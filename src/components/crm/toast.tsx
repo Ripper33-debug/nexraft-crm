@@ -5,7 +5,9 @@ import { useEffect, useState } from "react";
 // the single <Toaster/> mounted in the app shell renders the stack.
 
 export type ToastKind = "success" | "error" | "info";
-type Toast = { id: number; message: string; kind: ToastKind };
+// An optional action button (e.g. "Undo") shown inside the toast.
+export type ToastAction = { label: string; onClick: () => void };
+type Toast = { id: number; message: string; kind: ToastKind; action?: ToastAction };
 
 let counter = 0;
 const listeners = new Set<(toasts: Toast[]) => void>();
@@ -15,14 +17,17 @@ function emit() {
   for (const l of listeners) l(toasts);
 }
 
-export function toast(message: string, kind: ToastKind = "success") {
-  const id = ++counter;
-  toasts = [...toasts, { id, message, kind }];
+function dismiss(id: number) {
+  toasts = toasts.filter((t) => t.id !== id);
   emit();
-  setTimeout(() => {
-    toasts = toasts.filter((t) => t.id !== id);
-    emit();
-  }, 3200);
+}
+
+export function toast(message: string, kind: ToastKind = "success", action?: ToastAction) {
+  const id = ++counter;
+  toasts = [...toasts, { id, message, kind, action }];
+  emit();
+  // Give people a beat longer to react when there's something to click.
+  setTimeout(() => dismiss(id), action ? 6000 : 3200);
 }
 
 const KIND: Record<ToastKind, { dot: string; ring: string }> = {
@@ -57,6 +62,17 @@ export function Toaster() {
           >
             <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: k.dot }} />
             <span>{t.message}</span>
+            {t.action ? (
+              <button
+                onClick={() => {
+                  t.action!.onClick();
+                  dismiss(t.id);
+                }}
+                className="ml-1.5 shrink-0 rounded-md border border-line-strong px-2 py-0.5 text-xs font-semibold text-signal transition-colors hover:bg-signal-soft"
+              >
+                {t.action.label}
+              </button>
+            ) : null}
           </div>
         );
       })}

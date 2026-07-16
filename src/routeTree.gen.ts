@@ -18,6 +18,7 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppTeamRouteImport } from './routes/_app/team'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
 import { Route as AppPipelineRouteImport } from './routes/_app/pipeline'
+import { Route as AppHelpRouteImport } from './routes/_app/help'
 import { Route as AppContactsRouteImport } from './routes/_app/contacts'
 import { Route as AppCompaniesRouteImport } from './routes/_app/companies'
 import { Route as AppCallsRouteImport } from './routes/_app/calls'
@@ -70,6 +71,11 @@ const AppPipelineRoute = AppPipelineRouteImport.update({
   path: '/pipeline',
   getParentRoute: () => AppRoute,
 } as any)
+const AppHelpRoute = AppHelpRouteImport.update({
+  id: '/help',
+  path: '/help',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppContactsRoute = AppContactsRouteImport.update({
   id: '/contacts',
   path: '/contacts',
@@ -116,6 +122,7 @@ export interface FileRoutesByFullPath {
   '/calls': typeof AppCallsRoute
   '/companies': typeof AppCompaniesRoute
   '/contacts': typeof AppContactsRoute
+  '/help': typeof AppHelpRoute
   '/pipeline': typeof AppPipelineRoute
   '/reports': typeof AppReportsRoute
   '/team': typeof AppTeamRoute
@@ -132,6 +139,7 @@ export interface FileRoutesByTo {
   '/calls': typeof AppCallsRoute
   '/companies': typeof AppCompaniesRoute
   '/contacts': typeof AppContactsRoute
+  '/help': typeof AppHelpRoute
   '/pipeline': typeof AppPipelineRoute
   '/reports': typeof AppReportsRoute
   '/team': typeof AppTeamRoute
@@ -151,6 +159,7 @@ export interface FileRoutesById {
   '/_app/calls': typeof AppCallsRoute
   '/_app/companies': typeof AppCompaniesRoute
   '/_app/contacts': typeof AppContactsRoute
+  '/_app/help': typeof AppHelpRoute
   '/_app/pipeline': typeof AppPipelineRoute
   '/_app/reports': typeof AppReportsRoute
   '/_app/team': typeof AppTeamRoute
@@ -171,6 +180,7 @@ export interface FileRouteTypes {
     | '/calls'
     | '/companies'
     | '/contacts'
+    | '/help'
     | '/pipeline'
     | '/reports'
     | '/team'
@@ -187,6 +197,7 @@ export interface FileRouteTypes {
     | '/calls'
     | '/companies'
     | '/contacts'
+    | '/help'
     | '/pipeline'
     | '/reports'
     | '/team'
@@ -205,6 +216,7 @@ export interface FileRouteTypes {
     | '/_app/calls'
     | '/_app/companies'
     | '/_app/contacts'
+    | '/_app/help'
     | '/_app/pipeline'
     | '/_app/reports'
     | '/_app/team'
@@ -290,6 +302,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPipelineRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/help': {
+      id: '/_app/help'
+      path: '/help'
+      fullPath: '/help'
+      preLoaderRoute: typeof AppHelpRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/contacts': {
       id: '/_app/contacts'
       path: '/contacts'
@@ -347,6 +366,7 @@ interface AppRouteChildren {
   AppCallsRoute: typeof AppCallsRoute
   AppCompaniesRoute: typeof AppCompaniesRoute
   AppContactsRoute: typeof AppContactsRoute
+  AppHelpRoute: typeof AppHelpRoute
   AppPipelineRoute: typeof AppPipelineRoute
   AppReportsRoute: typeof AppReportsRoute
   AppTeamRoute: typeof AppTeamRoute
@@ -358,6 +378,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppCallsRoute: AppCallsRoute,
   AppCompaniesRoute: AppCompaniesRoute,
   AppContactsRoute: AppContactsRoute,
+  AppHelpRoute: AppHelpRoute,
   AppPipelineRoute: AppPipelineRoute,
   AppReportsRoute: AppReportsRoute,
   AppTeamRoute: AppTeamRoute,

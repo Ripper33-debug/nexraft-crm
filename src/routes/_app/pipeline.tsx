@@ -9,6 +9,7 @@ import {
   upsertDeal,
   setDealStage,
   archiveDeal,
+  restoreDeal,
 } from "../../lib/crm/data";
 import {
   Button,
@@ -141,9 +142,12 @@ function PipelinePage() {
 
   async function onStageChange(id: string, stage: string) {
     setBusy(true);
-    // Grab the name before we refresh so the celebration can call it out.
-    const won = stage === "Launched" && (deals as Row[]).find((d) => d.id === id)?.stage !== "Launched";
-    const wonName = won ? ((deals as Row[]).find((d) => d.id === id)?.company_name as string) || ((deals as Row[]).find((d) => d.id === id)?.name as string) : "";
+    // Grab the name + previous stage before we refresh so the celebration can
+    // call it out and Undo can move it back.
+    const deal = (deals as Row[]).find((d) => d.id === id);
+    const prevStage = (deal?.stage as string) || "";
+    const won = stage === "Launched" && prevStage !== "Launched";
+    const wonName = won ? ((deal?.company_name as string) || (deal?.name as string)) : "";
     try {
       await setDealStage({ data: { id, stage } });
       await refresh();
@@ -151,7 +155,22 @@ function PipelinePage() {
         fireConfetti();
         toast(`🎉 ${wonName || "Deal"} is a win!`);
       } else {
-        toast(stage === "Lost" ? "Deal marked lost" : `Moved to ${stage}`);
+        const undo =
+          prevStage && prevStage !== stage
+            ? {
+                label: "Undo",
+                onClick: async () => {
+                  try {
+                    await setDealStage({ data: { id, stage: prevStage } });
+                    await refresh();
+                    toast(`Moved back to ${prevStage}`);
+                  } catch {
+                    toast("Couldn't undo — try again", "error");
+                  }
+                },
+              }
+            : undefined;
+        toast(stage === "Lost" ? "Deal marked lost" : `Moved to ${stage}`, "success", undo);
       }
     } catch {
       toast("Couldn't move the deal — try again", "error");
@@ -160,12 +179,22 @@ function PipelinePage() {
     }
   }
   async function onArchive(id: string) {
-    if (!confirm("Archive this deal? You can restore it anytime.")) return;
     setBusy(true);
     try {
       await archiveDeal({ data: { id } });
       await refresh();
-      toast("Deal archived");
+      toast("Deal archived", "info", {
+        label: "Undo",
+        onClick: async () => {
+          try {
+            await restoreDeal({ data: { id } });
+            await refresh();
+            toast("Deal restored");
+          } catch {
+            toast("Couldn't restore — try again", "error");
+          }
+        },
+      });
     } catch {
       toast("Couldn't archive — try again", "error");
     } finally {
@@ -265,9 +294,9 @@ function PipelinePage() {
       ) : null}
 
       <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <SummaryCard label="Open pipeline" value={formatMoney(openValue)} sub={`${openDeals.length} open deals`} accent />
-        <SummaryCard label="Weighted forecast" value={formatMoney(weighted)} sub="Probability-adjusted" />
-        <SummaryCard label="Total deals" value={String(all.length)} sub="All stages" />
+        <SummaryCard label="Open pipeline" value={formatMoney(openValue)} sub={`${openDeals.length} open deals`} accent hint="The total dollar value of every deal that's still in progress (not yet won or lost)." />
+        <SummaryCard label="Weighted forecast" value={formatMoney(weighted)} sub="Probability-adjusted" hint="Open deal value adjusted by how likely each stage is to close — a more realistic estimate of what you'll actually land." />
+        <SummaryCard label="Total deals" value={String(all.length)} sub="All stages" hint="Every deal in this view across all stages, including won and lost." />
       </div>
 
       {view === "board" ? (

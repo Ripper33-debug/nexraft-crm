@@ -8,6 +8,7 @@ import {
   getUsers,
   upsertContact,
   archiveContact,
+  restoreContact,
   importContacts,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, Pill } from "../../components/crm/ui";
@@ -95,11 +96,21 @@ function ContactsPage() {
   }, [newParam]);
 
   async function onArchive(id: string) {
-    if (!confirm("Archive this contact? You can restore it anytime.")) return;
     try {
       await archiveContact({ data: { id } });
-      toast("Contact archived");
       router.invalidate();
+      toast("Contact archived", "info", {
+        label: "Undo",
+        onClick: async () => {
+          try {
+            await restoreContact({ data: { id } });
+            router.invalidate();
+            toast("Contact restored");
+          } catch {
+            toast("Couldn't restore — try again", "error");
+          }
+        },
+      });
     } catch {
       toast("Couldn't archive — try again", "error");
     }

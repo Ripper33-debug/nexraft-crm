@@ -114,6 +114,24 @@ export function Eyebrow({ children, className }: { children: ReactNode; classNam
   );
 }
 
+// A tiny "?" affordance that reveals a plain-English explanation on hover.
+// Uses the native title tooltip so it works even inside clipped/overflow cards.
+export function InfoDot({ text, className }: { text: string; className?: string }) {
+  return (
+    <span
+      title={text}
+      aria-label={text}
+      role="img"
+      className={cx(
+        "ml-1 inline-flex h-3.5 w-3.5 cursor-help select-none items-center justify-center rounded-full border border-line-strong text-[9px] font-bold leading-none text-faint transition-colors hover:border-signal hover:text-signal",
+        className,
+      )}
+    >
+      ?
+    </span>
+  );
+}
+
 export function PageHeader({
   title,
   subtitle,
@@ -140,11 +158,13 @@ export function SummaryCard({
   value,
   sub,
   accent,
+  hint,
 }: {
   label: string;
   value: string;
   sub?: string;
   accent?: boolean;
+  hint?: string;
 }) {
   return (
     <div
@@ -158,7 +178,10 @@ export function SummaryCard({
       {accent ? (
         <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-signal/20 blur-2xl" />
       ) : null}
-      <Eyebrow>{label}</Eyebrow>
+      <Eyebrow className="flex items-center">
+        {label}
+        {hint ? <InfoDot text={hint} /> : null}
+      </Eyebrow>
       <div
         className={cx(
           "tnum mt-2 text-[1.7rem] font-semibold leading-none tracking-tight",

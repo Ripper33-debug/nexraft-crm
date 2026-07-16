@@ -7,6 +7,7 @@ import {
   getUsers,
   upsertCompany,
   archiveCompany,
+  restoreCompany,
   importCompanies,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip } from "../../components/crm/ui";
@@ -99,11 +100,21 @@ function CompaniesPage() {
   }, [newParam]);
 
   async function onArchive(id: string) {
-    if (!confirm("Archive this company? Its deals are archived too — you can restore it anytime.")) return;
     try {
       await archiveCompany({ data: { id } });
-      toast("Company archived");
       router.invalidate();
+      toast("Company archived", "info", {
+        label: "Undo",
+        onClick: async () => {
+          try {
+            await restoreCompany({ data: { id } });
+            router.invalidate();
+            toast("Company restored");
+          } catch {
+            toast("Couldn't restore — try again", "error");
+          }
+        },
+      });
     } catch {
       toast("Couldn't archive — try again", "error");
     }
