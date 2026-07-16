@@ -22,14 +22,15 @@ function fullName(c: Row): string {
 }
 
 export const Route = createFileRoute("/_app/calls")({
-  loader: async () => {
+  loader: async ({ context }) => {
     const [companies, contacts, users, deals] = await Promise.all([
       getCompanies(),
       getContacts(),
       getUsers(),
       getDeals(),
     ]);
-    return { companies, contacts, users, deals };
+    const me = (context as { user?: { id: string; role: string } }).user ?? null;
+    return { companies, contacts, users, deals, me };
   },
   component: CallsPage,
 });
@@ -403,12 +404,26 @@ function CompanyBoard({ companies, onChanged }: { companies: Row[]; onChanged: (
 }
 
 function CallsPage() {
-  const { companies, contacts, users, deals } = Route.useLoaderData();
+  const { companies, contacts, users, deals, me } = Route.useLoaderData();
   const router = useRouter();
+  const isAdmin = me?.role === "admin";
+
+  // Reps should only be nudged to call companies they own — dialing someone
+  // else's lead steps on toes. Admins keep the full view for oversight.
+  const callable = useMemo(
+    () =>
+      isAdmin
+        ? (companies as Row[])
+        : (companies as Row[]).filter((c) => (c.owner_id as string | null) === me?.id),
+    [companies, isAdmin, me],
+  );
+
   const [view, setView] = useState<"board" | "list">("board");
   const [mode, setMode] = useState<Mode>("people");
   const [query, setQuery] = useState("");
-  const [ownerFilter, setOwnerFilter] = useState("");
+  // Default the list to the rep's own records (they can switch to "All owners");
+  // admins start unfiltered.
+  const [ownerFilter, setOwnerFilter] = useState(isAdmin ? "" : me?.id ?? "");
   const [calling, setCalling] = useState<Row | null>(null);
 
   // Count open deals per company so a row can flag "live deal — worth a call".
@@ -482,13 +497,13 @@ function CallsPage() {
       />
 
       <CallQueue
-        companies={companies as Row[]}
+        companies={callable}
         onCall={(c) => setCalling(c)}
         onChanged={() => router.invalidate()}
       />
 
       {view === "board" ? (
-        <CompanyBoard companies={companies as Row[]} onChanged={() => router.invalidate()} />
+        <CompanyBoard companies={callable} onChanged={() => router.invalidate()} />
       ) : null}
 
       {view === "list" ? (
