@@ -9,6 +9,7 @@ import {
   adminUpdateRole,
   adminResetPassword,
   adminDeleteUser,
+  adminReassignBook,
   type TeamMemberRow,
 } from "../../lib/crm/data";
 import {
@@ -53,6 +54,7 @@ function TeamPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [resetFor, setResetFor] = useState<TeamMemberRow | null>(null);
+  const [reassignFor, setReassignFor] = useState<TeamMemberRow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -192,6 +194,17 @@ function TeamPage() {
                       </button>
                       <span className="text-line-strong">·</span>
                       <button
+                        disabled={busy || (Number(r.companies_count) === 0 && Number(r.open_count) === 0 && Number(r.won_count) === 0 && Number(r.contacts_count) === 0)}
+                        onClick={() => {
+                          setReassignFor(r);
+                          setError(null);
+                        }}
+                        className="text-xs text-mute hover:text-signal disabled:opacity-30"
+                      >
+                        Reassign
+                      </button>
+                      <span className="text-line-strong">·</span>
+                      <button
                         disabled={busy}
                         onClick={() => removeUser(r)}
                         className="text-xs text-faint hover:text-red-400 disabled:opacity-50"
@@ -227,7 +240,139 @@ function TeamPage() {
         onClose={() => setResetFor(null)}
         onSaved={() => setResetFor(null)}
       />
+
+      <ReassignModal
+        member={reassignFor}
+        team={rows}
+        onClose={() => setReassignFor(null)}
+        onSaved={async () => {
+          setReassignFor(null);
+          await refresh();
+        }}
+      />
     </div>
+  );
+}
+
+function ReassignModal({
+  member,
+  team,
+  onClose,
+  onSaved,
+}: {
+  member: TeamMemberRow | null;
+  team: TeamMemberRow[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const others = team.filter((t) => t.id !== member?.id);
+  const [toId, setToId] = useState("");
+  const [moveCompanies, setMoveCompanies] = useState(true);
+  const [moveDeals, setMoveDeals] = useState(true);
+  const [moveContacts, setMoveContacts] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!member) return null;
+
+  const target = others.find((t) => t.id === toId);
+  const nothingPicked = !moveCompanies && !moveDeals && !moveContacts;
+
+  async function submit() {
+    if (!member || !toId || nothingPicked) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await adminReassignBook({
+        data: {
+          from_user_id: member.id,
+          to_user_id: toId,
+          companies: moveCompanies,
+          deals: moveDeals,
+          contacts: moveContacts,
+        },
+      });
+      setSaving(false);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      onSaved();
+    } catch {
+      setSaving(false);
+      setError("Couldn't reassign those records. Please try again.");
+    }
+  }
+
+  const Check = ({
+    checked,
+    onChange,
+    label,
+    count,
+  }: {
+    checked: boolean;
+    onChange: (v: boolean) => void;
+    label: string;
+    count: number;
+  }) => (
+    <label className="flex cursor-pointer items-center justify-between rounded-lg border border-line bg-surface px-3 py-2.5 hover:border-line-strong">
+      <span className="flex items-center gap-2.5">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          className="h-4 w-4 accent-signal"
+        />
+        <span className="text-sm text-bone">{label}</span>
+      </span>
+      <span className="font-mono text-xs text-faint">{count}</span>
+    </label>
+  );
+
+  return (
+    <Modal open onClose={onClose} title={`Reassign ${member.name}'s records`}>
+      <div className="space-y-4">
+        {error ? (
+          <div className="rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-400">{error}</div>
+        ) : null}
+
+        <Field label="Hand everything to">
+          <Select value={toId} onChange={(e) => setToId(e.target.value)}>
+            <option value="">Choose a teammate…</option>
+            {others.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <div>
+          <div className="mb-1.5">
+            <Eyebrow>What to move</Eyebrow>
+          </div>
+          <div className="space-y-2">
+            <Check checked={moveCompanies} onChange={setMoveCompanies} label="Companies" count={Number(member.companies_count)} />
+            <Check checked={moveDeals} onChange={setMoveDeals} label="Deals" count={Number(member.open_count) + Number(member.won_count)} />
+            <Check checked={moveContacts} onChange={setMoveContacts} label="Contacts" count={Number(member.contacts_count)} />
+          </div>
+        </div>
+
+        <p className="text-xs text-faint">
+          {target
+            ? `These records move from ${member.name} to ${target.name}. ${target.name} becomes the owner; you can always move them back.`
+            : "Pick who should take over these records."}
+        </p>
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={submit} disabled={saving || !toId || nothingPicked}>
+            {saving ? "Moving…" : "Reassign records"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

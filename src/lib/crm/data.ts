@@ -715,6 +715,81 @@ export const transferOwnership = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// Admin bulk handoff: move an entire book of business from one teammate to
+// another in one shot — every company, and optionally the deals and contacts
+// they own. Used when a rep leaves or accounts get reshuffled. Admin only.
+export const adminReassignBook = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      from_user_id: z.string(),
+      to_user_id: z.string(),
+      companies: z.boolean().default(true),
+      deals: z.boolean().default(false),
+      contacts: z.boolean().default(false),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const me = await requireAdmin();
+    await ensureExtraSchema();
+    if (data.from_user_id === data.to_user_id) {
+      return { ok: false as const, error: "Pick a different teammate to hand records to." };
+    }
+    const [fromU, toU] = await Promise.all([
+      db().prepare("SELECT name FROM users WHERE id = ?").bind(data.from_user_id).first<{ name: string }>(),
+      db().prepare("SELECT name FROM users WHERE id = ?").bind(data.to_user_id).first<{ name: string }>(),
+    ]);
+    if (!fromU || !toU) return { ok: false as const, error: "Couldn't find one of those teammates." };
+
+    // Count then update, so we can report exactly what moved. Only touch live
+    // (non-archived) records; archived ones stay put.
+    async function moveTable(table: "companies" | "deals" | "contacts"): Promise<number> {
+      const row = await db()
+        .prepare(`SELECT COUNT(*)::int AS c FROM ${table} WHERE owner_id = ? AND archived_at IS NULL`)
+        .bind(data.from_user_id)
+        .first<{ c: number }>();
+      const n = row?.c ?? 0;
+      if (n > 0) {
+        await db()
+          .prepare(`UPDATE ${table} SET owner_id = ? WHERE owner_id = ? AND archived_at IS NULL`)
+          .bind(data.to_user_id, data.from_user_id)
+          .run();
+      }
+      return n;
+    }
+
+    const moved = { companies: 0, deals: 0, contacts: 0 };
+    if (data.companies) moved.companies = await moveTable("companies");
+    if (data.deals) moved.deals = await moveTable("deals");
+    if (data.contacts) moved.contacts = await moveTable("contacts");
+
+    const parts = [
+      data.companies ? `${moved.companies} companies` : null,
+      data.deals ? `${moved.deals} deals` : null,
+      data.contacts ? `${moved.contacts} contacts` : null,
+    ].filter(Boolean);
+    const summary = `${me.name} moved ${parts.join(", ")} from ${fromU.name} to ${toU.name}`;
+
+    await logEvent({
+      actorId: me.id,
+      verb: "reassigned",
+      entityType: "team",
+      entityId: data.to_user_id,
+      summary,
+      meta: { from: data.from_user_id, to: data.to_user_id, moved },
+    });
+    if (data.to_user_id !== me.id) {
+      await notify({
+        userId: data.to_user_id,
+        actorId: me.id,
+        kind: "handoff",
+        entityType: "team",
+        entityId: data.to_user_id,
+        summary: `${me.name} handed you ${parts.join(", ")} from ${fromU.name}`,
+      });
+    }
+    return { ok: true as const, moved };
+  });
+
 // Set the exact list of teammates who can edit this record alongside the owner.
 // Passing an empty list revokes all sharing. Only the owner (or admin) may share.
 export const shareRecord = createServerFn({ method: "POST" })
