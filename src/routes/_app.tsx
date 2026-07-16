@@ -7,6 +7,7 @@ import { CommandPalette, CommandPaletteTrigger } from "../components/crm/command
 import { NotificationBell } from "../components/crm/notifications";
 import { Wordmark } from "../components/crm/brand";
 import { Toaster } from "../components/crm/toast";
+import { WelcomeTour } from "../components/crm/tour";
 import { useLiveRefresh, subscribeSyncing, isBackgroundSyncing } from "../lib/crm/live";
 import { useKonamiCode, installConsoleEgg } from "../lib/crm/easter-eggs";
 
@@ -120,6 +121,7 @@ function AppLayout() {
     <div className="flex min-h-dvh bg-ink">
       <RouteProgress />
       <Toaster />
+      <WelcomeTour name={user.name} />
       <CommandPalette isAdmin={isAdmin} />
       {/* Sidebar (desktop) */}
       <aside className="hidden w-60 flex-col border-r border-line bg-gradient-to-b from-surface to-[#0b100d] md:flex">

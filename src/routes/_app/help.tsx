@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 
-import { Card, PageHeader, Eyebrow } from "../../components/crm/ui";
+import { Button, Card, PageHeader, Eyebrow } from "../../components/crm/ui";
+import { startTour } from "../../components/crm/tour";
 import { STAGES } from "../../lib/crm/constants";
 
 export const Route = createFileRoute("/_app/help")({
@@ -23,6 +24,11 @@ function HelpPage() {
       <PageHeader
         title="How it works"
         subtitle="A quick, plain-English guide to everything in your CRM. No jargon — just what each part does and when to use it."
+        actions={
+          <Button variant="outline" onClick={() => startTour()}>
+            Replay the tour
+          </Button>
+        }
       />
 
       <div className="mt-6 space-y-4">
