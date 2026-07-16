@@ -2,10 +2,17 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import { getCompanies, getContacts, getDeals, getUsers, setCompanyCallOutcome } from "../../lib/crm/data";
-import { Button, Card, EmptyState, PageHeader, Select, Input, OwnerChip, Pill, SummaryCard, Avatar } from "../../components/crm/ui";
+import { Button, Card, EmptyState, Modal, PageHeader, Select, Input, OwnerChip, Pill, SummaryCard, Avatar } from "../../components/crm/ui";
 import { CallMode } from "../../components/crm/call-mode";
 import { toast } from "../../components/crm/toast";
-import { OPEN_STAGES, relativeTime, daysBetween } from "../../lib/crm/constants";
+import { fireConfetti } from "../../lib/crm/confetti";
+import {
+  OPEN_STAGES,
+  relativeTime,
+  daysBetween,
+  formatMoney,
+  PRICING_PACKAGES,
+} from "../../lib/crm/constants";
 
 type Row = Record<string, unknown>;
 type Mode = "people" | "companies";
@@ -46,12 +53,18 @@ function CallQueue({
   const total = queue.length;
   const current = queue[0];
 
-  async function decide(outcome: "interested" | "not_interested") {
+  async function decide(outcome: "interested" | "not_interested" | "maybe") {
     if (!current || busy) return;
     setBusy(true);
     try {
       await setCompanyCallOutcome({ data: { id: current.id as string, outcome } });
-      toast(outcome === "interested" ? "Marked interested" : "Marked not interested");
+      toast(
+        outcome === "interested"
+          ? "Marked Yes"
+          : outcome === "maybe"
+            ? "Marked Maybe"
+            : "Marked No",
+      );
       onChanged();
     } catch {
       toast("Couldn't save — you may not own this one", "error");
@@ -99,11 +112,18 @@ function CallQueue({
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button variant="danger" onClick={() => decide("not_interested")} disabled={busy}>
-            ✕ Not interested
-          </Button>
           <Button onClick={() => decide("interested")} disabled={busy}>
-            ✓ Interested
+            ✓ Yes
+          </Button>
+          <button
+            onClick={() => decide("maybe")}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-300 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+          >
+            ~ Maybe
+          </button>
+          <Button variant="danger" onClick={() => decide("not_interested")} disabled={busy}>
+            ✕ No
           </Button>
           <button
             onClick={() => onCall(current)}
@@ -120,9 +140,272 @@ function CallQueue({
   );
 }
 
+// When a company is marked "Signed", the rep picks which package they sold. That
+// sets the deal value + monthly plan and spins up a won deal behind the scenes.
+function SignModal({
+  company,
+  open,
+  onClose,
+  onSigned,
+}: {
+  company: Row | null;
+  open: boolean;
+  onClose: () => void;
+  onSigned: () => void;
+}) {
+  const [picked, setPicked] = useState<string>("business"); // Business is the default rec
+  const [busy, setBusy] = useState(false);
+
+  async function confirm() {
+    if (!company || busy) return;
+    const pkg = PRICING_PACKAGES.find((p) => p.id === picked);
+    if (!pkg) return;
+    setBusy(true);
+    try {
+      await setCompanyCallOutcome({
+        data: {
+          id: company.id as string,
+          outcome: "signed",
+          package: pkg.name,
+          value: pkg.build,
+          monthly_value: pkg.monthly,
+        },
+      });
+      fireConfetti();
+      toast(`🎉 ${company.name as string} signed on the ${pkg.name} package`);
+      onSigned();
+      onClose();
+    } catch {
+      toast("Couldn't save — you may not own this one", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={company ? `${company.name as string} signed 🎉` : "Signed"} wide>
+      <p className="text-sm text-mute">
+        Nice work. Pick the package they signed up for — this sets the deal value and their monthly
+        plan, and adds it to your pipeline as a won deal so the numbers stay accurate.
+      </p>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        {PRICING_PACKAGES.map((pkg) => {
+          const active = picked === pkg.id;
+          return (
+            <button
+              key={pkg.id}
+              type="button"
+              onClick={() => setPicked(pkg.id)}
+              className={
+                "relative rounded-xl border p-4 text-left transition-all " +
+                (active
+                  ? "border-signal bg-signal-soft/40 ring-1 ring-signal/40"
+                  : "border-line bg-surface hover:border-line-strong")
+              }
+            >
+              {pkg.recommended ? (
+                <span className="absolute right-2 top-2 rounded-sm bg-signal-soft px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-signal">
+                  Popular
+                </span>
+              ) : null}
+              <div className="text-sm font-semibold text-bone">{pkg.name}</div>
+              <div className="mt-1 text-xl font-bold text-bone">
+                {pkg.startsAt ? "from " : ""}
+                {formatMoney(pkg.build)}
+              </div>
+              <div className="text-xs text-mute">
+                + {formatMoney(pkg.monthly)}/mo
+              </div>
+              <div className="mt-2 text-[11px] leading-relaxed text-faint">{pkg.pages}</div>
+              <div className="mt-1 text-[11px] leading-relaxed text-faint">{pkg.blurb}</div>
+              <div className="mt-2 border-t border-line/60 pt-2 text-[11px] text-mute">
+                ≈ {formatMoney(pkg.firstYear)} first-year value
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-5 flex items-center justify-end gap-2">
+        <Button variant="ghost" onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
+        <Button onClick={confirm} disabled={busy}>
+          {busy ? "Saving…" : "Mark signed"}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+// The company journey as a drag-and-drop board. A company starts in "To Call",
+// and after the call the rep drops it into Yes / Maybe / No. Dropping into
+// "Signed" opens the package picker and turns it into a won deal.
+type BoardCol = {
+  key: string;
+  label: string;
+  outcome: "interested" | "not_interested" | "maybe" | "signed" | null;
+  hint: string;
+  dot: string;
+};
+const BOARD_COLUMNS: BoardCol[] = [
+  { key: "to_call", label: "To Call", outcome: null, hint: "Fresh — no call yet", dot: "#94a3b8" },
+  { key: "interested", label: "Yes", outcome: "interested", hint: "Interested", dot: "#22c55e" },
+  { key: "maybe", label: "Maybe", outcome: "maybe", hint: "On the fence", dot: "#f59e0b" },
+  { key: "not_interested", label: "No", outcome: "not_interested", hint: "Not interested", dot: "#ef4444" },
+  { key: "signed", label: "Signed", outcome: "signed", hint: "Won 🎉", dot: "#2dd4bf" },
+];
+
+function colOf(c: Row): string | null {
+  const outcome = c.call_outcome as string | null;
+  if (outcome === "interested") return "interested";
+  if (outcome === "maybe") return "maybe";
+  if (outcome === "not_interested") return "not_interested";
+  if (outcome === "signed") return "signed";
+  // No outcome yet: only show as "to call" if there's no deal in flight.
+  if (!outcome && Number(c.deal_count) === 0) return "to_call";
+  return null;
+}
+
+function CompanyBoard({ companies, onChanged }: { companies: Row[]; onChanged: () => void }) {
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overCol, setOverCol] = useState<string | null>(null);
+  const [signing, setSigning] = useState<Row | null>(null);
+  const byId = useMemo(() => new Map(companies.map((c) => [c.id as string, c])), [companies]);
+
+  const grouped = useMemo(() => {
+    const g: Record<string, Row[]> = {
+      to_call: [],
+      interested: [],
+      maybe: [],
+      not_interested: [],
+      signed: [],
+    };
+    for (const c of companies) {
+      const k = colOf(c);
+      if (k) g[k].push(c);
+    }
+    for (const k of Object.keys(g)) {
+      g[k].sort((a, b) => (a.name as string).localeCompare(b.name as string));
+    }
+    return g;
+  }, [companies]);
+
+  async function move(company: Row, col: BoardCol) {
+    if (colOf(company) === col.key) return;
+    if (col.outcome === "signed") {
+      setSigning(company); // open package picker instead of setting directly
+      return;
+    }
+    try {
+      await setCompanyCallOutcome({ data: { id: company.id as string, outcome: col.outcome } });
+      toast(`${company.name as string} → ${col.label}`);
+      onChanged();
+    } catch {
+      toast("Couldn't move that one — you may not own it", "error");
+    }
+  }
+
+  function onDrop(col: BoardCol) {
+    setOverCol(null);
+    const id = dragId;
+    setDragId(null);
+    if (!id) return;
+    const company = byId.get(id);
+    if (company) void move(company, col);
+  }
+
+  const total = companies.filter((c) => colOf(c) !== null).length;
+  if (total === 0) {
+    return (
+      <Card className="mt-5 p-4">
+        <EmptyState
+          title="No companies yet"
+          hint="Add companies and they'll show up here to call and move along."
+        />
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-5">
+        {BOARD_COLUMNS.map((col) => {
+          const items = grouped[col.key];
+          const isOver = overCol === col.key;
+          return (
+            <div
+              key={col.key}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (overCol !== col.key) setOverCol(col.key);
+              }}
+              onDragLeave={() => setOverCol((o) => (o === col.key ? null : o))}
+              onDrop={() => onDrop(col)}
+              className={
+                "flex min-h-[8rem] flex-col rounded-xl border bg-surface/60 p-2 transition-colors " +
+                (isOver ? "border-signal/60 bg-signal-soft/20" : "border-line")
+              }
+            >
+              <div className="mb-2 flex items-center gap-1.5 px-1">
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: col.dot }} />
+                <span className="text-xs font-semibold text-bone">{col.label}</span>
+                <span className="ml-auto font-mono text-[10px] text-faint">{items.length}</span>
+              </div>
+              <div className="flex flex-1 flex-col gap-1.5">
+                {items.map((c) => {
+                  const sub = [c.industry as string, c.city as string].filter(Boolean).join(" · ");
+                  return (
+                    <div
+                      key={c.id as string}
+                      draggable
+                      onDragStart={() => setDragId(c.id as string)}
+                      onDragEnd={() => {
+                        setDragId(null);
+                        setOverCol(null);
+                      }}
+                      className={
+                        "cursor-grab rounded-lg border border-line bg-surface p-2 shadow-sm transition-all active:cursor-grabbing hover:border-line-strong " +
+                        (dragId === c.id ? "opacity-40" : "")
+                      }
+                    >
+                      <div className="truncate text-xs font-medium text-bone">{c.name as string}</div>
+                      {sub ? <div className="truncate text-[11px] text-faint">{sub}</div> : null}
+                      {c.phone ? (
+                        <div className="mt-0.5 truncate text-[11px] text-mute">{c.phone as string}</div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+                {items.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-line/60 px-2 py-4 text-center text-[11px] text-faint">
+                    {col.hint}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-2 px-1 text-[11px] text-faint">
+        Tip: drag a company between columns after you call them. Drop one on <strong className="text-mute">Signed</strong> to pick their package.
+      </p>
+
+      <SignModal
+        company={signing}
+        open={!!signing}
+        onClose={() => setSigning(null)}
+        onSigned={onChanged}
+      />
+    </>
+  );
+}
+
 function CallsPage() {
   const { companies, contacts, users, deals } = Route.useLoaderData();
   const router = useRouter();
+  const [view, setView] = useState<"board" | "list">("board");
   const [mode, setMode] = useState<Mode>("people");
   const [query, setQuery] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
@@ -179,7 +462,23 @@ function CallsPage() {
     <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
       <PageHeader
         title="Calls"
-        subtitle="Pick who to call and get a live, account-aware script with in-call prompts."
+        subtitle="Call new companies, then move them along: Yes, Maybe, No — or Signed."
+        actions={
+          <div className="inline-flex rounded-lg border border-line bg-surface p-0.5">
+            {(["board", "list"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={
+                  "rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition-all " +
+                  (view === v ? "bg-signal-soft text-signal" : "text-mute hover:text-bone")
+                }
+              >
+                {v === "board" ? "Board" : "Call list"}
+              </button>
+            ))}
+          </div>
+        }
       />
 
       <CallQueue
@@ -188,6 +487,65 @@ function CallsPage() {
         onChanged={() => router.invalidate()}
       />
 
+      {view === "board" ? (
+        <CompanyBoard companies={companies as Row[]} onChanged={() => router.invalidate()} />
+      ) : null}
+
+      {view === "list" ? (
+        <ListView
+          mode={mode}
+          setMode={setMode}
+          query={query}
+          setQuery={setQuery}
+          ownerFilter={ownerFilter}
+          setOwnerFilter={setOwnerFilter}
+          users={users as Row[]}
+          rows={rows}
+          withPhone={withPhone}
+          openByCompany={openByCompany}
+          onCall={(r) => setCalling(r)}
+        />
+      ) : null}
+
+      <CallMode
+        open={!!calling}
+        onClose={() => setCalling(null)}
+        subject={calling}
+        kind={mode === "people" ? "contact" : "company"}
+        deals={deals as Row[]}
+        onLogged={() => router.invalidate()}
+      />
+    </div>
+  );
+}
+
+function ListView({
+  mode,
+  setMode,
+  query,
+  setQuery,
+  ownerFilter,
+  setOwnerFilter,
+  users,
+  rows,
+  withPhone,
+  openByCompany,
+  onCall,
+}: {
+  mode: Mode;
+  setMode: (m: Mode) => void;
+  query: string;
+  setQuery: (s: string) => void;
+  ownerFilter: string;
+  setOwnerFilter: (s: string) => void;
+  users: Row[];
+  rows: Row[];
+  withPhone: number;
+  openByCompany: Map<string, number>;
+  onCall: (r: Row) => void;
+}) {
+  return (
+    <>
       <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
         <SummaryCard label="In this list" value={String(rows.length)} sub={mode === "people" ? "people" : "companies"} accent />
         <SummaryCard label="With a phone" value={String(withPhone)} sub="ready to dial" />
@@ -278,7 +636,7 @@ function CallsPage() {
                 </div>
 
                 <button
-                  onClick={() => setCalling(r)}
+                  onClick={() => onCall(r)}
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-b from-[#3ce0cd] to-signal-strong px-3 py-1.5 text-xs font-semibold text-ink shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.3)] transition-all hover:shadow-[0_2px_14px_rgba(20,184,166,0.4)] active:translate-y-px"
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -299,15 +657,6 @@ function CallsPage() {
           </div>
         ) : null}
       </Card>
-
-      <CallMode
-        open={!!calling}
-        onClose={() => setCalling(null)}
-        subject={calling}
-        kind={mode === "people" ? "contact" : "company"}
-        deals={deals as Row[]}
-        onLogged={() => router.invalidate()}
-      />
-    </div>
+    </>
   );
 }

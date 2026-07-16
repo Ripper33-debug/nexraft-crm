@@ -40,6 +40,60 @@ export function proposalInfo(value: string | null | undefined): ProposalInfo {
   return PROPOSAL_STATUSES.find((p) => p.value === value) ?? PROPOSAL_STATUSES[0];
 }
 
+// ---------- Pricing packages (internal) ----------
+// The three standard Nexraft offers. Every deal is sold as a one-time build plus
+// a required managed monthly plan (minimum 12-month term). "Business" is the
+// default recommendation. These power the package picker shown when a rep marks
+// a company as Signed. Values are the studio's internal starting prices — say
+// "starts at" until scope is confirmed.
+export type PricingPackage = {
+  id: "starter" | "business" | "pro";
+  name: string;
+  build: number; // one-time build fee
+  monthly: number; // required monthly managed plan
+  firstYear: number; // build + 12 months, for a quick "first-year value" read
+  pages: string; // rough page count guidance
+  blurb: string; // one-line best-fit
+  recommended?: boolean;
+  startsAt?: boolean; // Pro is "starts at" (scope-dependent)
+};
+
+export const PRICING_PACKAGES: PricingPackage[] = [
+  {
+    id: "starter",
+    name: "Starter",
+    build: 1500,
+    monthly: 299,
+    firstYear: 5088,
+    pages: "Up to 5 pages",
+    blurb: "Simple, single-location local business.",
+  },
+  {
+    id: "business",
+    name: "Business",
+    build: 2500,
+    monthly: 399,
+    firstYear: 7288,
+    pages: "Up to 10 pages",
+    blurb: "Established business that needs room to grow.",
+    recommended: true,
+  },
+  {
+    id: "pro",
+    name: "Pro",
+    build: 4000,
+    monthly: 599,
+    firstYear: 11188,
+    pages: "Up to 15 pages",
+    blurb: "Premium or complex build with more moving parts.",
+    startsAt: true,
+  },
+];
+
+export function pricingPackage(id: string | null | undefined): PricingPackage | undefined {
+  return PRICING_PACKAGES.find((p) => p.id === id);
+}
+
 // Preset, colored company tags (Monday-style labels). Fixed set keeps the whole
 // team consistent instead of a sprawl of freeform tags.
 export type TagInfo = { name: string; color: string };

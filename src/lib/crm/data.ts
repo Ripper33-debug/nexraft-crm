@@ -757,36 +757,113 @@ export const shareRecord = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-// ---------- Call queue triage ----------
+// ---------- Call queue triage & company board ----------
 // Companies with no deal yet form a "need to call" queue. Triaging a company
-// stamps an outcome so it leaves the queue and lands in an interested / not-
-// interested bucket. Passing null puts it back in the queue.
+// stamps an outcome so it leaves the queue and lands in a bucket on the board:
+//   interested ("Yes") / maybe / not_interested ("No") / signed.
+// Passing null puts it back in the "To Call" column.
+// When a rep marks a company "signed" and picks a pricing package, we also spin
+// up a won deal (unless one already exists) so revenue numbers stay accurate.
+const OUTCOME_LABEL: Record<string, string> = {
+  interested: "interested",
+  maybe: "a maybe",
+  not_interested: "not interested",
+  signed: "signed",
+};
+
 export const setCompanyCallOutcome = createServerFn({ method: "POST" })
   .validator(
     z.object({
       id: z.string(),
-      outcome: z.enum(["interested", "not_interested"]).nullable(),
+      outcome: z.enum(["interested", "not_interested", "maybe", "signed"]).nullable(),
+      // Optional deal details supplied when marking a company "signed".
+      package: z.string().optional().nullable(),
+      value: z.number().nonnegative().optional().nullable(),
+      monthly_value: z.number().nonnegative().optional().nullable(),
     }),
   )
   .handler(async ({ data }) => {
     const user = await requireUser();
     await ensureExtraSchema();
     await assertCanEdit(user, "companies", data.id);
+
+    const company = await db()
+      .prepare(`SELECT id, name, owner_id FROM companies WHERE id = ?`)
+      .bind(data.id)
+      .first<{ id: string; name: string; owner_id: string | null }>();
+    if (!company) throw new Error("NOT_FOUND");
+
     await db()
       .prepare(`UPDATE companies SET call_outcome=? WHERE id=?`)
       .bind(data.outcome, data.id)
       .run();
-    const name = await accessRecordName("companies", data.id);
-    if (data.outcome) {
+
+    const name = company.name;
+
+    // When they sign, create a won deal so the pipeline / revenue reflect it —
+    // but only if this company doesn't already have a won deal on the books.
+    let createdDeal = false;
+    if (data.outcome === "signed") {
+      const existingWon = await db()
+        .prepare(
+          `SELECT id FROM deals WHERE company_id = ? AND stage = ? AND archived_at IS NULL LIMIT 1`,
+        )
+        .bind(data.id, WON_STAGE)
+        .first<{ id: string }>();
+      if (!existingWon) {
+        const now = new Date().toISOString();
+        const dealId = uid();
+        const pkg = (data.package || "").trim();
+        const dealName = pkg ? `${name} — ${pkg}` : `${name} — Website`;
+        await db()
+          .prepare(
+            `INSERT INTO deals (id, name, company_id, contact_id, owner_id, stage, value, expected_close, next_step, notes, lost_reason, win_reason, monthly_value, renewal_date, links, proposal_status, proposal_sent_at, created_at, updated_at, stage_changed_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            dealId,
+            dealName,
+            data.id,
+            null,
+            company.owner_id ?? user.id,
+            WON_STAGE,
+            data.value ?? 0,
+            null,
+            null,
+            null,
+            null,
+            null,
+            data.monthly_value ?? 0,
+            null,
+            null,
+            "signed",
+            now,
+            now,
+            now,
+            now,
+          )
+          .run();
+        createdDeal = true;
+        await logEvent({
+          actorId: user.id,
+          verb: "won",
+          entityType: "deal",
+          entityId: dealId,
+          summary: `${user.name} signed ${name}${pkg ? ` on the ${pkg} package` : ""}`,
+        });
+      }
+    }
+
+    if (data.outcome && data.outcome !== "signed") {
       await logEvent({
         actorId: user.id,
         verb: "triaged",
         entityType: "company",
         entityId: data.id,
-        summary: `${user.name} marked ${name || "a company"} ${data.outcome === "interested" ? "interested" : "not interested"}`,
+        summary: `${user.name} marked ${name || "a company"} ${OUTCOME_LABEL[data.outcome] ?? data.outcome}`,
       });
     }
-    return { ok: true };
+    return { ok: true, createdDeal };
   });
 
 // ---------- Notifications (record handed off / shared with you) ----------

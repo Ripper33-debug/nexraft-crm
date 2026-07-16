@@ -130,7 +130,9 @@ function CompaniesPage() {
     }
     if (callFilter === "need") all = all.filter((c) => Number(c.deal_count) === 0 && !c.call_outcome);
     else if (callFilter === "interested") all = all.filter((c) => c.call_outcome === "interested");
+    else if (callFilter === "maybe") all = all.filter((c) => c.call_outcome === "maybe");
     else if (callFilter === "not_interested") all = all.filter((c) => c.call_outcome === "not_interested");
+    else if (callFilter === "signed") all = all.filter((c) => c.call_outcome === "signed");
     return all;
   }, [companies, tagFilter, ownerFilter, callFilter]);
 
@@ -209,8 +211,10 @@ function CompaniesPage() {
           >
             <option value="">All</option>
             <option value="need">Need to call</option>
-            <option value="interested">Interested</option>
-            <option value="not_interested">Not interested</option>
+            <option value="interested">Yes</option>
+            <option value="maybe">Maybe</option>
+            <option value="not_interested">No</option>
+            <option value="signed">Signed</option>
           </Select>
           <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Owner</span>
           <Select
@@ -258,10 +262,14 @@ function CompaniesPage() {
                       >
                         {c.name as string}
                       </button>
-                      {c.call_outcome === "interested" ? (
-                        <span className="ml-2 align-middle rounded-full bg-signal-soft px-1.5 py-0.5 text-[10px] font-medium text-signal">Interested</span>
+                      {c.call_outcome === "signed" ? (
+                        <span className="ml-2 align-middle rounded-full bg-signal px-1.5 py-0.5 text-[10px] font-semibold text-ink">Signed</span>
+                      ) : c.call_outcome === "interested" ? (
+                        <span className="ml-2 align-middle rounded-full bg-signal-soft px-1.5 py-0.5 text-[10px] font-medium text-signal">Yes</span>
+                      ) : c.call_outcome === "maybe" ? (
+                        <span className="ml-2 align-middle rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Maybe</span>
                       ) : c.call_outcome === "not_interested" ? (
-                        <span className="ml-2 align-middle rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-faint">Not interested</span>
+                        <span className="ml-2 align-middle rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-faint">No</span>
                       ) : Number(c.deal_count) === 0 ? (
                         <span className="ml-2 align-middle rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Need to call</span>
                       ) : null}
