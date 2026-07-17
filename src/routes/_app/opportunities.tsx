@@ -1,7 +1,14 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { getCompanies, getContacts, getUsers, claimCompany } from "../../lib/crm/data";
+import {
+  getCompanies,
+  getContacts,
+  getUsers,
+  getCompanyBriefs,
+  generateMissingBriefs,
+  claimCompany,
+} from "../../lib/crm/data";
 import {
   Button,
   Card,
@@ -23,13 +30,14 @@ type Row = Record<string, unknown>;
 
 export const Route = createFileRoute("/_app/opportunities")({
   loader: async ({ context }) => {
-    const [companies, contacts, users] = await Promise.all([
+    const [companies, contacts, users, briefs] = await Promise.all([
       getCompanies(),
       getContacts(),
       getUsers(),
+      getCompanyBriefs(),
     ]);
     const me = (context as { user?: { id: string; role: string; name: string; email: string } }).user ?? null;
-    return { companies, contacts, users, me };
+    return { companies, contacts, users, briefs, me };
   },
   component: OpportunitiesPage,
 });
@@ -71,14 +79,71 @@ function ScoreRing({ score, band }: { score: number; band: OpportunityBand }) {
   );
 }
 
+const BRIEF_LABELS: Record<string, string> = {
+  fit: "Fit",
+  chance: "Chance",
+  approach: "Approach",
+  "watch-outs": "Watch-outs",
+  "watch outs": "Watch-outs",
+  watchouts: "Watch-outs",
+};
+const BRIEF_LABEL_COLOR: Record<string, string> = {
+  Fit: "#2dd4bf",
+  Chance: "#eab308",
+  Approach: "#38bdf8",
+  "Watch-outs": "#f472b6",
+};
+
+// Render the AI write-up. If it came back in the expected "Label: text" shape we
+// style each section; otherwise we just show the raw text so nothing is lost.
+function AiBrief({ text }: { text: string }) {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const sections: { label: string; body: string }[] = [];
+  for (const line of lines) {
+    const m = line.match(/^([A-Za-z -]+):\s*(.*)$/);
+    const key = m ? m[1].trim().toLowerCase() : "";
+    if (m && BRIEF_LABELS[key]) {
+      sections.push({ label: BRIEF_LABELS[key], body: m[2].trim() });
+    } else if (sections.length) {
+      sections[sections.length - 1].body += ` ${line}`;
+    } else {
+      sections.push({ label: "", body: line });
+    }
+  }
+  return (
+    <div className="mt-3 space-y-1.5 rounded-lg border border-line bg-ink/30 p-3">
+      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-faint">
+        <span className="h-1.5 w-1.5 rounded-full bg-signal" /> AI read
+      </div>
+      {sections.map((s, i) => (
+        <p key={i} className="text-xs leading-relaxed text-mute">
+          {s.label ? (
+            <span
+              className="font-semibold"
+              style={{ color: BRIEF_LABEL_COLOR[s.label] ?? "#e7e5e4" }}
+            >
+              {s.label}:{" "}
+            </span>
+          ) : null}
+          {s.body}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 function OppCard({
   item,
   meId,
+  brief,
+  briefPending,
   onClaim,
   busy,
 }: {
   item: Scored;
   meId: string | null;
+  brief: string | null;
+  briefPending: boolean;
   onClaim: (id: string) => void;
   busy: boolean;
 }) {
@@ -108,6 +173,14 @@ function OppCard({
               </span>
             ))}
           </div>
+          {brief ? (
+            <AiBrief text={brief} />
+          ) : briefPending ? (
+            <div className="mt-3 flex items-center gap-2 rounded-lg border border-dashed border-line bg-ink/20 p-3 text-xs text-faint">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-signal border-t-transparent" />
+              Writing AI read…
+            </div>
+          ) : null}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs text-faint">
               {isPool ? (
@@ -135,11 +208,70 @@ function OppCard({
   );
 }
 
+type AiStatus = "idle" | "working" | "done" | "nokey" | "error";
+
 function OpportunitiesPage() {
-  const { companies, contacts, users, me } = Route.useLoaderData();
+  const { companies, contacts, users, briefs, me } = Route.useLoaderData();
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("all");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [aiStatus, setAiStatus] = useState<AiStatus>("idle");
+  const [aiError, setAiError] = useState<string | null>(null);
+  const startedRef = useRef(false);
+
+  // Cached AI briefs keyed by company.
+  const briefMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const b of briefs as Row[]) {
+      if (b.company_id && b.brief) m.set(b.company_id as string, b.brief as string);
+    }
+    return m;
+  }, [briefs]);
+
+  // Background filler: generate briefs for any company that doesn't have a
+  // current one, a few at a time, refreshing the board as they land. Runs once
+  // per mount; stops early (and tells the user) if there's no API key or the API
+  // errors. Only missing/stale briefs ever hit the paid API.
+  useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      for (let i = 0; i < 60 && !cancelled; i++) {
+        let res;
+        try {
+          res = await generateMissingBriefs({ data: { limit: 4 } });
+        } catch {
+          setAiStatus("error");
+          setAiError("Couldn't reach the AI service.");
+          return;
+        }
+        if (!res.ok && res.error === "NO_KEY") {
+          setAiStatus("nokey");
+          return;
+        }
+        if (!res.ok) {
+          setAiStatus("error");
+          setAiError(res.error ?? "The AI service returned an error.");
+          if (res.generated > 0) router.invalidate();
+          return;
+        }
+        if (res.generated > 0 && !cancelled) {
+          setAiStatus("working");
+          await router.invalidate();
+        }
+        if (res.remaining === 0) {
+          if (!cancelled) setAiStatus("done");
+          return;
+        }
+        setAiStatus("working");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Which companies have an email on file (via their contacts)?
   const hasEmail = useMemo(() => {
@@ -240,6 +372,24 @@ function OpportunitiesPage() {
         <SummaryCard label="Up for grabs" value={String(counts.pool)} sub="in the open pool" />
       </div>
 
+      {aiStatus === "nokey" ? (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-300">
+          <span className="font-semibold">AI reads are off.</span> To turn them on, add an{" "}
+          <code className="rounded bg-black/30 px-1">ANTHROPIC_API_KEY</code> in your Vercel project
+          settings (Environment Variables), then redeploy. Everything else here works without it.
+        </div>
+      ) : aiStatus === "error" ? (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+          <span className="font-semibold">AI reads hit a snag.</span> {aiError} The scores and board
+          still work — I'll retry next time you open this page.
+        </div>
+      ) : aiStatus === "working" ? (
+        <div className="flex items-center gap-2 rounded-lg border border-line bg-surface-2 px-4 py-2.5 text-xs text-mute">
+          <span className="h-3 w-3 animate-spin rounded-full border-2 border-signal border-t-transparent" />
+          Writing AI reads for your companies… they'll appear as they're ready.
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap gap-2">
         {tabs.map((t) => (
           <button
@@ -263,15 +413,21 @@ function OpportunitiesPage() {
         />
       ) : (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          {visible.map((item) => (
-            <OppCard
-              key={item.company.id as string}
-              item={item}
-              meId={me?.id ?? null}
-              onClaim={claim}
-              busy={busyId === (item.company.id as string)}
-            />
-          ))}
+          {visible.map((item) => {
+            const cid = item.company.id as string;
+            const brief = briefMap.get(cid) ?? null;
+            return (
+              <OppCard
+                key={cid}
+                item={item}
+                meId={me?.id ?? null}
+                brief={brief}
+                briefPending={!brief && (aiStatus === "working" || aiStatus === "idle")}
+                onClaim={claim}
+                busy={busyId === cid}
+              />
+            );
+          })}
         </div>
       )}
 
