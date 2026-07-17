@@ -16,6 +16,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppTeamRouteImport } from './routes/_app/team'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
 import { Route as AppPipelineRouteImport } from './routes/_app/pipeline'
 import { Route as AppPayrollRouteImport } from './routes/_app/payroll'
@@ -27,6 +28,9 @@ import { Route as AppContactsRouteImport } from './routes/_app/contacts'
 import { Route as AppCompaniesRouteImport } from './routes/_app/companies'
 import { Route as AppCallsRouteImport } from './routes/_app/calls'
 import { Route as AppActivitiesRouteImport } from './routes/_app/activities'
+import { Route as ApiGmailDisconnectRouteImport } from './routes/api/gmail/disconnect'
+import { Route as ApiGmailConnectRouteImport } from './routes/api/gmail/connect'
+import { Route as ApiGmailCallbackRouteImport } from './routes/api/gmail/callback'
 import { Route as ApiAuthSignupRouteImport } from './routes/api/auth/signup'
 import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
@@ -63,6 +67,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const AppTeamRoute = AppTeamRouteImport.update({
   id: '/team',
   path: '/team',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
 const AppReportsRoute = AppReportsRouteImport.update({
@@ -120,6 +129,21 @@ const AppActivitiesRoute = AppActivitiesRouteImport.update({
   path: '/activities',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiGmailDisconnectRoute = ApiGmailDisconnectRouteImport.update({
+  id: '/api/gmail/disconnect',
+  path: '/api/gmail/disconnect',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGmailConnectRoute = ApiGmailConnectRouteImport.update({
+  id: '/api/gmail/connect',
+  path: '/api/gmail/connect',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGmailCallbackRoute = ApiGmailCallbackRouteImport.update({
+  id: '/api/gmail/callback',
+  path: '/api/gmail/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSignupRoute = ApiAuthSignupRouteImport.update({
   id: '/api/auth/signup',
   path: '/api/auth/signup',
@@ -153,10 +177,14 @@ export interface FileRoutesByFullPath {
   '/payroll': typeof AppPayrollRoute
   '/pipeline': typeof AppPipelineRoute
   '/reports': typeof AppReportsRoute
+  '/settings': typeof AppSettingsRoute
   '/team': typeof AppTeamRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
+  '/api/gmail/callback': typeof ApiGmailCallbackRoute
+  '/api/gmail/connect': typeof ApiGmailConnectRoute
+  '/api/gmail/disconnect': typeof ApiGmailDisconnectRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -174,11 +202,15 @@ export interface FileRoutesByTo {
   '/payroll': typeof AppPayrollRoute
   '/pipeline': typeof AppPipelineRoute
   '/reports': typeof AppReportsRoute
+  '/settings': typeof AppSettingsRoute
   '/team': typeof AppTeamRoute
   '/': typeof AppIndexRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
+  '/api/gmail/callback': typeof ApiGmailCallbackRoute
+  '/api/gmail/connect': typeof ApiGmailConnectRoute
+  '/api/gmail/disconnect': typeof ApiGmailDisconnectRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -198,11 +230,15 @@ export interface FileRoutesById {
   '/_app/payroll': typeof AppPayrollRoute
   '/_app/pipeline': typeof AppPipelineRoute
   '/_app/reports': typeof AppReportsRoute
+  '/_app/settings': typeof AppSettingsRoute
   '/_app/team': typeof AppTeamRoute
   '/_app/': typeof AppIndexRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
+  '/api/gmail/callback': typeof ApiGmailCallbackRoute
+  '/api/gmail/connect': typeof ApiGmailConnectRoute
+  '/api/gmail/disconnect': typeof ApiGmailDisconnectRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -223,10 +259,14 @@ export interface FileRouteTypes {
     | '/payroll'
     | '/pipeline'
     | '/reports'
+    | '/settings'
     | '/team'
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/signup'
+    | '/api/gmail/callback'
+    | '/api/gmail/connect'
+    | '/api/gmail/disconnect'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -244,11 +284,15 @@ export interface FileRouteTypes {
     | '/payroll'
     | '/pipeline'
     | '/reports'
+    | '/settings'
     | '/team'
     | '/'
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/signup'
+    | '/api/gmail/callback'
+    | '/api/gmail/connect'
+    | '/api/gmail/disconnect'
   id:
     | '__root__'
     | '/_app'
@@ -267,11 +311,15 @@ export interface FileRouteTypes {
     | '/_app/payroll'
     | '/_app/pipeline'
     | '/_app/reports'
+    | '/_app/settings'
     | '/_app/team'
     | '/_app/'
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/signup'
+    | '/api/gmail/callback'
+    | '/api/gmail/connect'
+    | '/api/gmail/disconnect'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -283,6 +331,9 @@ export interface RootRouteChildren {
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
   ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
   ApiAuthSignupRoute: typeof ApiAuthSignupRoute
+  ApiGmailCallbackRoute: typeof ApiGmailCallbackRoute
+  ApiGmailConnectRoute: typeof ApiGmailConnectRoute
+  ApiGmailDisconnectRoute: typeof ApiGmailDisconnectRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -334,6 +385,13 @@ declare module '@tanstack/react-router' {
       path: '/team'
       fullPath: '/team'
       preLoaderRoute: typeof AppTeamRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/reports': {
@@ -413,6 +471,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppActivitiesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/gmail/disconnect': {
+      id: '/api/gmail/disconnect'
+      path: '/api/gmail/disconnect'
+      fullPath: '/api/gmail/disconnect'
+      preLoaderRoute: typeof ApiGmailDisconnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gmail/connect': {
+      id: '/api/gmail/connect'
+      path: '/api/gmail/connect'
+      fullPath: '/api/gmail/connect'
+      preLoaderRoute: typeof ApiGmailConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gmail/callback': {
+      id: '/api/gmail/callback'
+      path: '/api/gmail/callback'
+      fullPath: '/api/gmail/callback'
+      preLoaderRoute: typeof ApiGmailCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/signup': {
       id: '/api/auth/signup'
       path: '/api/auth/signup'
@@ -449,6 +528,7 @@ interface AppRouteChildren {
   AppPayrollRoute: typeof AppPayrollRoute
   AppPipelineRoute: typeof AppPipelineRoute
   AppReportsRoute: typeof AppReportsRoute
+  AppSettingsRoute: typeof AppSettingsRoute
   AppTeamRoute: typeof AppTeamRoute
   AppIndexRoute: typeof AppIndexRoute
 }
@@ -465,6 +545,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppPayrollRoute: AppPayrollRoute,
   AppPipelineRoute: AppPipelineRoute,
   AppReportsRoute: AppReportsRoute,
+  AppSettingsRoute: AppSettingsRoute,
   AppTeamRoute: AppTeamRoute,
   AppIndexRoute: AppIndexRoute,
 }
@@ -480,6 +561,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthLoginRoute: ApiAuthLoginRoute,
   ApiAuthLogoutRoute: ApiAuthLogoutRoute,
   ApiAuthSignupRoute: ApiAuthSignupRoute,
+  ApiGmailCallbackRoute: ApiGmailCallbackRoute,
+  ApiGmailConnectRoute: ApiGmailConnectRoute,
+  ApiGmailDisconnectRoute: ApiGmailDisconnectRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

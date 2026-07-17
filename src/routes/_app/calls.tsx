@@ -1,7 +1,15 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
-import { getCompanies, getContacts, getDeals, getUsers, setCompanyCallOutcome } from "../../lib/crm/data";
+import {
+  getCompanies,
+  getContacts,
+  getDeals,
+  getUsers,
+  setCompanyCallOutcome,
+  sendCrmEmail,
+  getGmailStatus,
+} from "../../lib/crm/data";
 import { Button, Card, EmptyState, Modal, PageHeader, Select, Input, OwnerChip, Pill, SummaryCard, Avatar } from "../../components/crm/ui";
 import { CallMode } from "../../components/crm/call-mode";
 import { toast } from "../../components/crm/toast";
@@ -24,14 +32,15 @@ function fullName(c: Row): string {
 
 export const Route = createFileRoute("/_app/calls")({
   loader: async ({ context }) => {
-    const [companies, contacts, users, deals] = await Promise.all([
+    const [companies, contacts, users, deals, gmail] = await Promise.all([
       getCompanies(),
       getContacts(),
       getUsers(),
       getDeals(),
+      getGmailStatus().catch(() => ({ configured: false, connected: false, email: null })),
     ]);
     const me = (context as { user?: { id: string; role: string; name: string; email: string } }).user ?? null;
-    return { companies, contacts, users, deals, me };
+    return { companies, contacts, users, deals, me, gmail };
   },
   component: CallsPage,
 });
@@ -454,12 +463,14 @@ function NoAnswerModal({
   company,
   email,
   repName,
+  gmailConnected,
   onClose,
   onDone,
 }: {
   company: Row;
   email: string;
   repName: string;
+  gmailConnected: boolean;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -487,7 +498,27 @@ function NoAnswerModal({
   async function emailThem() {
     const ok = await mark();
     if (!ok) return;
-    // Open the rep's default mail app with everything pre-filled.
+    if (gmailConnected) {
+      // Send for real from the rep's own Gmail; the server records the touch.
+      setBusy(true);
+      try {
+        const res = await sendCrmEmail({
+          data: { to: to.trim(), subject, body, company_id: company.id as string },
+        });
+        if (res.ok) {
+          toast(`${company.name as string} → No answer · email sent`);
+          onDone();
+        } else {
+          toast(res.error || "Moved to No answer, but the email didn't send.", "error");
+        }
+      } catch {
+        toast("Moved to No answer, but the email didn't send.", "error");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    // Not connected: open the rep's default mail app with everything pre-filled.
     if (typeof window !== "undefined") {
       window.location.href = mailtoLink(to.trim(), subject, body);
     }
@@ -505,9 +536,11 @@ function NoAnswerModal({
   return (
     <Modal open onClose={onClose} title={`No answer — email ${company.name as string}?`} wide>
       <p className="text-sm text-mute">
-        We'll move them to the <strong className="text-bone">No answer</strong> column so you don't
-        lose them, and open a ready-to-send email in your own mail app. Just glance it over and hit
-        send — nothing to connect.
+        We'll move them to the <strong className="text-bone">No answer</strong> column so you don't lose
+        them.{" "}
+        {gmailConnected
+          ? "The email sends straight from your own Gmail — just glance it over first."
+          : "A ready-to-send email opens in your own mail app. Glance it over and hit send."}
       </p>
 
       <div className="mt-4 space-y-3">
@@ -550,7 +583,7 @@ function NoAnswerModal({
           Just log it
         </Button>
         <Button onClick={emailThem} disabled={busy || !to.trim()}>
-          {busy ? "Saving…" : "✉ Open email draft"}
+          {busy ? "Saving…" : gmailConnected ? "✉ Send email" : "✉ Open email draft"}
         </Button>
       </div>
     </Modal>
@@ -558,7 +591,8 @@ function NoAnswerModal({
 }
 
 function CallsPage() {
-  const { companies, contacts, users, deals, me } = Route.useLoaderData();
+  const { companies, contacts, users, deals, me, gmail } = Route.useLoaderData();
+  const gmailConnected = !!(gmail as { connected?: boolean }).connected;
   const router = useRouter();
   const isAdmin = me?.role === "admin";
 
@@ -718,6 +752,7 @@ function CallsPage() {
           company={noAnswer}
           email={emailByCompany.get(noAnswer.id as string) ?? ""}
           repName={me?.name ?? ""}
+          gmailConnected={gmailConnected}
           onClose={() => setNoAnswer(null)}
           onDone={() => {
             setNoAnswer(null);

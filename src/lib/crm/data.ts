@@ -18,6 +18,7 @@ import {
   ESTIMATE_LOW_MONTHLY,
 } from "./constants";
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
+import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
 
 const WON_STAGE = "Launched";
 const LOST_STAGE = "Lost";
@@ -2923,6 +2924,95 @@ export const recordEmailTouch = createServerFn({ method: "POST" })
       summary: `${user.name} emailed ${row.name} (follow-up #${next})`,
     });
     return { ok: true as const, touches: next };
+  });
+
+// ==================== Gmail sending (Phase 4) ====================
+// Each rep connects their own Google Workspace account once (Settings → Connect
+// Gmail). After that, outreach goes out from their real address via the Gmail
+// API — no separate mail server, and replies land in the rep's own inbox.
+
+// Status for the Settings card and the "Send from CRM" buttons: is Gmail set up
+// on the server at all, and has THIS rep connected their account (and which one).
+export const getGmailStatus = createServerFn({ method: "GET" }).handler(async () => {
+  const user = await requireUser();
+  const configured = isGmailConfigured();
+  if (!configured) return { configured: false as const, connected: false as const, email: null };
+  const conn = await getConnection(user.id);
+  return { configured: true as const, connected: conn.connected, email: conn.email };
+});
+
+// Send an outreach email from the signed-in rep's connected Gmail. Mirrors the
+// tracking that recordEmailTouch does (bumps the company touch count + stamps
+// last_emailed_at) and logs an activity so the contact's "last contacted" moves.
+export const sendCrmEmail = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      to: z.string().email(),
+      subject: z.string().min(1),
+      body: z.string().min(1),
+      company_id: z.string().optional(),
+      contact_id: z.string().optional(),
+      append_footer: z.boolean().optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+
+    const result = await sendEmail({
+      userId: user.id,
+      fromName: user.name,
+      to: data.to,
+      subject: data.subject,
+      body: data.body,
+      companyId: data.company_id ?? null,
+      contactId: data.contact_id ?? null,
+      appendFooter: data.append_footer,
+    });
+    if (!result.ok) return { ok: false as const, error: result.error };
+
+    // Tracking: bump the company's email-touch count + stamp last_emailed_at,
+    // exactly like recordEmailTouch, and log the send so it shows on the timeline.
+    let touches = 0;
+    if (data.company_id) {
+      const row = await db()
+        .prepare("SELECT name, COALESCE(email_touches,0) AS email_touches FROM companies WHERE id = ?")
+        .bind(data.company_id)
+        .first<{ name: string; email_touches: number }>();
+      if (row) {
+        touches = (Number(row.email_touches) || 0) + 1;
+        await db()
+          .prepare(
+            `UPDATE companies
+                SET email_touches = ?,
+                    last_emailed_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+              WHERE id = ?`,
+          )
+          .bind(touches, data.company_id)
+          .run();
+        await logEvent({
+          actorId: user.id,
+          verb: "emailed",
+          entityType: "company",
+          entityId: data.company_id,
+          summary: `${user.name} emailed ${row.name} — "${data.subject}"`,
+        });
+      }
+    }
+
+    // Log an activity against the contact so their "last contacted" advances
+    // (that field is derived from MAX(activities.created_at)).
+    if (data.contact_id) {
+      await db()
+        .prepare(
+          `INSERT INTO activities (id, type, subject, deal_id, contact_id, owner_id, status, due_date, notes, completed_at)
+           VALUES (?, 'Email', ?, NULL, ?, ?, 'done', NULL, ?, to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))`,
+        )
+        .bind(uid(), `Email — ${data.subject}`, data.contact_id, user.id, `Sent to ${data.to}`)
+        .run();
+    }
+
+    return { ok: true as const, messageId: result.messageId, touches };
   });
 
 // ==================== Lead discovery (Phase 3, OpenStreetMap) ====================

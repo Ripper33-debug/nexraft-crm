@@ -1,7 +1,14 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
-import { getCompanies, getContacts, setCompanyCallOutcome, recordEmailTouch } from "../../lib/crm/data";
+import {
+  getCompanies,
+  getContacts,
+  setCompanyCallOutcome,
+  recordEmailTouch,
+  sendCrmEmail,
+  getGmailStatus,
+} from "../../lib/crm/data";
 import { Button, Card, EmptyState, Input, PageHeader, Pill, SummaryCard } from "../../components/crm/ui";
 import { toast } from "../../components/crm/toast";
 import { followUpEmail, mailtoLink, NUDGE_LABELS } from "../../lib/crm/emails";
@@ -11,9 +18,13 @@ type Row = Record<string, unknown>;
 
 export const Route = createFileRoute("/_app/followups")({
   loader: async ({ context }) => {
-    const [companies, contacts] = await Promise.all([getCompanies(), getContacts()]);
+    const [companies, contacts, gmail] = await Promise.all([
+      getCompanies(),
+      getContacts(),
+      getGmailStatus().catch(() => ({ configured: false, connected: false, email: null })),
+    ]);
     const me = (context as { user?: { id: string; role: string; name: string; email: string } }).user ?? null;
-    return { companies, contacts, me };
+    return { companies, contacts, me, gmail };
   },
   component: FollowUpsPage,
 });
@@ -22,11 +33,13 @@ function FollowUpCard({
   company,
   emailOnFile,
   repName,
+  gmailConnected,
   onChanged,
 }: {
   company: Row;
   emailOnFile: string;
   repName: string;
+  gmailConnected: boolean;
   onChanged: () => void;
 }) {
   const id = company.id as string;
@@ -37,7 +50,10 @@ function FollowUpCard({
   const [to, setTo] = useState(emailOnFile);
   const [busy, setBusy] = useState(false);
 
-  async function openDraft() {
+  // When Gmail is connected we send the nudge for real, from the rep's own
+  // address, and let the server record the touch. Otherwise we fall back to
+  // opening a pre-filled draft in their mail app (and record the touch here).
+  async function send() {
     if (!to.trim()) {
       toast("Add an email address to send to first.", "info");
       return;
@@ -45,11 +61,23 @@ function FollowUpCard({
     setBusy(true);
     try {
       const draft = followUpEmail(name, repName, nextTouch);
-      await recordEmailTouch({ data: { company_id: id } });
-      window.location.href = mailtoLink(to.trim(), draft.subject, draft.body);
-      onChanged();
+      if (gmailConnected) {
+        const res = await sendCrmEmail({
+          data: { to: to.trim(), subject: draft.subject, body: draft.body, company_id: id },
+        });
+        if (res.ok) {
+          toast(`Sent ${NUDGE_LABELS[nextTouch - 1]} to ${to.trim()}.`, "success");
+          onChanged();
+        } else {
+          toast(res.error || "Couldn't send — try again.", "error");
+        }
+      } else {
+        await recordEmailTouch({ data: { company_id: id } });
+        window.location.href = mailtoLink(to.trim(), draft.subject, draft.body);
+        onChanged();
+      }
     } catch {
-      toast("Couldn't open the draft.", "error");
+      toast(gmailConnected ? "Couldn't send the email." : "Couldn't open the draft.", "error");
     } finally {
       setBusy(false);
     }
@@ -100,8 +128,14 @@ function FollowUpCard({
           className="sm:max-w-xs"
         />
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" disabled={busy} onClick={openDraft}>
-            {allSent ? "Send another draft" : `✉ Open ${NUDGE_LABELS[nextTouch - 1]}`}
+          <Button size="sm" disabled={busy} onClick={send}>
+            {gmailConnected
+              ? allSent
+                ? "Send another"
+                : `✉ Send ${NUDGE_LABELS[nextTouch - 1]}`
+              : allSent
+                ? "Send another draft"
+                : `✉ Open ${NUDGE_LABELS[nextTouch - 1]}`}
           </Button>
           <Button size="sm" variant="outline" disabled={busy} onClick={() => resolve("interested")}>
             They replied
@@ -116,12 +150,22 @@ function FollowUpCard({
           No email on file — type one above to send. (Add a contact with an email to save it.)
         </p>
       ) : null}
+      {!gmailConnected ? (
+        <p className="mt-2 text-[11px] text-faint">
+          Drafts open in your mail app.{" "}
+          <a href="/settings" className="text-signal hover:underline">
+            Connect your Gmail
+          </a>{" "}
+          to send these straight from here.
+        </p>
+      ) : null}
     </Card>
   );
 }
 
 function FollowUpsPage() {
-  const { companies, contacts, me } = Route.useLoaderData();
+  const { companies, contacts, me, gmail } = Route.useLoaderData();
+  const gmailConnected = !!(gmail as { connected?: boolean }).connected;
   const router = useRouter();
 
   // First contact email per company, for pre-filling the recipient.
@@ -181,6 +225,7 @@ function FollowUpsPage() {
               company={c}
               emailOnFile={emailByCompany.get(c.id as string) ?? ""}
               repName={me?.name ?? ""}
+              gmailConnected={gmailConnected}
               onChanged={refresh}
             />
           ))}
@@ -188,8 +233,9 @@ function FollowUpsPage() {
       )}
 
       <p className="text-xs text-faint">
-        Drafts open in your own email app with everything pre-filled — nothing sends automatically. Want
-        the CRM to send these for you on a schedule? That's the auto-send upgrade we can set up next.
+        {gmailConnected
+          ? "Nudges send from your own Gmail address, and replies land in your inbox. Each send is logged on the company's timeline."
+          : "Right now drafts open in your own email app with everything pre-filled. Connect your Gmail in Settings to send them straight from here."}
       </p>
     </div>
   );

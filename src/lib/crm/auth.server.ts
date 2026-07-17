@@ -138,6 +138,34 @@ export async function requireUser(): Promise<AuthUser> {
   return user;
 }
 
+// Resolve the signed-in user straight from a given Request's cookies. Used by
+// raw server-route handlers (e.g. the Gmail OAuth callback) where we hold the
+// Request object directly rather than going through getRequest().
+export async function userFromRequest(request: Request): Promise<AuthUser | null> {
+  const header = request.headers.get("cookie");
+  if (!header) return null;
+  let token: string | null = null;
+  for (const part of header.split(";")) {
+    const [k, ...v] = part.trim().split("=");
+    if (k === COOKIE) {
+      token = decodeURIComponent(v.join("="));
+      break;
+    }
+  }
+  if (!token) return null;
+  const row = await db()
+    .prepare(
+      `SELECT u.id, u.email, u.name, u.role, s.expires_at AS exp
+       FROM sessions s JOIN users u ON u.id = s.user_id
+       WHERE s.id = ?`,
+    )
+    .bind(token)
+    .first<{ id: string; email: string; name: string; role: string; exp: string }>();
+  if (!row) return null;
+  if (new Date(row.exp).getTime() < Date.now()) return null;
+  return { id: row.id, email: row.email, name: row.name, role: row.role };
+}
+
 export async function requireAdmin(): Promise<AuthUser> {
   const user = await requireUser();
   if (user.role !== "admin") throw new Error("FORBIDDEN");
