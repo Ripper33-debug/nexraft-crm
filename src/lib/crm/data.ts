@@ -2832,20 +2832,38 @@ const OVERPASS_ENDPOINTS = [
   "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ];
 
+// fetch with a hard timeout. Without this, a dead/hanging mirror keeps the
+// socket open until the serverless function itself is killed — which surfaces to
+// the user as a permanent "can't reach the map service." The AbortController
+// guarantees each attempt fails fast so we fall through to the next mirror.
+async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Run an Overpass QL query, rotating through the mirrors until one answers.
 // Returns the elements array, or throws if every mirror is busy/unreachable.
 async function overpassQuery(ql: string): Promise<any[]> {
   let lastStatus = 0;
   for (const endpoint of OVERPASS_ENDPOINTS) {
     try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-          "User-Agent": OSM_UA,
+      const res = await fetchWithTimeout(
+        endpoint,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            "User-Agent": OSM_UA,
+          },
+          body: "data=" + encodeURIComponent(ql),
         },
-        body: "data=" + encodeURIComponent(ql),
-      });
+        12000, // 12s cap per mirror
+      );
       if (!res.ok) {
         lastStatus = res.status;
         continue; // busy/broken mirror — try the next one
@@ -2853,7 +2871,7 @@ async function overpassQuery(ql: string): Promise<any[]> {
       const json = (await res.json()) as { elements?: any[] };
       return json.elements ?? [];
     } catch {
-      continue; // network hiccup — try the next mirror
+      continue; // network hiccup / timeout — try the next mirror
     }
   }
   throw new Error(lastStatus ? `busy_${lastStatus}` : "unreachable");
@@ -2913,12 +2931,31 @@ function osmFilters(businessType: string): string[] {
 
 // Resolve a free-text area ("Springfield, IL") to a bounding box + center point
 // via Nominatim.
-async function geocodeArea(
-  area: string,
-): Promise<{ s: number; w: number; n: number; e: number; lat: number; lon: number } | null> {
+type GeoBox = { s: number; w: number; n: number; e: number; lat: number; lon: number };
+
+// The auto-sweep geocodes the same ~50 US states over and over. Nominatim's
+// usage policy forbids that kind of repeat automated hammering and will block
+// the IP — so we cache each resolved area for the life of the process. State
+// boxes never change, so this is safe and cuts geocoder calls to near zero.
+const geocodeCache = new Map<string, GeoBox | null>();
+
+async function geocodeArea(area: string): Promise<GeoBox | null> {
+  const key = area.trim().toLowerCase();
+  if (geocodeCache.has(key)) return geocodeCache.get(key) ?? null;
+  const result = await geocodeAreaUncached(area);
+  // Only cache successful hits; a transient failure shouldn't be sticky.
+  if (result) geocodeCache.set(key, result);
+  return result;
+}
+
+async function geocodeAreaUncached(area: string): Promise<GeoBox | null> {
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(area)}`;
-    const res = await fetch(url, { headers: { "User-Agent": OSM_UA, Accept: "application/json" } });
+    const res = await fetchWithTimeout(
+      url,
+      { headers: { "User-Agent": OSM_UA, Accept: "application/json" } },
+      12000,
+    );
     if (!res.ok) return null;
     const arr = (await res.json()) as Array<{ boundingbox?: string[]; lat?: string; lon?: string }>;
     const hit = arr?.[0];
