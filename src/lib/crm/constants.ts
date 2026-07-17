@@ -352,6 +352,22 @@ export function discoveryScore(sig: DiscoverySignals): OpportunityScore {
   return { score, band: opportunityBand(score), reasons };
 }
 
+// ---------- Estimated deal value ----------
+// A rough, placeholder dollar value stamped on freshly discovered deals so the
+// pipeline totals mean something instead of everything sitting at $0. Reps refine
+// the real number once they qualify the lead. Tweak these two anchors to match
+// Nexraft's actual pricing.
+export const NEXRAFT_BUILD_BASE = 5000; // typical one-time website build
+export const NEXRAFT_MONTHLY_VALUE = 150; // typical monthly care plan / hosting
+
+// Nudge the build estimate by how strong the lead looks: hotter prospects tend to
+// be bigger, more serious jobs. Rounded to the nearest $500 to keep it tidy.
+export function estimateDealValue(band: OpportunityBand): { value: number; monthly: number } {
+  const factor = band === "hot" ? 1.2 : band === "warm" ? 1.0 : 0.8;
+  const value = Math.round((NEXRAFT_BUILD_BASE * factor) / 500) * 500;
+  return { value, monthly: NEXRAFT_MONTHLY_VALUE };
+}
+
 // ---------- Sales payroll / commission ----------
 // Reps earn a cut of the monthly retainer on every signed deal, paid over the
 // first year, plus a flat bonus the first month they sign a batch of deals.

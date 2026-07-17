@@ -13,6 +13,7 @@ import {
   salesBonus,
   opportunityScore,
   discoveryScore,
+  estimateDealValue,
   PRICING_PACKAGES,
 } from "./constants";
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
@@ -3145,6 +3146,18 @@ export const importDiscoveredLead = createServerFn({ method: "POST" })
     }
     const ownerId = assignee?.id ?? null;
 
+    // Stamp a rough estimated value on the deal so pipeline totals aren't all $0.
+    // Scored on the signals we have (no-website, industry, phone) and scaled by fit.
+    const est = estimateDealValue(
+      discoveryScore({
+        hasWebsite: Boolean(data.website),
+        industry: data.industry ?? null,
+        rating: null,
+        reviews: null,
+        hasPhone: Boolean(data.phone),
+      }).band,
+    );
+
     const id = uid();
     await db()
       .prepare(
@@ -3180,13 +3193,13 @@ export const importDiscoveredLead = createServerFn({ method: "POST" })
         null,
         ownerId,
         TO_CALL_STAGE,
-        0,
+        est.value,
         null,
         "Reach out & qualify",
         null,
         null,
         null,
-        0,
+        est.monthly,
         null,
         null,
         "none",
