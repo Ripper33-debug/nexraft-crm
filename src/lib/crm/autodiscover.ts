@@ -241,13 +241,16 @@ export async function runAutoDiscovery(
       patchStatus({ lastError: "Couldn't reach the map service." });
     }
 
-    // Ring outward for the next pass. Once this anchor is covered out to the max
-    // radius, reset and hop to the next region in the tour — that's what carries
-    // the sweep from the home state across North America and on around the world.
-    radius += RADIUS_STEP;
-    if (radius > RADIUS_MAX) {
-      radius = RADIUS_START;
-      ai++;
+    // Only ring outward once we've swept EVERY industry at the current radius, so a
+    // given area is fully covered (dentists, plumbers, roofers, …) before the scan
+    // widens — rather than a different trade at each distance. When an anchor is
+    // covered out to the max radius, reset and hop to the next region in the tour.
+    if (ti % AUTO_TYPES.length === 0) {
+      radius += RADIUS_STEP;
+      if (radius > RADIUS_MAX) {
+        radius = RADIUS_START;
+        ai++;
+      }
     }
 
     if (isCancelled()) break;
