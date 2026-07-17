@@ -2232,8 +2232,13 @@ export const getActivityFeed = createServerFn({ method: "GET" }).handler(async (
   await ensureExtraSchema();
   const { results } = await db()
     .prepare(
+      // The auto-scanner can assign dozens of discovered leads at a time; those
+      // machine auto-assignments would drown out real team activity, so we hide
+      // them from this feed. The events still exist (each company's own timeline
+      // keeps its record) — they're just filtered out of the shared feed here.
       `SELECT e.id, e.actor_id, u.name AS actor_name, e.verb, e.entity_type, e.entity_id, e.summary, e.created_at
        FROM events e LEFT JOIN users u ON u.id = e.actor_id
+       WHERE NOT (e.verb = 'assigned' AND e.summary LIKE '%from lead discovery%')
        ORDER BY e.created_at DESC
        LIMIT 40`,
     )

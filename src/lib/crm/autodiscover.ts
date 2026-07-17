@@ -45,17 +45,26 @@ export const STATE_TOUR: Anchor[] = [
   "Washington", "Oregon", "California", "Alaska", "Hawaii",
 ].map((name) => ({ label: name, query: `${name}, USA` }));
 
-// The rotation of best-fit business types the engine sweeps through.
+// The rotation of best-fit business types the engine sweeps through. Ordered
+// roughly by fit: home-service trades first (highest no-website rates + real
+// retainer budgets), then professional/medical, then hospitality. Every label
+// here must map to an osmFilters() branch in data.ts so the scan can find it.
 export const AUTO_TYPES = [
   "Roofers",
   "Plumbers",
-  "Dentists",
-  "Law firms",
+  "Electricians",
+  "HVAC",
   "Contractors",
+  "Landscapers",
   "Auto repair",
-  "Salons",
+  "Dentists",
+  "Veterinarians",
+  "Med spas",
   "Chiropractors",
+  "Accountants",
+  "Law firms",
   "Real estate agents",
+  "Salons",
   "Gyms",
   "Restaurants",
   "Cafes",
