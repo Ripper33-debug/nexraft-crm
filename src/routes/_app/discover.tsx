@@ -224,7 +224,11 @@ function AutoPanel({ area }: { area: string }) {
           </p>
 
           <div className="mt-3">
-            <USStatePicker selected={selectedAbbr} onPick={pickState} />
+            <USStatePicker
+              selected={selectedAbbr}
+              scanning={config.on ? stateAbbrFromArea(st.currentArea) : null}
+              onPick={pickState}
+            />
           </div>
 
           <div className="mt-3 text-xs">

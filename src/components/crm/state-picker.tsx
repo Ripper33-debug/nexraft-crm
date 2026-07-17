@@ -3,7 +3,7 @@
 // states, then tap a state to drop the radar there. Compact, readable, and easy
 // to use on any screen, matching the dark radar aesthetic.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export type USState = { abbr: string; name: string };
 
@@ -118,13 +118,25 @@ function regionOfAbbr(abbr: string | null): string {
 
 export function USStatePicker({
   selected,
+  scanning,
   onPick,
 }: {
   selected: string | null;
+  // The state the radar is actively sweeping right now (may differ from the start
+  // state once the tour rolls on). Highlighted with a live pulse so you can always
+  // see where the scan currently is.
+  scanning?: string | null;
   onPick: (s: USState) => void;
 }) {
   const [openRegion, setOpenRegion] = useState<string>(() => regionOfAbbr(selected));
   const active = US_REGIONS.find((r) => r.name === openRegion) ?? US_REGIONS[0];
+
+  // Follow the sweep: whenever it moves to a new state, open that state's region so
+  // the pulsing "scanning now" chip is visible — even after it crosses into another
+  // region (e.g. Southeast → South Central).
+  useEffect(() => {
+    if (scanning) setOpenRegion(regionOfAbbr(scanning));
+  }, [scanning]);
 
   return (
     <div className="w-full max-w-[380px]" role="group" aria-label="Pick a state to search">
@@ -133,6 +145,7 @@ export function USStatePicker({
         {US_REGIONS.map((r) => {
           const isOpen = r.name === active.name;
           const hasSel = selected != null && r.states.some((s) => s.abbr === selected);
+          const hasScan = scanning != null && r.states.some((s) => s.abbr === scanning);
           return (
             <button
               key={r.name}
@@ -140,7 +153,7 @@ export function USStatePicker({
               onClick={() => setOpenRegion(r.name)}
               aria-pressed={isOpen}
               className={
-                "rounded-full border px-3 py-1 text-xs font-medium transition-colors " +
+                "relative rounded-full border px-3 py-1 text-xs font-medium transition-colors " +
                 (isOpen
                   ? "border-signal/70 bg-signal/15 text-bone"
                   : "border-white/5 bg-surface-2 text-mute hover:border-signal/40 hover:text-bone") +
@@ -148,6 +161,12 @@ export function USStatePicker({
               }
             >
               {r.name}
+              {hasScan && !isOpen ? (
+                <span className="absolute -right-0.5 -top-0.5 flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-signal opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-signal" />
+                </span>
+              ) : null}
             </button>
           );
         })}
@@ -157,20 +176,38 @@ export function USStatePicker({
       <div className="mt-2.5 flex flex-wrap gap-1.5">
         {active.states.map((s) => {
           const isSel = selected === s.abbr;
+          const isScan = scanning === s.abbr;
           return (
             <button
               key={s.abbr}
               type="button"
-              title={s.name}
+              title={isScan ? `${s.name} — scanning now` : s.name}
               aria-pressed={isSel}
+              aria-current={isScan ? "true" : undefined}
               onClick={() => onPick(s)}
               className={
-                "rounded-md border px-2.5 py-1.5 text-xs transition-colors " +
+                "relative inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors " +
                 (isSel
                   ? "border-signal bg-signal text-black shadow-[0_0_10px_rgba(45,212,191,0.5)]"
-                  : "border-white/5 bg-surface-2 text-bone hover:border-signal/50 hover:bg-surface-3")
+                  : "border-white/5 bg-surface-2 text-bone hover:border-signal/50 hover:bg-surface-3") +
+                (isScan && !isSel ? " border-signal/80 ring-1 ring-signal/60" : "")
               }
             >
+              {isScan ? (
+                <span className="flex h-2 w-2 shrink-0">
+                  <span
+                    className={
+                      "absolute inline-flex h-2 w-2 animate-ping rounded-full opacity-75 " +
+                      (isSel ? "bg-black/60" : "bg-signal")
+                    }
+                  />
+                  <span
+                    className={
+                      "relative inline-flex h-2 w-2 rounded-full " + (isSel ? "bg-black/70" : "bg-signal")
+                    }
+                  />
+                </span>
+              ) : null}
               {s.name}
             </button>
           );
