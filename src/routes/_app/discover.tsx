@@ -216,9 +216,10 @@ function AutoPanel({ area }: { area: string }) {
           </div>
           <p className="mt-1.5 text-xs text-mute">
             Pick a state to drop the radar there:{" "}
-            <span className="text-bone">{targetLabel || "none yet"}</span> — it starts tight, rings
-            wider each pass, and rolls into neighboring states as it widens. Most new finds (~90%)
-            are auto-assigned round-robin to the team; the rest land in the claimable pool below.
+            <span className="text-bone">{targetLabel || "none yet"}</span> — it saturates that state
+            and its neighbors, then hops region to region across North America and on around the
+            world. Most new finds (~90%) are auto-assigned round-robin to the team; the rest land in
+            the claimable pool below.
           </p>
 
           <div className="mt-3">
@@ -234,8 +235,9 @@ function AutoPanel({ area }: { area: string }) {
             ) : config.on ? (
               st.currentType ? (
                 <span className="text-mute">
-                  <span className="text-signal">Scanning {st.currentType}…</span> · ~{st.radiusKm} km
-                  out · {st.imported} found · {st.assigned} auto-assigned
+                  <span className="text-signal">Scanning {st.currentType}</span>
+                  {st.currentArea ? <> in {st.currentArea}</> : null}… · ~{st.radiusKm} km out ·{" "}
+                  {st.imported} found · {st.assigned} auto-assigned
                 </span>
               ) : (
                 <span className="text-mute">
@@ -253,6 +255,7 @@ function AutoPanel({ area }: { area: string }) {
           <RadarScope
             on={config.on}
             currentType={st.currentType}
+            currentArea={st.currentArea}
             radiusKm={st.radiusKm}
             imported={st.imported}
             paused={st.paused}

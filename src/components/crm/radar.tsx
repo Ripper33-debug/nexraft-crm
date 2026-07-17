@@ -19,12 +19,14 @@ function blipPos(i: number): { x: number; y: number } {
 export function RadarScope({
   on,
   currentType,
+  currentArea,
   radiusKm,
   imported,
   paused,
 }: {
   on: boolean;
   currentType: string | null;
+  currentArea?: string | null;
   radiusKm: number;
   imported: number;
   paused: boolean;
@@ -129,7 +131,8 @@ export function RadarScope({
           <span>
             {currentType ? (
               <>
-                <span className="text-signal">{currentType}</span> · {imported} found
+                <span className="text-signal">{currentType}</span>
+                {currentArea ? <> · {currentArea}</> : null} · {imported} found
               </>
             ) : (
               <>Warming up… · {imported} found</>

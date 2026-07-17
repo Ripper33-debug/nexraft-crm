@@ -19,6 +19,7 @@ export type AutoDiscoverConfig = { on: boolean; area: string };
 export type AutoDiscoverStatus = {
   running: boolean;
   currentType: string | null;
+  currentArea: string | null; // which region the scan is currently sweeping
   radiusKm: number; // how far out the scan has expanded
   imported: number; // this session
   assigned: number; // of those, how many were auto-assigned to a rep
@@ -26,6 +27,40 @@ export type AutoDiscoverStatus = {
   lastRunAt: number | null;
   paused: boolean; // hit the session cap
 };
+
+// After the picked state is saturated, the radar hops through this tour of anchor
+// cities to widen coverage — North America first, then out across the world. Each
+// anchor gets its own expanding-radius sweep before the scan moves to the next.
+type Anchor = { label: string; query: string };
+export const GLOBAL_TOUR: Anchor[] = [
+  // North America
+  { label: "New York", query: "New York, USA" },
+  { label: "Atlanta", query: "Atlanta, USA" },
+  { label: "Chicago", query: "Chicago, USA" },
+  { label: "Dallas", query: "Dallas, USA" },
+  { label: "Denver", query: "Denver, USA" },
+  { label: "Phoenix", query: "Phoenix, USA" },
+  { label: "Los Angeles", query: "Los Angeles, USA" },
+  { label: "Seattle", query: "Seattle, USA" },
+  { label: "Minneapolis", query: "Minneapolis, USA" },
+  { label: "Boston", query: "Boston, USA" },
+  { label: "Toronto", query: "Toronto, Canada" },
+  { label: "Vancouver", query: "Vancouver, Canada" },
+  { label: "Mexico City", query: "Mexico City, Mexico" },
+  // Rest of the world
+  { label: "London", query: "London, UK" },
+  { label: "Dublin", query: "Dublin, Ireland" },
+  { label: "Paris", query: "Paris, France" },
+  { label: "Berlin", query: "Berlin, Germany" },
+  { label: "Madrid", query: "Madrid, Spain" },
+  { label: "Amsterdam", query: "Amsterdam, Netherlands" },
+  { label: "Dubai", query: "Dubai, UAE" },
+  { label: "Singapore", query: "Singapore" },
+  { label: "Sydney", query: "Sydney, Australia" },
+  { label: "Auckland", query: "Auckland, New Zealand" },
+  { label: "Tokyo", query: "Tokyo, Japan" },
+  { label: "São Paulo", query: "Sao Paulo, Brazil" },
+];
 
 // The rotation of best-fit business types the engine sweeps through.
 export const AUTO_TYPES = [
@@ -44,7 +79,7 @@ export const AUTO_TYPES = [
 ];
 
 // Safety rails.
-const SESSION_CAP = 60; // most auto-imports per open session
+const SESSION_CAP = 250; // most auto-imports per open session (global sweep needs room)
 const TYPE_DELAY_MS = 30_000; // pause between business types
 const PER_TYPE_MAX = 6; // most imports taken from a single search pass
 
@@ -60,6 +95,7 @@ const DEFAULT_CONFIG: AutoDiscoverConfig = { on: false, area: "" };
 const DEFAULT_STATUS: AutoDiscoverStatus = {
   running: false,
   currentType: null,
+  currentArea: null,
   radiusKm: RADIUS_START,
   imported: 0,
   assigned: 0,
@@ -141,24 +177,30 @@ export async function runAutoDiscovery(
 ) {
   patchStatus({ ...DEFAULT_STATUS, running: true });
   let ti = 0;
+  let ai = 0; // which anchor in the tour we're sweeping
   let radius = RADIUS_START;
   while (!isCancelled()) {
-    const area = getArea().trim();
-    if (!area) {
+    const start = getArea().trim();
+    if (!start) {
       await sleep(2000);
       continue;
     }
     if (status.imported >= SESSION_CAP) {
-      patchStatus({ running: true, paused: true, currentType: null });
+      patchStatus({ running: true, paused: true, currentType: null, currentArea: null });
       return; // done for this session
     }
 
+    // The tour: the picked state first (saturate home turf + neighbors), then the
+    // North-America-first global anchors. Wraps around once the world's covered.
+    const tour: Anchor[] = [{ label: start.replace(/,\s*USA$/i, "").trim(), query: start }, ...GLOBAL_TOUR];
+    const anchor = tour[ai % tour.length];
+
     const type = AUTO_TYPES[ti % AUTO_TYPES.length];
     ti++;
-    patchStatus({ currentType: type, radiusKm: radius, lastRunAt: Date.now() });
+    patchStatus({ currentType: type, currentArea: anchor.label, radiusKm: radius, lastRunAt: Date.now() });
 
     try {
-      const res = await discoverLeads({ data: { businessType: type, area, limit: 20, radiusKm: radius } });
+      const res = await discoverLeads({ data: { businessType: type, area: anchor.query, limit: 20, radiusKm: radius } });
       if (isCancelled()) break;
       if (!res.ok) {
         patchStatus({ lastError: res.error ?? "Search failed." });
@@ -198,11 +240,17 @@ export async function runAutoDiscovery(
       patchStatus({ lastError: "Couldn't reach the map service." });
     }
 
-    // Ring outward for the next pass, holding at the outer edge.
-    radius = Math.min(RADIUS_MAX, radius + RADIUS_STEP);
+    // Ring outward for the next pass. Once this anchor is covered out to the max
+    // radius, reset and hop to the next region in the tour — that's what carries
+    // the sweep from the home state across North America and on around the world.
+    radius += RADIUS_STEP;
+    if (radius > RADIUS_MAX) {
+      radius = RADIUS_START;
+      ai++;
+    }
 
     if (isCancelled()) break;
     await sleep(TYPE_DELAY_MS);
   }
-  patchStatus({ running: false, currentType: null });
+  patchStatus({ running: false, currentType: null, currentArea: null });
 }
