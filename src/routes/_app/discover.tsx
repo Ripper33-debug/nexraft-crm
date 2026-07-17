@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter, useRouteContext } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -7,6 +7,7 @@ import {
   getDiscoveredPool,
   claimCompany,
   dismissDiscoveredLead,
+  redistributePool,
   type DiscoveredLead,
   type PoolLead,
 } from "../../lib/crm/data";
@@ -388,6 +389,35 @@ function DiscoverPage() {
 
   const visiblePool = pool.filter((l) => !removed.has(l.id));
 
+  // Admin-only: sweep the whole pool at once — phone leads go to reps, the rest
+  // get junked. Gated on role so reps never see the button.
+  const { user } = useRouteContext({ from: "/_app" }) as { user?: { role?: string } };
+  const isAdmin = user?.role === "admin";
+  const [distributing, setDistributing] = useState(false);
+
+  async function distributePool() {
+    if (
+      !confirm(
+        `Distribute all ${visiblePool.length} pooled leads? Ones with a phone number go to your reps; ones with no phone are moved to the trash (recoverable).`,
+      )
+    )
+      return;
+    setDistributing(true);
+    try {
+      const res = await redistributePool();
+      if (res.ok) {
+        toast(`Assigned ${res.assigned} to reps · junked ${res.junked} with no phone.`, "success");
+        router.invalidate();
+      } else {
+        toast("Couldn't distribute the pool.", "error");
+      }
+    } catch {
+      toast("Something went wrong distributing the pool.", "error");
+    } finally {
+      setDistributing(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -406,9 +436,16 @@ function DiscoverPage() {
               into your pipeline as a “To Call”. First come, first served.
             </p>
           </div>
-          {visiblePool.length > 0 ? (
-            <Pill tone="signal">{visiblePool.length} waiting</Pill>
-          ) : null}
+          <div className="flex items-center gap-2">
+            {isAdmin && visiblePool.length > 0 ? (
+              <Button variant="outline" onClick={distributePool} disabled={distributing}>
+                {distributing ? "Distributing…" : "Distribute to reps"}
+              </Button>
+            ) : null}
+            {visiblePool.length > 0 ? (
+              <Pill tone="signal">{visiblePool.length} waiting</Pill>
+            ) : null}
+          </div>
         </div>
         {visiblePool.length > 0 ? (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">

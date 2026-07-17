@@ -803,6 +803,73 @@ export const claimCompany = createServerFn({ method: "POST" })
     return { ok: true as const, alreadyMine: false };
   });
 
+// Admin one-click pool cleanup: take every unclaimed lead sitting in the open
+// pool and either hand it to a rep or junk it. Leads WITH a phone number get
+// assigned round-robin to the least-loaded eligible rep (same balancer the radar
+// uses — excludes Barry & Michael). Leads with NO phone number get junked to the
+// trash (soft-delete, fully reversible) since there's no way to call them.
+// Admin only. Returns how many were assigned vs. junked.
+export const redistributePool = createServerFn({ method: "POST" }).handler(async () => {
+  const me = await requireAdmin();
+  await ensureExtraSchema();
+
+  const pool =
+    (
+      await db()
+        .prepare(
+          `SELECT id, name, phone FROM companies
+            WHERE owner_id IS NULL AND archived_at IS NULL`,
+        )
+        .all<{ id: string; name: string; phone: string | null }>()
+    ).results ?? [];
+
+  let assigned = 0;
+  let junked = 0;
+  const now = new Date().toISOString();
+
+  for (const c of pool) {
+    if (normPhone(c.phone).length > 0) {
+      // Has a phone → hand to the least-loaded eligible rep. pickAutoAssignee
+      // re-reads live load each call, so looping self-balances the batch evenly.
+      const rep = await pickAutoAssignee();
+      if (!rep) continue; // nobody eligible — leave it in the pool
+      await db().prepare("UPDATE companies SET owner_id = ? WHERE id = ?").bind(rep.id, c.id).run();
+      await db()
+        .prepare(
+          `UPDATE deals SET owner_id = ? WHERE company_id = ? AND archived_at IS NULL AND owner_id IS NULL`,
+        )
+        .bind(rep.id, c.id)
+        .run();
+      assigned++;
+      await logEvent({
+        actorId: me.id,
+        verb: "assigned",
+        entityType: "company",
+        entityId: c.id,
+        summary: `${c.name} assigned to ${rep.name} (pool cleanup)`,
+      });
+    } else {
+      // No phone → junk it to the trash. Soft-delete, so it's recoverable and
+      // (per the de-dup rules) can't be re-discovered as a fresh lead.
+      await db().prepare("UPDATE companies SET archived_at = ? WHERE id = ?").bind(now, c.id).run();
+      await db()
+        .prepare("UPDATE deals SET archived_at = ? WHERE company_id = ? AND archived_at IS NULL")
+        .bind(now, c.id)
+        .run();
+      junked++;
+      await logEvent({
+        actorId: me.id,
+        verb: "archived",
+        entityType: "company",
+        entityId: c.id,
+        summary: `${c.name} junked from the pool — no phone number`,
+      });
+    }
+  }
+
+  return { ok: true as const, assigned, junked, total: pool.length };
+});
+
 // Admin bulk handoff: move an entire book of business from one teammate to
 // another in one shot — every company, and optionally the deals and contacts
 // they own. Used when a rep leaves or accounts get reshuffled. Admin only.
