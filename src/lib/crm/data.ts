@@ -2823,13 +2823,16 @@ function normPhone(s: string | null | undefined): string {
 // Polite identifier required by the OpenStreetMap usage policies.
 const OSM_UA = "NexraftCRM/1.0 (https://crm.nexraft.com)";
 
-// The public Overpass servers get busy. We try several mirrors in turn so one
-// overloaded instance just falls through to the next instead of failing.
+// The public Overpass servers get busy or slow on heavy whole-state queries
+// (the primary regularly 504s on those). We hit ALL mirrors at once and take the
+// first that answers, so one slow/dead/overloaded instance never holds up the
+// request — critical on serverless, where trying them one-by-one blows the
+// function's time budget before a good mirror is ever reached.
 const OVERPASS_ENDPOINTS = [
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
   "https://overpass.private.coffee/api/interpreter",
-  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ];
 
 // fetch with a hard timeout. Without this, a dead/hanging mirror keeps the
@@ -2846,35 +2849,37 @@ async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Pro
   }
 }
 
-// Run an Overpass QL query, rotating through the mirrors until one answers.
-// Returns the elements array, or throws if every mirror is busy/unreachable.
+// Run an Overpass QL query against ALL mirrors in parallel and return the first
+// one that answers successfully. Racing (instead of trying them in sequence) is
+// what keeps this fast and reliable: a mirror that 504s or hangs simply loses the
+// race instead of adding its full timeout to the total, so overall latency is
+// just the fastest healthy mirror (~a few seconds). Throws only if every mirror
+// fails.
 async function overpassQuery(ql: string): Promise<any[]> {
-  let lastStatus = 0;
-  for (const endpoint of OVERPASS_ENDPOINTS) {
-    try {
-      const res = await fetchWithTimeout(
-        endpoint,
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/x-www-form-urlencoded",
-            "User-Agent": OSM_UA,
-          },
-          body: "data=" + encodeURIComponent(ql),
+  const attempts = OVERPASS_ENDPOINTS.map(async (endpoint) => {
+    const res = await fetchWithTimeout(
+      endpoint,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "User-Agent": OSM_UA,
         },
-        12000, // 12s cap per mirror
-      );
-      if (!res.ok) {
-        lastStatus = res.status;
-        continue; // busy/broken mirror — try the next one
-      }
-      const json = (await res.json()) as { elements?: any[] };
-      return json.elements ?? [];
-    } catch {
-      continue; // network hiccup / timeout — try the next mirror
-    }
+        body: "data=" + encodeURIComponent(ql),
+      },
+      12000, // 12s cap per mirror
+    );
+    if (!res.ok) throw new Error(`busy_${res.status}`); // reject so the race skips it
+    const json = (await res.json()) as { elements?: any[] };
+    return json.elements ?? [];
+  });
+  try {
+    // Promise.any resolves with the first mirror that fulfils; it only rejects if
+    // they ALL fail.
+    return await Promise.any(attempts);
+  } catch {
+    throw new Error("unreachable");
   }
-  throw new Error(lastStatus ? `busy_${lastStatus}` : "unreachable");
 }
 
 // Map a free-text business type to OpenStreetMap tag selectors. OSM classifies
