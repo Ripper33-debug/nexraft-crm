@@ -3026,7 +3026,7 @@ async function geocodeAreaUncached(area: string): Promise<GeoBox | null> {
     const res = await fetchWithTimeout(
       url,
       { headers: { "User-Agent": OSM_UA, Accept: "application/json" } },
-      12000,
+      8000, // 8s cap: geocode + overpass must together stay well under Vercel's 30s
     );
     if (!res.ok) return null;
     const arr = (await res.json()) as Array<{ boundingbox?: string[]; lat?: string; lon?: string }>;
@@ -3118,7 +3118,15 @@ export const discoverLeads = createServerFn({ method: "POST" })
     const clauses = filters
       .map((sel) => `  node[${sel}](${bbox});\n  way[${sel}](${bbox});`)
       .join("\n");
-    const ql = `[out:json][timeout:25];\n(\n${clauses}\n);\nout center tags 60;`;
+    // The Overpass server-side timeout MUST sit under our fetch cap (12s). It used
+    // to be 25s, which meant the mirror was told it could spend 25s computing while
+    // we hung up the socket at 12s — so on heavy whole-state combos every mirror
+    // ran long and we got nothing, and the wasted seconds pushed the whole
+    // serverless request toward Vercel's 30s kill limit (the "couldn't reach the
+    // map service" the scanner reported). At 11s the mirror returns whatever it has
+    // — or a clean timeout — inside our budget, so heavy combos fail fast instead of
+    // hanging, and every combo that CAN finish returns its results.
+    const ql = `[out:json][timeout:11];\n(\n${clauses}\n);\nout center tags 60;`;
 
     let elements: any[] = [];
     try {
