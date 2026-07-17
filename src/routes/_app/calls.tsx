@@ -13,41 +13,13 @@ import {
   formatMoney,
   PRICING_PACKAGES,
 } from "../../lib/crm/constants";
+import { missedCallEmail, mailtoLink } from "../../lib/crm/emails";
 
 type Row = Record<string, unknown>;
 type Mode = "people" | "companies";
 
 function fullName(c: Row): string {
   return `${(c.first_name as string) ?? ""} ${(c.last_name as string) ?? ""}`.trim();
-}
-
-// A warm "sorry we missed you" follow-up the rep can fire off when a call goes
-// unanswered. Kept friendly and low-pressure — the goal is just to reopen the
-// door. Returns the subject + body so they can be shown and/or dropped into a
-// mailto: draft.
-function missedCallEmail(companyName: string, repName: string): { subject: string; body: string } {
-  const co = companyName || "your business";
-  const rep = (repName || "").split(" ")[0] || "the Nexraft team";
-  const subject = `Sorry we missed you — ${co} & Nexraft`;
-  const body = `Hi there,
-
-This is ${rep} from Nexraft — I just tried giving you a quick call about your website but couldn't reach you. No worries at all!
-
-We build clean, professional websites for local businesses, and I'd love to show you what we could put together for ${co}. There's no pressure — just a quick chat whenever it suits you.
-
-You can reply straight to this email or call me back and we'll find a time that works. Looking forward to connecting.
-
-Talk soon,
-${repName || "The Nexraft team"}
-Nexraft`;
-  return { subject, body };
-}
-
-// Build a mailto: link that opens the rep's own email app with everything
-// pre-filled, so they just glance and hit send. No account connection needed.
-function mailtoLink(to: string, subject: string, body: string): string {
-  const params = `subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  return `mailto:${encodeURIComponent(to)}?${params}`;
 }
 
 export const Route = createFileRoute("/_app/calls")({

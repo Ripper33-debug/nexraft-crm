@@ -52,6 +52,11 @@ export function ensureExtraSchema(): Promise<void> {
       // Call-queue triage outcome for companies with no deal yet:
       // NULL = still "need to call", 'interested' or 'not_interested' once triaged.
       `ALTER TABLE companies ADD COLUMN IF NOT EXISTS call_outcome TEXT`,
+      // Email follow-up tracking (for the "no answer" nudge queue): how many
+      // follow-up emails have been drafted/sent to this company, and when the
+      // last one went out. Drives which nudge template comes next (1st/2nd/3rd).
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS email_touches INTEGER DEFAULT 0`,
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS last_emailed_at TEXT`,
       // Proposal tracking on deals: 'none' | 'sent' | 'viewed' | 'signed' (+ sent date).
       `ALTER TABLE deals ADD COLUMN IF NOT EXISTS proposal_status TEXT`,
       `ALTER TABLE deals ADD COLUMN IF NOT EXISTS proposal_sent_at TEXT`,

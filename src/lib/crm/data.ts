@@ -2747,6 +2747,39 @@ export const generateMissingBriefs = createServerFn({ method: "POST" })
     };
   });
 
+// Record that a follow-up email was drafted/sent to a company: bump the touch
+// count and stamp the time, so the next nudge uses the right template. Called
+// when the rep opens a pre-filled draft from the Follow-ups queue.
+export const recordEmailTouch = createServerFn({ method: "POST" })
+  .validator(z.object({ company_id: z.string() }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    const row = await db()
+      .prepare("SELECT name, COALESCE(email_touches,0) AS email_touches FROM companies WHERE id = ?")
+      .bind(data.company_id)
+      .first<{ name: string; email_touches: number }>();
+    if (!row) return { ok: false as const, touches: 0 };
+    const next = (Number(row.email_touches) || 0) + 1;
+    await db()
+      .prepare(
+        `UPDATE companies
+            SET email_touches = ?,
+                last_emailed_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+          WHERE id = ?`,
+      )
+      .bind(next, data.company_id)
+      .run();
+    await logEvent({
+      actorId: user.id,
+      verb: "emailed",
+      entityType: "company",
+      entityId: data.company_id,
+      summary: `${user.name} emailed ${row.name} (follow-up #${next})`,
+    });
+    return { ok: true as const, touches: next };
+  });
+
 // ==================== Lead discovery (Phase 3, Google Places) ====================
 // On-demand prospecting: a rep searches a city + business type, and we pull real
 // local businesses from Google Places — name, address, phone, rating, and whether
