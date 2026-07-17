@@ -21,6 +21,7 @@ export type AutoDiscoverStatus = {
   currentType: string | null;
   radiusKm: number; // how far out the scan has expanded
   imported: number; // this session
+  assigned: number; // of those, how many were auto-assigned to a rep
   lastError: string | null;
   lastRunAt: number | null;
   paused: boolean; // hit the session cap
@@ -60,6 +61,7 @@ const DEFAULT_STATUS: AutoDiscoverStatus = {
   currentType: null,
   radiusKm: RADIUS_START,
   imported: 0,
+  assigned: 0,
   lastError: null,
   lastRunAt: null,
   paused: false,
@@ -175,11 +177,15 @@ export async function runAutoDiscovery(
                 website: l.website,
                 phone: l.phone,
                 city: l.city,
+                autoAssign: true, // let the server flip a coin: ~half go to a rep
               },
             });
             if (imp.ok && !imp.duplicate) {
               importedNow++;
-              patchStatus({ imported: status.imported + 1 });
+              patchStatus({
+                imported: status.imported + 1,
+                assigned: status.assigned + (imp.assignedTo ? 1 : 0),
+              });
             }
           } catch {
             /* skip this lead, keep going */

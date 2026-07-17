@@ -206,24 +206,26 @@ function AutoPanel({ area }: { area: string }) {
           <p className="mt-1.5 text-xs text-mute">
             Radar scan out from{" "}
             <span className="text-bone">{config.on ? config.area : area.trim() || "your center"}</span>{" "}
-            — starts tight, then rings wider each pass, dropping new no-website businesses into the
-            claimable pool below while the CRM is open.
+            — starts tight, then rings wider each pass. About half of each new find is auto-assigned
+            round-robin to the team; the rest land in the claimable pool below.
           </p>
 
           <div className="mt-3 text-xs">
             {st.paused ? (
               <span className="text-amber-300">
-                Reached this session's limit — {st.imported} found. Reload the CRM later to keep
-                going.
+                Reached this session's limit — {st.imported} found ({st.assigned} auto-assigned).
+                Reload the CRM later to keep going.
               </span>
             ) : config.on ? (
               st.currentType ? (
                 <span className="text-mute">
                   <span className="text-signal">Scanning {st.currentType}…</span> · ~{st.radiusKm} km
-                  out · {st.imported} found this session
+                  out · {st.imported} found · {st.assigned} auto-assigned
                 </span>
               ) : (
-                <span className="text-mute">Starting up… · {st.imported} found this session</span>
+                <span className="text-mute">
+                  Starting up… · {st.imported} found · {st.assigned} auto-assigned
+                </span>
               )
             ) : (
               <span className="text-faint">Flip it on to start the sweep.</span>

@@ -3077,9 +3077,37 @@ export const discoverLeads = createServerFn({ method: "POST" })
     return { ok: true as const, leads };
   });
 
-// Import a discovered lead into the CRM as an unowned company (open pool) with a
-// $0 "To Call" deal, so it immediately shows in the call queue and Opportunities
-// board for anyone to claim. Guards against duplicates by name/phone.
+// Reps who stay OUT of the auto-assign rotation: Barry (the owner) and Michael.
+// Everyone else on the team shares the auto-assigned half of discovered leads.
+// Matched by a stable rule (email / name) so it works no matter who's running the
+// radar in their browser.
+const AUTO_ASSIGN_EXCLUDE_EMAIL = "barry@nexraft.com";
+const AUTO_ASSIGN_EXCLUDE_NAME_LIKE = "%michael%";
+
+// Pick the eligible rep with the lightest open pipeline (self-balancing round
+// robin), breaking ties at random. Returns null if nobody's eligible.
+async function pickAutoAssignee(): Promise<{ id: string; name: string } | null> {
+  const row = await db()
+    .prepare(
+      `SELECT u.id, u.name, COUNT(d.id) AS open_deals
+         FROM users u
+         LEFT JOIN deals d ON d.owner_id = u.id AND d.archived_at IS NULL
+        WHERE lower(u.email) <> ?
+          AND lower(u.name) NOT LIKE ?
+        GROUP BY u.id, u.name
+        ORDER BY open_deals ASC, random()
+        LIMIT 1`,
+    )
+    .bind(AUTO_ASSIGN_EXCLUDE_EMAIL, AUTO_ASSIGN_EXCLUDE_NAME_LIKE)
+    .first<{ id: string; name: string; open_deals: number }>();
+  return row ? { id: row.id, name: row.name } : null;
+}
+
+// Import a discovered lead into the CRM with a $0 "To Call" deal, so it immediately
+// shows in the call queue and Opportunities board. Manual imports land unowned in
+// the open pool for anyone to claim. When called by the radar with autoAssign, it
+// flips a coin: ~half get auto-assigned to a rep (least-loaded, excluding Barry &
+// Michael) and half stay in the pool. Guards against duplicates by name/phone.
 export const importDiscoveredLead = createServerFn({ method: "POST" })
   .validator(
     z.object({
@@ -3088,6 +3116,7 @@ export const importDiscoveredLead = createServerFn({ method: "POST" })
       website: z.string().optional().nullable(),
       phone: z.string().optional().nullable(),
       city: z.string().optional().nullable(),
+      autoAssign: z.boolean().optional(),
     }),
   )
   .handler(async ({ data }) => {
@@ -3105,7 +3134,16 @@ export const importDiscoveredLead = createServerFn({ method: "POST" })
       )
       .bind(normName(data.name), normPhone(data.phone), normPhone(data.phone))
       .first<{ id: string }>();
-    if (dupe) return { ok: true as const, id: dupe.id, duplicate: true };
+    if (dupe) return { ok: true as const, id: dupe.id, duplicate: true, assignedTo: null };
+
+    // Auto-assign roll: only when the radar asks for it, and only ~half the time.
+    // If it lands, hand the lead to the least-loaded eligible rep; otherwise leave
+    // it unowned so it shows up in the claimable pool.
+    let assignee: { id: string; name: string } | null = null;
+    if (data.autoAssign && Math.random() < 0.5) {
+      assignee = await pickAutoAssignee();
+    }
+    const ownerId = assignee?.id ?? null;
 
     const id = uid();
     await db()
@@ -3123,12 +3161,12 @@ export const importDiscoveredLead = createServerFn({ method: "POST" })
         "Discovered",
         null,
         null,
-        null, // unowned → open pool
+        ownerId, // null → open pool; set → auto-assigned to a rep
       )
       .run();
 
     // Same "drop into the pipeline as a $0 To Call deal" treatment as a manually
-    // added company — kept unowned so it sits in the open pool.
+    // added company — owner matches the company (unowned pool, or the assigned rep).
     const now = new Date().toISOString();
     await db()
       .prepare(
@@ -3140,7 +3178,7 @@ export const importDiscoveredLead = createServerFn({ method: "POST" })
         `${data.name} — Website`,
         id,
         null,
-        null,
+        ownerId,
         TO_CALL_STAGE,
         0,
         null,
@@ -3161,12 +3199,14 @@ export const importDiscoveredLead = createServerFn({ method: "POST" })
 
     await logEvent({
       actorId: user.id,
-      verb: "created",
+      verb: assignee ? "assigned" : "created",
       entityType: "company",
       entityId: id,
-      summary: `${user.name} imported ${data.name} from lead discovery`,
+      summary: assignee
+        ? `${data.name} auto-assigned to ${assignee.name} from lead discovery`
+        : `${user.name} imported ${data.name} from lead discovery`,
     });
-    return { ok: true as const, id, duplicate: false };
+    return { ok: true as const, id, duplicate: false, assignedTo: assignee?.name ?? null };
   });
 
 // The claimable "Fresh leads" pool shown on the Discover tab: every discovered
