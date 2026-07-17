@@ -2780,45 +2780,133 @@ export const recordEmailTouch = createServerFn({ method: "POST" })
     return { ok: true as const, touches: next };
   });
 
-// ==================== Lead discovery (Phase 3, Google Places) ====================
+// ==================== Lead discovery (Phase 3, OpenStreetMap) ====================
 // On-demand prospecting: a rep searches a city + business type, and we pull real
-// local businesses from Google Places — name, address, phone, rating, and whether
-// they already have a website. Each candidate is scored (no website = prime
-// target) and can be imported into the CRM in one click as an unowned "To Call"
-// lead. Nothing is stored until the rep imports. Needs GOOGLE_PLACES_API_KEY; with
-// no key the feature degrades gracefully instead of breaking.
+// local businesses from OpenStreetMap — name, address, phone, and (crucially)
+// whether they already have a website. Each candidate is scored (no website =
+// prime target) and can be imported into the CRM in one click as an unowned
+// "To Call" lead. Nothing is stored until it's imported.
+//
+// Why OpenStreetMap? It's a free, open database — no API key, no billing account,
+// no cloud console setup. We resolve the area to a bounding box via Nominatim,
+// then query businesses inside it via the Overpass API. Both are keyless. The
+// trade-off vs. Google is no star ratings / review counts; for a web studio the
+// decisive signal (does this business have a website?) comes through cleanly.
 
 export type DiscoveredLead = {
   place_id: string;
   name: string;
-  industry: string | null; // Google's primary type label
+  industry: string | null; // human-readable category label
   address: string | null;
   city: string | null;
   phone: string | null;
   website: string | null;
-  rating: number | null;
-  reviews: number | null;
+  rating: number | null; // null on OSM (kept for shape compatibility)
+  reviews: number | null; // null on OSM
   score: number;
   band: string;
   reasons: string[];
   already_in_crm: boolean;
 };
 
-// Pull the "City, ST" out of a Google formatted address like
-// "123 Main St, Springfield, IL 62701, USA". Best-effort.
-function cityFromAddress(addr: string | null | undefined): string | null {
-  if (!addr) return null;
-  const parts = addr.split(",").map((p) => p.trim()).filter(Boolean);
-  if (parts.length >= 3) return parts[parts.length - 3]; // the city segment
-  if (parts.length === 2) return parts[0];
-  return null;
-}
-
 function normName(s: string | null | undefined): string {
   return (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 function normPhone(s: string | null | undefined): string {
   return (s ?? "").replace(/\D/g, "");
+}
+
+// Polite identifier required by the OpenStreetMap usage policies.
+const OSM_UA = "NexraftCRM/1.0 (https://crm.nexraft.com)";
+
+// Map a free-text business type to OpenStreetMap tag selectors. OSM classifies
+// businesses across amenity / shop / craft / office / healthcare / leisure /
+// tourism keys, so we translate common phrasings into the right ones. Anything
+// unrecognised falls back to a best-effort slug match.
+function osmFilters(businessType: string): string[] {
+  const t = businessType.toLowerCase();
+  const has = (...ks: string[]) => ks.some((k) => t.includes(k));
+  const f: string[] = [];
+  if (has("restaurant", "diner", "eatery")) f.push(`"amenity"="restaurant"`);
+  if (has("cafe", "coffee")) f.push(`"amenity"="cafe"`);
+  if (has("bakery")) f.push(`"shop"="bakery"`);
+  if (has("bar", "pub", "tavern")) f.push(`"amenity"="bar"`, `"amenity"="pub"`);
+  if (has("dentist", "dental", "orthodont")) f.push(`"amenity"="dentist"`, `"healthcare"="dentist"`);
+  if (has("doctor", "medical", "clinic", "physician", "urgent care"))
+    f.push(`"amenity"="clinic"`, `"amenity"="doctors"`, `"healthcare"="doctor"`);
+  if (has("chiro")) f.push(`"healthcare"="chiropractor"`);
+  if (has("vet")) f.push(`"amenity"="veterinary"`);
+  if (has("pharmac")) f.push(`"amenity"="pharmacy"`);
+  if (has("optician", "optometr", "eyewear")) f.push(`"shop"="optician"`, `"healthcare"="optometrist"`);
+  if (has("law", "legal", "attorney", "lawyer")) f.push(`"office"="lawyer"`);
+  if (has("real estate", "realtor", "estate agent")) f.push(`"office"="estate_agent"`);
+  if (has("account", "bookkeep", "cpa")) f.push(`"office"="accountant"`);
+  if (has("insurance")) f.push(`"office"="insurance"`);
+  if (has("roof")) f.push(`"craft"="roofer"`);
+  if (has("plumb")) f.push(`"craft"="plumber"`);
+  if (has("electric")) f.push(`"craft"="electrician"`);
+  if (has("hvac", "heating", "air condition")) f.push(`"craft"="hvac"`);
+  if (has("contractor", "construction", "builder", "remodel", "renovat"))
+    f.push(`"craft"="contractor"`, `"office"="company"`);
+  if (has("landscap", "lawn", "garden")) f.push(`"craft"="gardener"`, `"shop"="garden_centre"`);
+  if (has("paint")) f.push(`"craft"="painter"`);
+  if (has("salon", "hair", "barber")) f.push(`"shop"="hairdresser"`, `"shop"="beauty"`);
+  if (has("spa")) f.push(`"leisure"="spa"`, `"shop"="beauty"`);
+  if (has("nail")) f.push(`"shop"="beauty"`);
+  if (has("gym", "fitness")) f.push(`"leisure"="fitness_centre"`);
+  if (has("yoga", "pilates")) f.push(`"leisure"="fitness_centre"`);
+  if (has("auto", "mechanic", "car repair", "tire", "tyre")) f.push(`"shop"="car_repair"`, `"shop"="tyres"`);
+  if (has("dealership", "car dealer")) f.push(`"shop"="car"`);
+  if (has("florist", "flower")) f.push(`"shop"="florist"`);
+  if (has("pet")) f.push(`"shop"="pet"`);
+  if (has("hotel", "motel", "inn", "lodg")) f.push(`"tourism"="hotel"`, `"tourism"="motel"`);
+  if (has("photograph")) f.push(`"craft"="photographer"`, `"shop"="photo"`);
+  if (has("clean", "janitor")) f.push(`"shop"="dry_cleaning"`, `"office"="company"`);
+  if (has("retail", "store", "boutique", "shop")) f.push(`"shop"`);
+  // Fallback: match the raw term (singularised) against the common keys.
+  if (f.length === 0) {
+    const slug = t.trim().replace(/s$/, "").replace(/[^a-z]+/g, "_").replace(/^_|_$/g, "");
+    if (slug) f.push(`"shop"="${slug}"`, `"amenity"="${slug}"`, `"craft"="${slug}"`, `"office"="${slug}"`);
+  }
+  return Array.from(new Set(f));
+}
+
+// Resolve a free-text area ("Springfield, IL") to a bounding box via Nominatim.
+async function geocodeArea(area: string): Promise<{ s: number; w: number; n: number; e: number } | null> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(area)}`;
+    const res = await fetch(url, { headers: { "User-Agent": OSM_UA, Accept: "application/json" } });
+    if (!res.ok) return null;
+    const arr = (await res.json()) as Array<{ boundingbox?: string[] }>;
+    const bb = arr?.[0]?.boundingbox; // [south, north, west, east]
+    if (!bb || bb.length < 4) return null;
+    const s = parseFloat(bb[0]);
+    const n = parseFloat(bb[1]);
+    const w = parseFloat(bb[2]);
+    const e = parseFloat(bb[3]);
+    if ([s, n, w, e].some((v) => Number.isNaN(v))) return null;
+    return { s, w, n, e };
+  } catch {
+    return null;
+  }
+}
+
+// Best-effort human-readable category from OSM tags.
+function osmLabel(tags: Record<string, string>): string | null {
+  for (const k of ["amenity", "shop", "craft", "office", "healthcare", "leisure", "tourism"]) {
+    const v = tags[k];
+    if (v && v !== "yes") {
+      return v.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+  }
+  return null;
+}
+
+function osmAddress(tags: Record<string, string>): string | null {
+  const line1 = [tags["addr:housenumber"], tags["addr:street"]].filter(Boolean).join(" ");
+  const region = [tags["addr:state"], tags["addr:postcode"]].filter(Boolean).join(" ");
+  const parts = [line1, tags["addr:city"], region].filter(Boolean);
+  return parts.length ? parts.join(", ") : null;
 }
 
 export const discoverLeads = createServerFn({ method: "POST" })
@@ -2833,37 +2921,60 @@ export const discoverLeads = createServerFn({ method: "POST" })
     await requireUser();
     await ensureExtraSchema();
 
-    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-    if (!apiKey) {
-      return { ok: false as const, error: "NO_KEY", leads: [] as DiscoveredLead[] };
+    const area = (data.area ?? "").trim();
+    if (!area) {
+      return {
+        ok: false as const,
+        error: "Add a city or area to search (e.g. Springfield, IL).",
+        leads: [] as DiscoveredLead[],
+      };
     }
 
-    const textQuery = data.area ? `${data.businessType} in ${data.area}` : data.businessType;
+    const box = await geocodeArea(area);
+    if (!box) {
+      return {
+        ok: false as const,
+        error: `Couldn't find "${area}". Try a "City, State" format like Springfield, IL.`,
+        leads: [] as DiscoveredLead[],
+      };
+    }
 
-    let places: any[] = [];
+    const filters = osmFilters(data.businessType);
+    // Overpass bbox order is (south,west,north,east).
+    const bbox = `${box.s},${box.w},${box.n},${box.e}`;
+    const clauses = filters
+      .map((sel) => `  node[${sel}](${bbox});\n  way[${sel}](${bbox});`)
+      .join("\n");
+    const ql = `[out:json][timeout:25];\n(\n${clauses}\n);\nout center tags 60;`;
+
+    let elements: any[] = [];
     try {
-      const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      const res = await fetch("https://overpass-api.de/api/interpreter", {
         method: "POST",
         headers: {
-          "content-type": "application/json",
-          "X-Goog-Api-Key": apiKey,
-          "X-Goog-FieldMask":
-            "places.id,places.displayName,places.formattedAddress,places.websiteUri,places.nationalPhoneNumber,places.rating,places.userRatingCount,places.primaryTypeDisplayName,places.businessStatus",
+          "content-type": "application/x-www-form-urlencoded",
+          "User-Agent": OSM_UA,
         },
-        body: JSON.stringify({ textQuery, maxResultCount: data.limit }),
+        body: "data=" + encodeURIComponent(ql),
       });
       if (!res.ok) {
-        const detail = await res.text().catch(() => "");
         return {
           ok: false as const,
-          error: `SEARCH_ERROR_${res.status}: ${detail.slice(0, 300)}`,
+          error:
+            res.status === 429 || res.status === 504
+              ? "The map service is busy right now — give it a moment and try again."
+              : `SEARCH_ERROR_${res.status}`,
           leads: [] as DiscoveredLead[],
         };
       }
-      const json = (await res.json()) as { places?: any[] };
-      places = json.places ?? [];
+      const json = (await res.json()) as { elements?: any[] };
+      elements = json.elements ?? [];
     } catch {
-      return { ok: false as const, error: "Couldn't reach Google Places.", leads: [] as DiscoveredLead[] };
+      return {
+        ok: false as const,
+        error: "Couldn't reach the map service. Try again in a moment.",
+        leads: [] as DiscoveredLead[],
+      };
     }
 
     // Load existing companies so we can flag ones already in the CRM (by name or
@@ -2876,43 +2987,51 @@ export const discoverLeads = createServerFn({ method: "POST" })
     const existingNames = new Set(existing.map((c) => normName(c.name)));
     const existingPhones = new Set(existing.map((c) => normPhone(c.phone)).filter(Boolean));
 
-    const leads: DiscoveredLead[] = places
-      .filter((p) => !p.businessStatus || p.businessStatus === "OPERATIONAL")
-      .map((p) => {
-        const name = p.displayName?.text ?? "";
-        const website = p.websiteUri ?? null;
-        const phone = p.nationalPhoneNumber ?? null;
-        const industry = p.primaryTypeDisplayName?.text ?? null;
-        const rating = typeof p.rating === "number" ? p.rating : null;
-        const reviews = typeof p.userRatingCount === "number" ? p.userRatingCount : null;
+    const seen = new Set<string>();
+    const leads: DiscoveredLead[] = elements
+      .map((el) => {
+        const tags: Record<string, string> = el.tags ?? {};
+        const name = tags.name ?? "";
+        const website =
+          tags.website || tags["contact:website"] || tags.url || tags["contact:url"] || null;
+        const phone =
+          tags.phone || tags["contact:phone"] || tags["contact:mobile"] || tags["phone:mobile"] || null;
+        const industry = osmLabel(tags) ?? data.businessType;
         const scored = discoveryScore({
           hasWebsite: Boolean(website),
           industry,
-          rating,
-          reviews,
+          rating: null,
+          reviews: null, // OSM has no reviews — scoring skips that signal
           hasPhone: Boolean(phone),
         });
         const already =
           existingNames.has(normName(name)) ||
           (normPhone(phone) ? existingPhones.has(normPhone(phone)) : false);
         return {
-          place_id: p.id ?? name,
+          place_id: `${el.type}/${el.id}`,
           name,
           industry,
-          address: p.formattedAddress ?? null,
-          city: cityFromAddress(p.formattedAddress),
+          address: osmAddress(tags),
+          city: tags["addr:city"] ?? null,
           phone,
           website,
-          rating,
-          reviews,
+          rating: null,
+          reviews: null,
           score: scored.score,
           band: scored.band,
           reasons: scored.reasons,
           already_in_crm: already,
         };
       })
-      .filter((l) => l.name)
-      .sort((a, b) => b.score - a.score);
+      .filter((l) => {
+        if (!l.name) return false;
+        const key = normName(l.name);
+        if (seen.has(key)) return false; // OSM can return node+way for the same place
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, data.limit);
 
     return { ok: true as const, leads };
   });

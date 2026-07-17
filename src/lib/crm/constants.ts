@@ -320,18 +320,24 @@ export function discoveryScore(sig: DiscoverySignals): OpportunityScore {
     reasons.push("In a best-fit industry");
   }
 
-  // 3) Established & active: good rating with real review volume.
+  // 3) Established & active: good rating with real review volume. Only applied
+  //    when we actually have review data. Sources without reviews (e.g.
+  //    OpenStreetMap) pass null here and skip this block entirely, so they're
+  //    scored on the signals we do have rather than wrongly penalised.
+  const reviewsKnown = sig.reviews !== null && sig.reviews !== undefined;
   const rating = Number(sig.rating) || 0;
   const reviews = Number(sig.reviews) || 0;
-  if (reviews >= 50 && rating >= 4.0) {
-    score += 16;
-    reasons.push(`Well-reviewed (${rating.toFixed(1)}★, ${reviews} reviews)`);
-  } else if (reviews >= 10) {
-    score += 9;
-    reasons.push(`Active listing (${rating ? rating.toFixed(1) + "★, " : ""}${reviews} reviews)`);
-  } else if (reviews === 0) {
-    score -= 5;
-    reasons.push("No reviews yet — may be inactive");
+  if (reviewsKnown) {
+    if (reviews >= 50 && rating >= 4.0) {
+      score += 16;
+      reasons.push(`Well-reviewed (${rating.toFixed(1)}★, ${reviews} reviews)`);
+    } else if (reviews >= 10) {
+      score += 9;
+      reasons.push(`Active listing (${rating ? rating.toFixed(1) + "★, " : ""}${reviews} reviews)`);
+    } else if (reviews === 0) {
+      score -= 5;
+      reasons.push("No reviews yet — may be inactive");
+    }
   }
 
   // 4) Reachable by phone (fits the call-first flow).

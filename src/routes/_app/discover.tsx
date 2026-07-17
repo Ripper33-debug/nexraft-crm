@@ -1,10 +1,11 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { discoverLeads, importDiscoveredLead, type DiscoveredLead } from "../../lib/crm/data";
 import { Button, Card, EmptyState, Input, PageHeader, Pill } from "../../components/crm/ui";
 import { toast } from "../../components/crm/toast";
 import { OPPORTUNITY_BAND_INFO, type OpportunityBand } from "../../lib/crm/constants";
+import { useAutoConfig, useAutoStatus, setConfig } from "../../lib/crm/autodiscover";
 
 export const Route = createFileRoute("/_app/discover")({
   component: DiscoverPage,
@@ -25,16 +26,6 @@ const QUICK_TYPES = [
   "Auto repair",
   "Chiropractors",
 ];
-
-function Stars({ rating, reviews }: { rating: number | null; reviews: number | null }) {
-  if (!rating) return <span className="text-xs text-faint">No reviews yet</span>;
-  return (
-    <span className="text-xs text-mute">
-      <span className="text-amber-400">{rating.toFixed(1)}★</span>
-      {reviews ? <span className="text-faint"> · {reviews} reviews</span> : null}
-    </span>
-  );
-}
 
 function ScoreBadge({ score, band }: { score: number; band: OpportunityBand }) {
   const color = OPPORTUNITY_BAND_INFO[band].color;
@@ -77,9 +68,6 @@ function LeadCard({
             {lead.industry ? <span>{lead.industry}</span> : null}
             {lead.city ? <span className="text-faint">· {lead.city}</span> : null}
           </div>
-          <div className="mt-1">
-            <Stars rating={lead.rating} reviews={lead.reviews} />
-          </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {lead.reasons.slice(0, 3).map((r, i) => (
               <span key={i} className="rounded-md bg-surface-2 px-2 py-0.5 text-[11px] text-mute">
@@ -103,13 +91,97 @@ function LeadCard({
   );
 }
 
+// The always-on prospecting panel: flip it on with an area and the engine (mounted
+// app-wide in the layout) keeps importing new no-website businesses while the CRM
+// is open.
+function AutoPanel({ area }: { area: string }) {
+  const config = useAutoConfig();
+  const st = useAutoStatus();
+
+  function toggle() {
+    if (!config.on) {
+      const a = area.trim();
+      if (!a) {
+        toast("Type a city or area first, then switch auto-discover on.", "info");
+        return;
+      }
+      setConfig({ on: true, area: a });
+      toast("Auto-discover is on — it'll keep finding leads while the CRM is open.", "success");
+    } else {
+      setConfig({ on: false, area: config.area });
+      toast("Auto-discover paused.", "info");
+    }
+  }
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-bone">Auto-discover</span>
+            {config.on ? <Pill tone="ok">On</Pill> : <Pill tone="neutral">Off</Pill>}
+          </div>
+          <p className="mt-1 text-xs text-mute">
+            Keeps finding new no-website businesses in{" "}
+            <span className="text-bone">{config.on ? config.area : "your area"}</span> and drops them
+            into the open pool automatically — no clicking, while the CRM is open.
+          </p>
+        </div>
+        <button
+          onClick={toggle}
+          role="switch"
+          aria-checked={config.on}
+          className={
+            "relative h-6 w-11 shrink-0 rounded-full transition-colors " +
+            (config.on ? "bg-signal" : "bg-surface-2")
+          }
+        >
+          <span
+            className={
+              "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all " +
+              (config.on ? "left-[22px]" : "left-0.5")
+            }
+          />
+        </button>
+      </div>
+
+      {config.on ? (
+        <div className="mt-3 border-t border-line/60 pt-3 text-xs">
+          {st.paused ? (
+            <span className="text-amber-300">
+              Reached this session's limit — {st.imported} imported. Reload the CRM later to keep going.
+            </span>
+          ) : st.currentType ? (
+            <span className="text-mute">
+              <span className="text-signal">Scanning {st.currentType}…</span> · {st.imported} imported
+              this session
+            </span>
+          ) : (
+            <span className="text-mute">Starting up… · {st.imported} imported this session</span>
+          )}
+          {st.lastError ? <div className="mt-1 text-faint">Last hiccup: {st.lastError}</div> : null}
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
 function DiscoverPage() {
   const router = useRouter();
+  const savedArea = useAutoConfig().area;
   const [businessType, setBusinessType] = useState("");
   const [area, setArea] = useState("");
+  const seeded = useRef(false);
+  // Seed the area box once from a saved auto-discover area (after client hydrate),
+  // without clobbering anything the user has started typing.
+  useEffect(() => {
+    if (!seeded.current && savedArea && !area) {
+      setArea(savedArea);
+      seeded.current = true;
+    }
+  }, [savedArea, area]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
-  const [noKey, setNoKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [leads, setLeads] = useState<DiscoveredLead[]>([]);
   const [imported, setImported] = useState<Set<string>>(new Set());
@@ -121,16 +193,18 @@ function DiscoverPage() {
       toast("Type a business type to search for.", "info");
       return;
     }
+    if (!area.trim()) {
+      toast("Add a city or area — e.g. Springfield, IL.", "info");
+      return;
+    }
     if (type) setBusinessType(type);
     setLoading(true);
     setError(null);
-    setNoKey(false);
     try {
-      const res = await discoverLeads({ data: { businessType: q, area: area.trim() || null, limit: 20 } });
+      const res = await discoverLeads({ data: { businessType: q, area: area.trim(), limit: 20 } });
       setSearched(true);
       if (!res.ok) {
-        if (res.error === "NO_KEY") setNoKey(true);
-        else setError(res.error ?? "Search failed.");
+        setError(res.error ?? "Search failed.");
         setLeads([]);
       } else {
         setLeads(res.leads);
@@ -173,8 +247,10 @@ function DiscoverPage() {
     <div className="space-y-5">
       <PageHeader
         title="Discover leads"
-        subtitle="Find real local businesses to pitch — the ones with no website yet are your best bets."
+        subtitle="Find real local businesses to pitch — the ones with no website yet are your best bets. Free, no setup."
       />
+
+      <AutoPanel area={area} />
 
       <Card className="p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
@@ -214,14 +290,6 @@ function DiscoverPage() {
         </div>
       </Card>
 
-      {noKey ? (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-300">
-          <span className="font-semibold">Lead discovery is off.</span> To turn it on, add a{" "}
-          <code className="rounded bg-black/30 px-1">GOOGLE_PLACES_API_KEY</code> in your Vercel project
-          settings (Environment Variables), then redeploy. I'll walk you through getting one.
-        </div>
-      ) : null}
-
       {error ? (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-300">
           <span className="font-semibold">Search hit a snag.</span> {error}
@@ -246,12 +314,12 @@ function DiscoverPage() {
             ))}
           </div>
         </>
-      ) : searched && !loading && !noKey && !error ? (
+      ) : searched && !loading && !error ? (
         <EmptyState
           title="No businesses found"
-          hint="Try a broader type (like “restaurants”) or a different city."
+          hint="Try a broader type (like “restaurants”) or double-check the city spelling."
         />
-      ) : !searched && !noKey ? (
+      ) : !searched ? (
         <EmptyState
           title="Search to find new leads"
           hint="Pick a business type and city above — or tap one of the quick options."
