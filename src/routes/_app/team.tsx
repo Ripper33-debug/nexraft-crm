@@ -66,8 +66,9 @@ function TeamPage() {
       won_value: acc.won_value + Number(r.won_value),
       open_count: acc.open_count + Number(r.open_count),
       open_unpriced: acc.open_unpriced + Number(r.open_unpriced ?? 0),
+      open_monthly: acc.open_monthly + Number(r.open_monthly ?? 0),
     }),
-    { open_value: 0, won_value: 0, open_count: 0, open_unpriced: 0 },
+    { open_value: 0, won_value: 0, open_count: 0, open_unpriced: 0, open_monthly: 0 },
   );
   const totalRange = pipelineValueRange(totals.open_value, totals.open_unpriced);
 
@@ -113,9 +114,10 @@ function TeamPage() {
         <div className="mt-4 rounded-lg bg-red-500/15 px-3 py-2 text-sm text-red-400">{error}</div>
       ) : null}
 
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <SummaryCard label="Team members" value={String(rows.length)} />
         <SummaryCard label="Open pipeline" value={formatRange(totalRange.low, totalRange.high)} sub={totals.open_unpriced > 0 ? `${totals.open_count} deals · ${totals.open_unpriced} est.` : `${totals.open_count} deals`} accent />
+        <SummaryCard label="Potential MRR (30%)" value={`${formatMoney(Math.round(totals.open_monthly * 0.3))}/mo`} sub={`30% of ${formatMoney(totals.open_monthly)}/mo`} />
         <SummaryCard label="Won (all time)" value={formatMoney(totals.won_value)} />
         <div className="rounded-xl border border-line bg-surface p-4">
           <Eyebrow>Team access code</Eyebrow>
@@ -134,6 +136,7 @@ function TeamPage() {
               <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-wider text-faint">
                 <th className="px-4 py-2.5 font-medium">Member</th>
                 <th className="px-4 py-2.5 font-medium">Open pipeline</th>
+                <th className="px-4 py-2.5 font-medium">Potential MRR</th>
                 <th className="px-4 py-2.5 font-medium">Won</th>
                 <th className="px-4 py-2.5 font-medium">Companies</th>
                 <th className="px-4 py-2.5 font-medium">Contacts</th>
@@ -162,6 +165,13 @@ function TeamPage() {
                       )}
                     </div>
                     <div className="text-xs text-faint">{r.open_count} open</div>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <div className="font-medium text-signal">
+                      {formatMoney(Math.round(Number(r.open_monthly) * 0.3))}
+                      <span className="text-xs text-faint">/mo</span>
+                    </div>
+                    <div className="text-xs text-faint">30% of {formatMoney(Number(r.open_monthly))}/mo</div>
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="text-mute">{formatMoney(Number(r.won_value))}</div>
