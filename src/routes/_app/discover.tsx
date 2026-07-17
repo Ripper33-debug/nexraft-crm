@@ -172,7 +172,7 @@ function AutoPanel({ area }: { area: string }) {
   // while it's running restarts the scan fresh from the new state's center.
   function pickState(s: USState) {
     setConfig({ on: true, area: `${s.name}, USA` });
-    toast(`Radar moving to ${s.name} — it'll ring outward from there.`, "success");
+    toast(`Radar starting in ${s.name} — it'll finish there, then move to the next state.`, "success");
   }
 
   function toggle() {
@@ -215,9 +215,9 @@ function AutoPanel({ area }: { area: string }) {
             </button>
           </div>
           <p className="mt-1.5 text-xs text-mute">
-            Pick a state to drop the radar there:{" "}
-            <span className="text-bone">{targetLabel || "none yet"}</span> — it saturates that state
-            and its neighbors, then hops region to region across North America. Most new finds
+            Pick a state to start the sweep:{" "}
+            <span className="text-bone">{targetLabel || "none yet"}</span> — it mines that whole state
+            (every industry) before automatically moving on to the next one. Most new finds
             (~90%) are auto-assigned round-robin to the team; the rest land in the claimable pool
             below.
           </p>
