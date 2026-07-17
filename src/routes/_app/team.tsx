@@ -27,7 +27,7 @@ import {
   Pill,
   StageBadge,
 } from "../../components/crm/ui";
-import { formatMoney, formatRange, pipelineValueRange } from "../../lib/crm/constants";
+import { formatMoney, formatRange, pipelineValueRange, pipelineMrrRange } from "../../lib/crm/constants";
 
 export const Route = createFileRoute("/_app/team")({
   beforeLoad: ({ context }) => {
@@ -67,10 +67,12 @@ function TeamPage() {
       open_count: acc.open_count + Number(r.open_count),
       open_unpriced: acc.open_unpriced + Number(r.open_unpriced ?? 0),
       open_monthly: acc.open_monthly + Number(r.open_monthly ?? 0),
+      open_monthly_unpriced: acc.open_monthly_unpriced + Number(r.open_monthly_unpriced ?? 0),
     }),
-    { open_value: 0, won_value: 0, open_count: 0, open_unpriced: 0, open_monthly: 0 },
+    { open_value: 0, won_value: 0, open_count: 0, open_unpriced: 0, open_monthly: 0, open_monthly_unpriced: 0 },
   );
   const totalRange = pipelineValueRange(totals.open_value, totals.open_unpriced);
+  const totalMrrRange = pipelineMrrRange(totals.open_monthly, totals.open_monthly_unpriced);
 
   async function openDetail(id: string) {
     setDetailLoading(true);
@@ -117,7 +119,7 @@ function TeamPage() {
       <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <SummaryCard label="Team members" value={String(rows.length)} />
         <SummaryCard label="Open pipeline" value={formatRange(totalRange.low, totalRange.high)} sub={totals.open_unpriced > 0 ? `${totals.open_count} deals · ${totals.open_unpriced} est.` : `${totals.open_count} deals`} accent />
-        <SummaryCard label="Potential MRR (30%)" value={`${formatMoney(Math.round(totals.open_monthly * 0.3))}/mo`} sub={`30% of ${formatMoney(totals.open_monthly)}/mo`} />
+        <SummaryCard label="Potential MRR" value={`${formatRange(totalMrrRange.low, totalMrrRange.high)}/mo`} sub={`rep cut ${formatRange(Math.round(totalMrrRange.low * 0.3), Math.round(totalMrrRange.high * 0.3))}/mo`} />
         <SummaryCard label="Won (all time)" value={formatMoney(totals.won_value)} />
         <div className="rounded-xl border border-line bg-surface p-4">
           <Eyebrow>Team access code</Eyebrow>
@@ -168,10 +170,20 @@ function TeamPage() {
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="font-medium text-signal">
-                      {formatMoney(Math.round(Number(r.open_monthly) * 0.3))}
+                      {formatRange(
+                        pipelineMrrRange(Number(r.open_monthly), Number(r.open_monthly_unpriced ?? 0)).low,
+                        pipelineMrrRange(Number(r.open_monthly), Number(r.open_monthly_unpriced ?? 0)).high,
+                      )}
                       <span className="text-xs text-faint">/mo</span>
                     </div>
-                    <div className="text-xs text-faint">30% of {formatMoney(Number(r.open_monthly))}/mo</div>
+                    <div className="text-xs text-faint">
+                      rep cut{" "}
+                      {formatRange(
+                        Math.round(pipelineMrrRange(Number(r.open_monthly), Number(r.open_monthly_unpriced ?? 0)).low * 0.3),
+                        Math.round(pipelineMrrRange(Number(r.open_monthly), Number(r.open_monthly_unpriced ?? 0)).high * 0.3),
+                      )}
+                      /mo
+                    </div>
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="text-mute">{formatMoney(Number(r.won_value))}</div>

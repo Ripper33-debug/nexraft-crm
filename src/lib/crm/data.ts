@@ -1835,6 +1835,7 @@ export type TeamMemberRow = {
   open_count: number;
   open_unpriced: number;
   open_monthly: number;
+  open_monthly_unpriced: number;
   won_value: number;
   won_count: number;
   lost_count: number;
@@ -1855,6 +1856,7 @@ export const getTeamOverview = createServerFn({ method: "GET" }).handler(async (
         COALESCE(SUM(CASE WHEN d.stage IN (${OPEN_LIST}) THEN 1 END),0)::int AS open_count,
         COALESCE(SUM(CASE WHEN d.stage IN (${OPEN_LIST}) AND COALESCE(d.value,0) <= 0 THEN 1 END),0)::int AS open_unpriced,
         COALESCE(SUM(CASE WHEN d.stage IN (${OPEN_LIST}) THEN d.monthly_value END),0) AS open_monthly,
+        COALESCE(SUM(CASE WHEN d.stage IN (${OPEN_LIST}) AND COALESCE(d.monthly_value,0) <= 0 THEN 1 END),0)::int AS open_monthly_unpriced,
         COALESCE(SUM(CASE WHEN d.stage='Launched' THEN d.value END),0) AS won_value,
         COALESCE(SUM(CASE WHEN d.stage='Launched' THEN 1 END),0)::int AS won_count,
         COALESCE(SUM(CASE WHEN d.stage='Lost' THEN 1 END),0)::int AS lost_count,
