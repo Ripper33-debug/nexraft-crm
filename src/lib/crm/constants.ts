@@ -139,6 +139,156 @@ export function formatEstimate(r: EstimateRange): string {
   return formatRange(r.low, r.high);
 }
 
+// ---------- Opportunity scoring (heuristic "AI" lead rating) ----------
+// A transparent, rules-based score of how likely a company is to close, so reps
+// can focus on the hottest leads. This is deliberately explainable — every point
+// is tied to a signal Barry picked (best-fit industry, full contact info, showed
+// interest on the call, referral). No external AI/data provider needed; a later
+// phase can layer real AI write-ups on top of these same signals.
+
+// The industries a web-design studio tends to win most. Matching is loose
+// (case-insensitive substring) so "Family Dental" or "Joe's Dentistry" both hit
+// "dent". Tunable later per Barry without touching the scoring math.
+export const BEST_FIT_INDUSTRIES: string[] = [
+  "restaurant",
+  "cafe",
+  "coffee",
+  "bakery",
+  "dental",
+  "dentist",
+  "medical",
+  "clinic",
+  "chiropract",
+  "law",
+  "legal",
+  "attorney",
+  "real estate",
+  "realtor",
+  "contractor",
+  "construction",
+  "roofing",
+  "plumb",
+  "hvac",
+  "landscap",
+  "salon",
+  "spa",
+  "barber",
+  "fitness",
+  "gym",
+  "yoga",
+  "retail",
+  "boutique",
+  "auto",
+];
+
+// Does a company's industry text fall in our best-fit set?
+export function isBestFitIndustry(industry: string | null | undefined): boolean {
+  const s = (industry ?? "").toLowerCase().trim();
+  if (!s) return false;
+  return BEST_FIT_INDUSTRIES.some((k) => s.includes(k));
+}
+
+export type OpportunityBand = "hot" | "warm" | "cool";
+
+export type OpportunitySignals = {
+  source?: string | null; // lead source (Referral scores high)
+  callOutcome?: string | null; // interested / maybe / no_answer / not_interested / null
+  industry?: string | null; // for best-fit match
+  hasPhone?: boolean;
+  hasEmail?: boolean;
+  createdAt?: string | null; // for freshness
+  lastActivityIso?: string | null; // most recent touch, if known
+};
+
+export type OpportunityScore = {
+  score: number; // 0-100
+  band: OpportunityBand;
+  reasons: string[]; // human-readable "why", best first
+};
+
+export const OPPORTUNITY_HOT_MIN = 65;
+export const OPPORTUNITY_WARM_MIN = 40;
+
+export function opportunityBand(score: number): OpportunityBand {
+  if (score >= OPPORTUNITY_HOT_MIN) return "hot";
+  if (score >= OPPORTUNITY_WARM_MIN) return "warm";
+  return "cool";
+}
+
+export const OPPORTUNITY_BAND_INFO: Record<
+  OpportunityBand,
+  { label: string; color: string }
+> = {
+  hot: { label: "Hot", color: "#f97316" },
+  warm: { label: "Warm", color: "#eab308" },
+  cool: { label: "Cool", color: "#64748b" },
+};
+
+// Pure, deterministic scorer. Starts at a neutral base and adds/subtracts points
+// for each signal, then clamps to 0-100. Reasons explain the biggest movers so
+// the board can show a plain-English "why" next to every company.
+export function opportunityScore(sig: OpportunitySignals): OpportunityScore {
+  let score = 30; // neutral base
+  const reasons: string[] = [];
+
+  // 1) Referral / word-of-mouth — the strongest signal for a local studio.
+  if ((sig.source ?? "").toLowerCase() === "referral") {
+    score += 25;
+    reasons.push("Referral / word-of-mouth");
+  }
+
+  // 2) Where they are in the call queue.
+  const outcome = (sig.callOutcome ?? "").toLowerCase();
+  if (outcome === "interested") {
+    score += 30;
+    reasons.push("Showed interest on the call");
+  } else if (outcome === "maybe") {
+    score += 15;
+    reasons.push("Warm on the call (maybe)");
+  } else if (outcome === "no_answer") {
+    score += 5;
+    reasons.push("Tried — no answer yet");
+  } else if (outcome === "not_interested") {
+    score -= 25;
+    reasons.push("Said not interested");
+  }
+
+  // 3) Best-fit industry.
+  if (isBestFitIndustry(sig.industry)) {
+    score += 12;
+    reasons.push("In a best-fit industry");
+  }
+
+  // 4) Reachability — full contact info means a rep can actually work it.
+  if (sig.hasPhone && sig.hasEmail) {
+    score += 14;
+    reasons.push("Full contact info on file");
+  } else if (sig.hasEmail) {
+    score += 10;
+    reasons.push("Has an email on file");
+  } else if (sig.hasPhone) {
+    score += 8;
+    reasons.push("Has a phone number on file");
+  } else {
+    reasons.push("No contact info yet");
+  }
+
+  // 5) Freshness — new leads are worth jumping on; stale untouched ones cool off.
+  const ageDays = daysBetween(sig.createdAt);
+  if (sig.createdAt) {
+    if (ageDays <= 14) {
+      score += 5;
+      reasons.push("Fresh lead (under 2 weeks)");
+    } else if (ageDays > 60 && !outcome) {
+      score -= 5;
+      reasons.push("Gone cold (60+ days, no contact)");
+    }
+  }
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  return { score, band: opportunityBand(score), reasons };
+}
+
 // ---------- Sales payroll / commission ----------
 // Reps earn a cut of the monthly retainer on every signed deal, paid over the
 // first year, plus a flat bonus the first month they sign a batch of deals.

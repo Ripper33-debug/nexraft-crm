@@ -750,6 +750,55 @@ export const transferOwnership = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// Open-pool claim: a rep grabs an unowned opportunity off the Opportunities
+// board and it (plus its deal) becomes theirs to work. Anyone can claim an
+// unowned company; a company someone else already owns can't be snatched (only
+// an admin can reassign that, via transferOwnership). Idempotent if you already
+// own it.
+export const claimCompany = createServerFn({ method: "POST" })
+  .validator(z.object({ company_id: z.string() }))
+  .handler(async ({ data }) => {
+    const me = await requireUser();
+    await ensureExtraSchema();
+    const company = await db()
+      .prepare("SELECT id, name, owner_id FROM companies WHERE id = ? AND archived_at IS NULL")
+      .bind(data.company_id)
+      .first<{ id: string; name: string; owner_id: string | null }>();
+    if (!company) return { ok: false as const, error: "That company no longer exists." };
+
+    if (company.owner_id && company.owner_id !== me.id) {
+      // Owned by someone else — not up for grabs from the open pool.
+      const owner = await db()
+        .prepare("SELECT name FROM users WHERE id = ?")
+        .bind(company.owner_id)
+        .first<{ name: string }>();
+      return {
+        ok: false as const,
+        error: `${owner?.name ?? "Someone else"} already owns this one. Ask an admin to reassign it.`,
+      };
+    }
+    if (company.owner_id === me.id) {
+      return { ok: true as const, alreadyMine: true };
+    }
+
+    // Take ownership of the company and its open deal(s) so it shows up in the
+    // claimer's pipeline right away.
+    await db().prepare("UPDATE companies SET owner_id = ? WHERE id = ?").bind(me.id, company.id).run();
+    await db()
+      .prepare(`UPDATE deals SET owner_id = ? WHERE company_id = ? AND archived_at IS NULL AND owner_id IS NULL`)
+      .bind(me.id, company.id)
+      .run();
+
+    await logEvent({
+      actorId: me.id,
+      verb: "claimed",
+      entityType: "company",
+      entityId: company.id,
+      summary: `${me.name} claimed ${company.name} from the opportunity pool`,
+    });
+    return { ok: true as const, alreadyMine: false };
+  });
+
 // Admin bulk handoff: move an entire book of business from one teammate to
 // another in one shot — every company, and optionally the deals and contacts
 // they own. Used when a rep leaves or accounts get reshuffled. Admin only.
