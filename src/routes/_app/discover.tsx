@@ -330,6 +330,7 @@ function DiscoverPage() {
           industry: l.industry,
           website: l.website,
           phone: l.phone,
+          email: l.email,
           city: l.city,
         },
       });

@@ -2801,6 +2801,7 @@ export type DiscoveredLead = {
   address: string | null;
   city: string | null;
   phone: string | null;
+  email: string | null;
   website: string | null;
   rating: number | null; // null on OSM (kept for shape compatibility)
   reviews: number | null; // null on OSM
@@ -3038,6 +3039,7 @@ export const discoverLeads = createServerFn({ method: "POST" })
           tags.website || tags["contact:website"] || tags.url || tags["contact:url"] || null;
         const phone =
           tags.phone || tags["contact:phone"] || tags["contact:mobile"] || tags["phone:mobile"] || null;
+        const email = tags.email || tags["contact:email"] || null;
         const industry = osmLabel(tags) ?? data.businessType;
         const scored = discoveryScore({
           hasWebsite: Boolean(website),
@@ -3056,6 +3058,7 @@ export const discoverLeads = createServerFn({ method: "POST" })
           address: osmAddress(tags),
           city: tags["addr:city"] ?? null,
           phone,
+          email,
           website,
           rating: null,
           reviews: null,
@@ -3120,6 +3123,7 @@ export const importDiscoveredLead = createServerFn({ method: "POST" })
       industry: z.string().optional().nullable(),
       website: z.string().optional().nullable(),
       phone: z.string().optional().nullable(),
+      email: z.string().optional().nullable(),
       city: z.string().optional().nullable(),
       autoAssign: z.boolean().optional(),
     }),
@@ -3176,7 +3180,7 @@ export const importDiscoveredLead = createServerFn({ method: "POST" })
         data.phone ?? null,
         data.city ?? null,
         "Discovered",
-        null,
+        data.email ? `Email: ${data.email}` : null, // stash any email so reps can reach them
         null,
         ownerId, // null → open pool; set → auto-assigned to a rep
       )

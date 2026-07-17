@@ -200,9 +200,16 @@ export async function runAutoDiscovery(
       } else {
         patchStatus({ lastError: null });
         // Good-fit only: businesses with NO website (they need exactly what we
-        // sell) that score "hot" and aren't already in the CRM.
+        // sell) that score "hot", aren't already in the CRM, AND have a phone or
+        // email — no point importing a lead we've got no way to contact.
         const targets = (res.leads as DiscoveredLead[])
-          .filter((l) => l.band === "hot" && !l.website && !l.already_in_crm)
+          .filter(
+            (l) =>
+              l.band === "hot" &&
+              !l.website &&
+              !l.already_in_crm &&
+              (Boolean(l.phone) || Boolean(l.email)),
+          )
           .slice(0, PER_TYPE_MAX);
         let importedNow = 0;
         for (const l of targets) {
@@ -214,6 +221,7 @@ export async function runAutoDiscovery(
                 industry: l.industry,
                 website: l.website,
                 phone: l.phone,
+                email: l.email,
                 city: l.city,
                 autoAssign: true, // let the server flip a coin: ~half go to a rep
               },
