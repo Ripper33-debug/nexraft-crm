@@ -2819,6 +2819,42 @@ function normPhone(s: string | null | undefined): string {
 // Polite identifier required by the OpenStreetMap usage policies.
 const OSM_UA = "NexraftCRM/1.0 (https://crm.nexraft.com)";
 
+// The public Overpass servers get busy. We try several mirrors in turn so one
+// overloaded instance just falls through to the next instead of failing.
+const OVERPASS_ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+];
+
+// Run an Overpass QL query, rotating through the mirrors until one answers.
+// Returns the elements array, or throws if every mirror is busy/unreachable.
+async function overpassQuery(ql: string): Promise<any[]> {
+  let lastStatus = 0;
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "User-Agent": OSM_UA,
+        },
+        body: "data=" + encodeURIComponent(ql),
+      });
+      if (!res.ok) {
+        lastStatus = res.status;
+        continue; // busy/broken mirror — try the next one
+      }
+      const json = (await res.json()) as { elements?: any[] };
+      return json.elements ?? [];
+    } catch {
+      continue; // network hiccup — try the next mirror
+    }
+  }
+  throw new Error(lastStatus ? `busy_${lastStatus}` : "unreachable");
+}
+
 // Map a free-text business type to OpenStreetMap tag selectors. OSM classifies
 // businesses across amenity / shop / craft / office / healthcare / leisure /
 // tourism keys, so we translate common phrasings into the right ones. Anything
@@ -2973,30 +3009,11 @@ export const discoverLeads = createServerFn({ method: "POST" })
 
     let elements: any[] = [];
     try {
-      const res = await fetch("https://overpass-api.de/api/interpreter", {
-        method: "POST",
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-          "User-Agent": OSM_UA,
-        },
-        body: "data=" + encodeURIComponent(ql),
-      });
-      if (!res.ok) {
-        return {
-          ok: false as const,
-          error:
-            res.status === 429 || res.status === 504
-              ? "The map service is busy right now — give it a moment and try again."
-              : `SEARCH_ERROR_${res.status}`,
-          leads: [] as DiscoveredLead[],
-        };
-      }
-      const json = (await res.json()) as { elements?: any[] };
-      elements = json.elements ?? [];
+      elements = await overpassQuery(ql);
     } catch {
       return {
         ok: false as const,
-        error: "Couldn't reach the map service. Try again in a moment.",
+        error: "The map servers are busy right now — give it a moment and try again.",
         leads: [] as DiscoveredLead[],
       };
     }
