@@ -29,8 +29,9 @@ export type AutoDiscoverStatus = {
 };
 
 // After the picked state is saturated, the radar hops through this tour of anchor
-// cities to widen coverage — North America first, then out across the world. Each
-// anchor gets its own expanding-radius sweep before the scan moves to the next.
+// cities to widen coverage. Scoped to North America for now — each anchor gets its
+// own expanding-radius sweep before the scan moves to the next. (The rest-of-world
+// anchors are kept below, commented out, ready to switch back on later.)
 type Anchor = { label: string; query: string };
 export const GLOBAL_TOUR: Anchor[] = [
   // North America
@@ -47,19 +48,19 @@ export const GLOBAL_TOUR: Anchor[] = [
   { label: "Toronto", query: "Toronto, Canada" },
   { label: "Vancouver", query: "Vancouver, Canada" },
   { label: "Mexico City", query: "Mexico City, Mexico" },
-  // Rest of the world
-  { label: "London", query: "London, UK" },
-  { label: "Dublin", query: "Dublin, Ireland" },
-  { label: "Paris", query: "Paris, France" },
-  { label: "Berlin", query: "Berlin, Germany" },
-  { label: "Madrid", query: "Madrid, Spain" },
-  { label: "Amsterdam", query: "Amsterdam, Netherlands" },
-  { label: "Dubai", query: "Dubai, UAE" },
-  { label: "Singapore", query: "Singapore" },
-  { label: "Sydney", query: "Sydney, Australia" },
-  { label: "Auckland", query: "Auckland, New Zealand" },
-  { label: "Tokyo", query: "Tokyo, Japan" },
-  { label: "São Paulo", query: "Sao Paulo, Brazil" },
+  // Rest of the world — re-enable to go global:
+  // { label: "London", query: "London, UK" },
+  // { label: "Dublin", query: "Dublin, Ireland" },
+  // { label: "Paris", query: "Paris, France" },
+  // { label: "Berlin", query: "Berlin, Germany" },
+  // { label: "Madrid", query: "Madrid, Spain" },
+  // { label: "Amsterdam", query: "Amsterdam, Netherlands" },
+  // { label: "Dubai", query: "Dubai, UAE" },
+  // { label: "Singapore", query: "Singapore" },
+  // { label: "Sydney", query: "Sydney, Australia" },
+  // { label: "Auckland", query: "Auckland, New Zealand" },
+  // { label: "Tokyo", query: "Tokyo, Japan" },
+  // { label: "São Paulo", query: "Sao Paulo, Brazil" },
 ];
 
 // The rotation of best-fit business types the engine sweeps through.

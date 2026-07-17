@@ -217,9 +217,9 @@ function AutoPanel({ area }: { area: string }) {
           <p className="mt-1.5 text-xs text-mute">
             Pick a state to drop the radar there:{" "}
             <span className="text-bone">{targetLabel || "none yet"}</span> — it saturates that state
-            and its neighbors, then hops region to region across North America and on around the
-            world. Most new finds (~90%) are auto-assigned round-robin to the team; the rest land in
-            the claimable pool below.
+            and its neighbors, then hops region to region across North America. Most new finds
+            (~90%) are auto-assigned round-robin to the team; the rest land in the claimable pool
+            below.
           </p>
 
           <div className="mt-3">
