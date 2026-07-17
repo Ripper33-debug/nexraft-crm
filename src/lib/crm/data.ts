@@ -1654,7 +1654,30 @@ export const logCall = createServerFn({ method: "POST" })
       entityId: data.contact_id ?? data.deal_id ?? null,
       summary: `${user.name} logged a call${who} — ${data.outcome}`,
     });
-    return { ok: true };
+
+    // If the call ended in a flat "no", drop the linked deal straight into Lost
+    // (the "No" column) so the rep never has to go hunt for it in the pipeline and
+    // drag it across. Only fires on an explicit "Not interested" outcome, only when
+    // there's an open deal to move, and never touches an already won/lost deal.
+    let movedToLost = false;
+    if (data.deal_id && /not interested/i.test(data.outcome)) {
+      const deal = await db()
+        .prepare("SELECT name, stage FROM deals WHERE id = ? AND archived_at IS NULL")
+        .bind(data.deal_id)
+        .first<{ name: string; stage: string }>();
+      if (deal && deal.stage !== LOST_STAGE && deal.stage !== WON_STAGE) {
+        await db()
+          .prepare(
+            `UPDATE deals SET stage = ?, updated_at = ?, stage_changed_at = ?,
+               lost_reason = COALESCE(lost_reason, ?) WHERE id = ?`,
+          )
+          .bind(LOST_STAGE, now, now, "Not interested (logged from a call)", data.deal_id)
+          .run();
+        await logStageChange(user, data.deal_id, deal.name, deal.stage, LOST_STAGE);
+        movedToLost = true;
+      }
+    }
+    return { ok: true, movedToLost };
   });
 
 export const toggleActivity = createServerFn({ method: "POST" })

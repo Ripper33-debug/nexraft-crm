@@ -240,7 +240,7 @@ function PipelinePage() {
         title="Pipeline"
         subtitle={`${all.length} deals · ${openDeals.length} open`}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Select
               value={ownerFilter}
               onChange={(e) => setOwnerFilter(e.target.value)}
@@ -477,6 +477,24 @@ function KanbanBoard({
                         />
                         {d.owner_name ? <Avatar name={d.owner_name as string} size={20} /> : null}
                       </div>
+                    </div>
+                    {/* Tap-to-move: change stage without dragging — essential on
+                        touch/mobile where dragging across columns barely works, and
+                        a faster path than drag on desktop too. */}
+                    <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                      <select
+                        value={d.stage as string}
+                        disabled={busy}
+                        onChange={(e) => onStageChange(d.id as string, e.target.value)}
+                        aria-label={`Move ${d.name as string} to a different stage`}
+                        className="w-full rounded-md border border-line bg-surface-2/70 px-2 py-1.5 text-[11px] font-medium text-mute outline-none transition-colors hover:border-signal/40 focus:border-signal/60"
+                      >
+                        {STAGE_NAMES.map((st) => (
+                          <option key={st} value={st} style={{ color: "#e8ede9", backgroundColor: "#0f1512" }}>
+                            {st === (d.stage as string) ? `● ${st}` : `Move to ${st}`}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                     {Number(d.monthly_value) > 0 || parseLinks(d.links as string).length > 0 || (d.proposal_status && d.proposal_status !== "none") ? (
                       <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-faint">

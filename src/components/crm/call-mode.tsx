@@ -458,7 +458,7 @@ export function CallMode({
     if (!outcome || !subject) return;
     setSaving(true);
     try {
-      await logCall({
+      const res = await logCall({
         data: {
           contact_id: isContact ? (subject.id as string) : null,
           deal_id: linkDeal ? (linkDeal.id as string) : null,
@@ -468,7 +468,13 @@ export function CallMode({
           followup_date: followup || null,
         },
       });
-      toast(followup ? "Call logged · follow-up set" : "Call logged");
+      toast(
+        res?.movedToLost
+          ? "Call logged · moved to No"
+          : followup
+            ? "Call logged · follow-up set"
+            : "Call logged",
+      );
       onLogged?.();
       onClose();
     } catch {
@@ -732,6 +738,14 @@ export function CallMode({
 
           {outcome ? (
             <div className="mt-3 space-y-3 duration-200 animate-in fade-in-0 slide-in-from-top-1">
+              {/not interested/i.test(outcome) && linkDeal && OPEN_STAGES.includes(linkDeal.stage as string) ? (
+                <div className="flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200/90">
+                  <svg className="mt-0.5 shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 6 6 18M6 6l12 12" />
+                  </svg>
+                  <span>Logging this will move <span className="font-medium text-rose-100">{dealLabel(linkDeal)}</span> to <span className="font-medium text-rose-100">No</span> in the pipeline — no dragging needed.</span>
+                </div>
+              ) : null}
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-mute">What was said / next step</span>
