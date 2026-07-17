@@ -21,6 +21,35 @@ function fullName(c: Row): string {
   return `${(c.first_name as string) ?? ""} ${(c.last_name as string) ?? ""}`.trim();
 }
 
+// A warm "sorry we missed you" follow-up the rep can fire off when a call goes
+// unanswered. Kept friendly and low-pressure — the goal is just to reopen the
+// door. Returns the subject + body so they can be shown and/or dropped into a
+// mailto: draft.
+function missedCallEmail(companyName: string, repName: string): { subject: string; body: string } {
+  const co = companyName || "your business";
+  const rep = (repName || "").split(" ")[0] || "the Nexraft team";
+  const subject = `Sorry we missed you — ${co} & Nexraft`;
+  const body = `Hi there,
+
+This is ${rep} from Nexraft — I just tried giving you a quick call about your website but couldn't reach you. No worries at all!
+
+We build clean, professional websites for local businesses, and I'd love to show you what we could put together for ${co}. There's no pressure — just a quick chat whenever it suits you.
+
+You can reply straight to this email or call me back and we'll find a time that works. Looking forward to connecting.
+
+Talk soon,
+${repName || "The Nexraft team"}
+Nexraft`;
+  return { subject, body };
+}
+
+// Build a mailto: link that opens the rep's own email app with everything
+// pre-filled, so they just glance and hit send. No account connection needed.
+function mailtoLink(to: string, subject: string, body: string): string {
+  const params = `subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  return `mailto:${encodeURIComponent(to)}?${params}`;
+}
+
 export const Route = createFileRoute("/_app/calls")({
   loader: async ({ context }) => {
     const [companies, contacts, users, deals] = await Promise.all([
@@ -29,7 +58,7 @@ export const Route = createFileRoute("/_app/calls")({
       getUsers(),
       getDeals(),
     ]);
-    const me = (context as { user?: { id: string; role: string } }).user ?? null;
+    const me = (context as { user?: { id: string; role: string; name: string; email: string } }).user ?? null;
     return { companies, contacts, users, deals, me };
   },
   component: CallsPage,
@@ -40,10 +69,12 @@ export const Route = createFileRoute("/_app/calls")({
 function CallQueue({
   companies,
   onCall,
+  onNoAnswer,
   onChanged,
 }: {
   companies: Row[];
   onCall: (c: Row) => void;
+  onNoAnswer: (c: Row) => void;
   onChanged: () => void;
 }) {
   const queue = useMemo(
@@ -126,6 +157,13 @@ function CallQueue({
           <Button variant="danger" onClick={() => decide("not_interested")} disabled={busy}>
             ✕ No
           </Button>
+          <button
+            onClick={() => onNoAnswer(current)}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 transition-colors hover:bg-sky-500/20 disabled:opacity-50"
+          >
+            ✉ No answer — email them
+          </button>
           <button
             onClick={() => onCall(current)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-mute transition-colors hover:border-signal/50 hover:text-signal"
@@ -246,7 +284,7 @@ function SignModal({
 type BoardCol = {
   key: string;
   label: string;
-  outcome: "interested" | "not_interested" | "maybe" | "signed" | null;
+  outcome: "interested" | "not_interested" | "maybe" | "no_answer" | "signed" | null;
   hint: string;
   dot: string;
 };
@@ -254,6 +292,7 @@ const BOARD_COLUMNS: BoardCol[] = [
   { key: "to_call", label: "To Call", outcome: null, hint: "Fresh — no call yet", dot: "#94a3b8" },
   { key: "interested", label: "Yes", outcome: "interested", hint: "Interested", dot: "#22c55e" },
   { key: "maybe", label: "Maybe", outcome: "maybe", hint: "On the fence", dot: "#f59e0b" },
+  { key: "no_answer", label: "No answer", outcome: "no_answer", hint: "Missed — emailed", dot: "#38bdf8" },
   { key: "not_interested", label: "No", outcome: "not_interested", hint: "Not interested", dot: "#ef4444" },
   { key: "signed", label: "Signed", outcome: "signed", hint: "Won 🎉", dot: "#2dd4bf" },
 ];
@@ -263,13 +302,22 @@ function colOf(c: Row): string | null {
   if (outcome === "interested") return "interested";
   if (outcome === "maybe") return "maybe";
   if (outcome === "not_interested") return "not_interested";
+  if (outcome === "no_answer") return "no_answer";
   if (outcome === "signed") return "signed";
   // No outcome yet → it still needs a first call.
   if (!outcome) return "to_call";
   return null;
 }
 
-function CompanyBoard({ companies, onChanged }: { companies: Row[]; onChanged: () => void }) {
+function CompanyBoard({
+  companies,
+  onNoAnswer,
+  onChanged,
+}: {
+  companies: Row[];
+  onNoAnswer: (c: Row) => void;
+  onChanged: () => void;
+}) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
   const [signing, setSigning] = useState<Row | null>(null);
@@ -280,6 +328,7 @@ function CompanyBoard({ companies, onChanged }: { companies: Row[]; onChanged: (
       to_call: [],
       interested: [],
       maybe: [],
+      no_answer: [],
       not_interested: [],
       signed: [],
     };
@@ -297,6 +346,10 @@ function CompanyBoard({ companies, onChanged }: { companies: Row[]; onChanged: (
     if (colOf(company) === col.key) return;
     if (col.outcome === "signed") {
       setSigning(company); // open package picker instead of setting directly
+      return;
+    }
+    if (col.outcome === "no_answer") {
+      onNoAnswer(company); // open the email-draft prompt instead of setting directly
       return;
     }
     try {
@@ -331,7 +384,7 @@ function CompanyBoard({ companies, onChanged }: { companies: Row[]; onChanged: (
 
   return (
     <>
-      <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         {BOARD_COLUMNS.map((col) => {
           const items = grouped[col.key];
           const isOver = overCol === col.key;
@@ -390,7 +443,7 @@ function CompanyBoard({ companies, onChanged }: { companies: Row[]; onChanged: (
         })}
       </div>
       <p className="mt-2 px-1 text-[11px] text-faint">
-        Tip: drag a company between columns after you call them. Drop one on <strong className="text-mute">Signed</strong> to pick their package.
+        Tip: drag a company between columns after you call them. Drop one on <strong className="text-mute">No answer</strong> to email them, or on <strong className="text-mute">Signed</strong> to pick their package.
       </p>
 
       <SignModal
@@ -400,6 +453,116 @@ function CompanyBoard({ companies, onChanged }: { companies: Row[]; onChanged: (
         onSigned={onChanged}
       />
     </>
+  );
+}
+
+// When a call goes unanswered, we don't lose the lead — we nudge them by email.
+// This drafts a warm "sorry we missed you" note, pre-fills the rep's own email
+// app (no account to connect), and drops the company into the "No answer" bucket.
+function NoAnswerModal({
+  company,
+  email,
+  repName,
+  onClose,
+  onDone,
+}: {
+  company: Row;
+  email: string;
+  repName: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const draft = missedCallEmail(company.name as string, repName);
+  const [to, setTo] = useState(email);
+  const [subject, setSubject] = useState(draft.subject);
+  const [body, setBody] = useState(draft.body);
+  const [busy, setBusy] = useState(false);
+
+  // Mark the company "no answer" so it leaves the call queue and lands in the
+  // No-answer bucket. Shared by both buttons.
+  async function mark(): Promise<boolean> {
+    setBusy(true);
+    try {
+      await setCompanyCallOutcome({ data: { id: company.id as string, outcome: "no_answer" } });
+      return true;
+    } catch {
+      toast("Couldn't save — you may not own this one", "error");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function emailThem() {
+    const ok = await mark();
+    if (!ok) return;
+    // Open the rep's default mail app with everything pre-filled.
+    if (typeof window !== "undefined") {
+      window.location.href = mailtoLink(to.trim(), subject, body);
+    }
+    toast(`${company.name as string} → No answer · email drafted`);
+    onDone();
+  }
+
+  async function justLog() {
+    const ok = await mark();
+    if (!ok) return;
+    toast(`${company.name as string} → No answer`);
+    onDone();
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`No answer — email ${company.name as string}?`} wide>
+      <p className="text-sm text-mute">
+        We'll move them to the <strong className="text-bone">No answer</strong> column so you don't
+        lose them, and open a ready-to-send email in your own mail app. Just glance it over and hit
+        send — nothing to connect.
+      </p>
+
+      <div className="mt-4 space-y-3">
+        <div>
+          <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-faint">To</label>
+          <Input
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            placeholder="name@company.com"
+            className="text-sm"
+          />
+          {!email ? (
+            <p className="mt-1 text-[11px] text-amber-300/90">
+              No contact email on file for this company — type one in, or just log the missed call.
+            </p>
+          ) : null}
+        </div>
+
+        <div>
+          <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-faint">Subject</label>
+          <Input value={subject} onChange={(e) => setSubject(e.target.value)} className="text-sm" />
+        </div>
+
+        <div>
+          <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-faint">Message</label>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={10}
+            className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-bone outline-none transition-colors focus:border-signal/50"
+          />
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+        <Button variant="ghost" onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
+        <Button variant="outline" onClick={justLog} disabled={busy}>
+          Just log it
+        </Button>
+        <Button onClick={emailThem} disabled={busy || !to.trim()}>
+          {busy ? "Saving…" : "✉ Open email draft"}
+        </Button>
+      </div>
+    </Modal>
   );
 }
 
@@ -425,6 +588,19 @@ function CallsPage() {
   // admins start unfiltered.
   const [ownerFilter, setOwnerFilter] = useState(isAdmin ? "" : me?.id ?? "");
   const [calling, setCalling] = useState<Row | null>(null);
+  const [noAnswer, setNoAnswer] = useState<Row | null>(null);
+
+  // Best email to reach each company at: the first contact on file who has one.
+  // Powers the "no answer → email them" draft.
+  const emailByCompany = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of contacts as Row[]) {
+      const cid = c.company_id as string | null;
+      const email = (c.email as string | null)?.trim();
+      if (cid && email && !m.has(cid)) m.set(cid, email);
+    }
+    return m;
+  }, [contacts]);
 
   // Count open deals per company so a row can flag "live deal — worth a call".
   const openByCompany = useMemo(() => {
@@ -499,11 +675,16 @@ function CallsPage() {
       <CallQueue
         companies={callable}
         onCall={(c) => setCalling(c)}
+        onNoAnswer={(c) => setNoAnswer(c)}
         onChanged={() => router.invalidate()}
       />
 
       {view === "board" ? (
-        <CompanyBoard companies={callable} onChanged={() => router.invalidate()} />
+        <CompanyBoard
+          companies={callable}
+          onNoAnswer={(c) => setNoAnswer(c)}
+          onChanged={() => router.invalidate()}
+        />
       ) : null}
 
       {view === "list" ? (
@@ -530,6 +711,20 @@ function CallsPage() {
         deals={deals as Row[]}
         onLogged={() => router.invalidate()}
       />
+
+      {noAnswer ? (
+        <NoAnswerModal
+          key={noAnswer.id as string}
+          company={noAnswer}
+          email={emailByCompany.get(noAnswer.id as string) ?? ""}
+          repName={me?.name ?? ""}
+          onClose={() => setNoAnswer(null)}
+          onDone={() => {
+            setNoAnswer(null);
+            router.invalidate();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -270,6 +270,8 @@ function CompaniesPage() {
                         <span className="ml-2 align-middle rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Maybe</span>
                       ) : c.call_outcome === "not_interested" ? (
                         <span className="ml-2 align-middle rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-faint">No</span>
+                      ) : c.call_outcome === "no_answer" ? (
+                        <span className="ml-2 align-middle rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">No answer</span>
                       ) : !c.call_outcome ? (
                         <span className="ml-2 align-middle rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Need to call</span>
                       ) : null}

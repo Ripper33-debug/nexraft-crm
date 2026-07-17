@@ -886,6 +886,7 @@ const OUTCOME_LABEL: Record<string, string> = {
   interested: "interested",
   maybe: "a maybe",
   not_interested: "not interested",
+  no_answer: "no answer",
   signed: "signed",
 };
 
@@ -893,7 +894,7 @@ export const setCompanyCallOutcome = createServerFn({ method: "POST" })
   .validator(
     z.object({
       id: z.string(),
-      outcome: z.enum(["interested", "not_interested", "maybe", "signed"]).nullable(),
+      outcome: z.enum(["interested", "not_interested", "maybe", "no_answer", "signed"]).nullable(),
       // Optional deal details supplied when marking a company "signed".
       package: z.string().optional().nullable(),
       value: z.number().nonnegative().optional().nullable(),
