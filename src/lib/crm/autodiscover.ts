@@ -19,6 +19,7 @@ export type AutoDiscoverConfig = { on: boolean; area: string };
 export type AutoDiscoverStatus = {
   running: boolean;
   currentType: string | null;
+  radiusKm: number; // how far out the scan has expanded
   imported: number; // this session
   lastError: string | null;
   lastRunAt: number | null;
@@ -46,12 +47,18 @@ const SESSION_CAP = 60; // most auto-imports per open session
 const TYPE_DELAY_MS = 30_000; // pause between business types
 const PER_TYPE_MAX = 6; // most imports taken from a single search pass
 
+// Expanding "radar" scan: start tight around the center, ring outward each pass.
+const RADIUS_START = 10; // km
+const RADIUS_STEP = 6; // grow each scan
+const RADIUS_MAX = 90; // then hold at the outer edge
+
 const STORAGE_KEY = "nx_autodiscover";
 
 const DEFAULT_CONFIG: AutoDiscoverConfig = { on: false, area: "" };
 const DEFAULT_STATUS: AutoDiscoverStatus = {
   running: false,
   currentType: null,
+  radiusKm: RADIUS_START,
   imported: 0,
   lastError: null,
   lastRunAt: null,
@@ -131,6 +138,7 @@ export async function runAutoDiscovery(
 ) {
   patchStatus({ ...DEFAULT_STATUS, running: true });
   let ti = 0;
+  let radius = RADIUS_START;
   while (!isCancelled()) {
     const area = getArea().trim();
     if (!area) {
@@ -144,10 +152,10 @@ export async function runAutoDiscovery(
 
     const type = AUTO_TYPES[ti % AUTO_TYPES.length];
     ti++;
-    patchStatus({ currentType: type, lastRunAt: Date.now() });
+    patchStatus({ currentType: type, radiusKm: radius, lastRunAt: Date.now() });
 
     try {
-      const res = await discoverLeads({ data: { businessType: type, area, limit: 20 } });
+      const res = await discoverLeads({ data: { businessType: type, area, limit: 20, radiusKm: radius } });
       if (isCancelled()) break;
       if (!res.ok) {
         patchStatus({ lastError: res.error ?? "Search failed." });
@@ -182,6 +190,9 @@ export async function runAutoDiscovery(
     } catch {
       patchStatus({ lastError: "Couldn't reach the map service." });
     }
+
+    // Ring outward for the next pass, holding at the outer edge.
+    radius = Math.min(RADIUS_MAX, radius + RADIUS_STEP);
 
     if (isCancelled()) break;
     await sleep(TYPE_DELAY_MS);

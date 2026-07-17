@@ -122,9 +122,10 @@ function AutoPanel({ area }: { area: string }) {
             {config.on ? <Pill tone="ok">On</Pill> : <Pill tone="neutral">Off</Pill>}
           </div>
           <p className="mt-1 text-xs text-mute">
-            Keeps finding new no-website businesses in{" "}
-            <span className="text-bone">{config.on ? config.area : "your area"}</span> and drops them
-            into the open pool automatically — no clicking, while the CRM is open.
+            Radar scan out from{" "}
+            <span className="text-bone">{config.on ? config.area : area.trim() || "your center"}</span>{" "}
+            — starts tight, then rings wider each pass, dropping new no-website businesses into the
+            open pool automatically while the CRM is open.
           </p>
         </div>
         <button
@@ -153,8 +154,8 @@ function AutoPanel({ area }: { area: string }) {
             </span>
           ) : st.currentType ? (
             <span className="text-mute">
-              <span className="text-signal">Scanning {st.currentType}…</span> · {st.imported} imported
-              this session
+              <span className="text-signal">Scanning {st.currentType}…</span> · ~{st.radiusKm} km out
+              · {st.imported} imported this session
             </span>
           ) : (
             <span className="text-mute">Starting up… · {st.imported} imported this session</span>
@@ -172,11 +173,12 @@ function DiscoverPage() {
   const [businessType, setBusinessType] = useState("");
   const [area, setArea] = useState("");
   const seeded = useRef(false);
-  // Seed the area box once from a saved auto-discover area (after client hydrate),
-  // without clobbering anything the user has started typing.
+  // Seed the area box once (after client hydrate): a previously saved center if
+  // there is one, otherwise SWFL as a sensible starting point. Never clobbers
+  // anything the user has started typing.
   useEffect(() => {
-    if (!seeded.current && savedArea && !area) {
-      setArea(savedArea);
+    if (!seeded.current && !area) {
+      setArea(savedArea || "Fort Myers, FL");
       seeded.current = true;
     }
   }, [savedArea, area]);

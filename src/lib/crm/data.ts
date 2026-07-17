@@ -2871,24 +2871,41 @@ function osmFilters(businessType: string): string[] {
   return Array.from(new Set(f));
 }
 
-// Resolve a free-text area ("Springfield, IL") to a bounding box via Nominatim.
-async function geocodeArea(area: string): Promise<{ s: number; w: number; n: number; e: number } | null> {
+// Resolve a free-text area ("Springfield, IL") to a bounding box + center point
+// via Nominatim.
+async function geocodeArea(
+  area: string,
+): Promise<{ s: number; w: number; n: number; e: number; lat: number; lon: number } | null> {
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(area)}`;
     const res = await fetch(url, { headers: { "User-Agent": OSM_UA, Accept: "application/json" } });
     if (!res.ok) return null;
-    const arr = (await res.json()) as Array<{ boundingbox?: string[] }>;
-    const bb = arr?.[0]?.boundingbox; // [south, north, west, east]
+    const arr = (await res.json()) as Array<{ boundingbox?: string[]; lat?: string; lon?: string }>;
+    const hit = arr?.[0];
+    const bb = hit?.boundingbox; // [south, north, west, east]
     if (!bb || bb.length < 4) return null;
     const s = parseFloat(bb[0]);
     const n = parseFloat(bb[1]);
     const w = parseFloat(bb[2]);
     const e = parseFloat(bb[3]);
     if ([s, n, w, e].some((v) => Number.isNaN(v))) return null;
-    return { s, w, n, e };
+    // Prefer the reported centroid; fall back to the bbox midpoint.
+    let lat = parseFloat(hit?.lat ?? "");
+    let lon = parseFloat(hit?.lon ?? "");
+    if (Number.isNaN(lat)) lat = (s + n) / 2;
+    if (Number.isNaN(lon)) lon = (w + e) / 2;
+    return { s, w, n, e, lat, lon };
   } catch {
     return null;
   }
+}
+
+// Build a bounding box of roughly `radiusKm` around a center point. Rough but
+// plenty accurate for a local-business scan (1° lat ≈ 111 km).
+function bboxAround(lat: number, lon: number, radiusKm: number) {
+  const dLat = radiusKm / 111;
+  const dLon = radiusKm / (111 * Math.max(0.05, Math.cos((lat * Math.PI) / 180)));
+  return { s: lat - dLat, n: lat + dLat, w: lon - dLon, e: lon + dLon };
 }
 
 // Best-effort human-readable category from OSM tags.
@@ -2915,6 +2932,9 @@ export const discoverLeads = createServerFn({ method: "POST" })
       businessType: z.string().min(1).max(80),
       area: z.string().max(120).optional().nullable(),
       limit: z.number().int().min(1).max(20).default(20),
+      // When set, search a growing circle of ~radiusKm around the area's center
+      // instead of the area's own bounding box (used by the expanding auto-scan).
+      radiusKm: z.number().min(1).max(250).optional().nullable(),
     }),
   )
   .handler(async ({ data }) => {
@@ -2930,14 +2950,18 @@ export const discoverLeads = createServerFn({ method: "POST" })
       };
     }
 
-    const box = await geocodeArea(area);
-    if (!box) {
+    const geo = await geocodeArea(area);
+    if (!geo) {
       return {
         ok: false as const,
         error: `Couldn't find "${area}". Try a "City, State" format like Springfield, IL.`,
         leads: [] as DiscoveredLead[],
       };
     }
+    // Expanding scan uses a radius around the center; on-demand search uses the
+    // area's natural bounding box.
+    const box =
+      data.radiusKm && data.radiusKm > 0 ? bboxAround(geo.lat, geo.lon, data.radiusKm) : geo;
 
     const filters = osmFilters(data.businessType);
     // Overpass bbox order is (south,west,north,east).
