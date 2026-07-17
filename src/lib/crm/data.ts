@@ -3089,8 +3089,8 @@ const AUTO_ASSIGN_EXCLUDE_EMAIL = "barry@nexraft.com";
 const AUTO_ASSIGN_EXCLUDE_NAME_LIKE = "%michael%";
 
 // Share of radar-discovered leads that get auto-assigned to a rep; the rest stay
-// in the claimable pool. 0.9 = ~90% assigned, ~10% pooled.
-const AUTO_ASSIGN_RATE = 0.9;
+// in the claimable pool. 1.0 = every find is handed to a rep (nothing pooled).
+const AUTO_ASSIGN_RATE = 1.0;
 
 // Pick the eligible rep with the lightest open pipeline (self-balancing round
 // robin), breaking ties at random. Returns null if nobody's eligible.

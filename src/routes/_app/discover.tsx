@@ -217,9 +217,9 @@ function AutoPanel({ area }: { area: string }) {
           <p className="mt-1.5 text-xs text-mute">
             Pick a state to start the sweep:{" "}
             <span className="text-bone">{targetLabel || "none yet"}</span> — it mines that whole state
-            (every industry) before automatically moving on to the next one. Most new finds
-            (~90%) are auto-assigned round-robin to the team; the rest land in the claimable pool
-            below.
+            (every industry) before automatically moving on to the next one. Every new find is
+            auto-assigned round-robin to the least-busy rep, so they land straight in someone's
+            pipeline.
           </p>
 
           <div className="mt-3">
