@@ -6,6 +6,7 @@ import { Button, Card, EmptyState, Input, PageHeader, Pill } from "../../compone
 import { toast } from "../../components/crm/toast";
 import { OPPORTUNITY_BAND_INFO, type OpportunityBand } from "../../lib/crm/constants";
 import { useAutoConfig, useAutoStatus, setConfig } from "../../lib/crm/autodiscover";
+import { RadarScope } from "../../components/crm/radar";
 
 export const Route = createFileRoute("/_app/discover")({
   component: DiscoverPage,
@@ -114,55 +115,68 @@ function AutoPanel({ area }: { area: string }) {
   }
 
   return (
-    <Card className="p-4">
-      <div className="flex items-start justify-between gap-3">
+    <Card className="overflow-hidden p-0">
+      <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-bone">Auto-discover</span>
             {config.on ? <Pill tone="ok">On</Pill> : <Pill tone="neutral">Off</Pill>}
+            <button
+              onClick={toggle}
+              role="switch"
+              aria-checked={config.on}
+              className={
+                "relative ml-1 h-6 w-11 shrink-0 rounded-full transition-colors " +
+                (config.on ? "bg-signal" : "bg-surface-2")
+              }
+            >
+              <span
+                className={
+                  "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all " +
+                  (config.on ? "left-[22px]" : "left-0.5")
+                }
+              />
+            </button>
           </div>
-          <p className="mt-1 text-xs text-mute">
+          <p className="mt-1.5 text-xs text-mute">
             Radar scan out from{" "}
             <span className="text-bone">{config.on ? config.area : area.trim() || "your center"}</span>{" "}
             — starts tight, then rings wider each pass, dropping new no-website businesses into the
             open pool automatically while the CRM is open.
           </p>
-        </div>
-        <button
-          onClick={toggle}
-          role="switch"
-          aria-checked={config.on}
-          className={
-            "relative h-6 w-11 shrink-0 rounded-full transition-colors " +
-            (config.on ? "bg-signal" : "bg-surface-2")
-          }
-        >
-          <span
-            className={
-              "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all " +
-              (config.on ? "left-[22px]" : "left-0.5")
-            }
-          />
-        </button>
-      </div>
 
-      {config.on ? (
-        <div className="mt-3 border-t border-line/60 pt-3 text-xs">
-          {st.paused ? (
-            <span className="text-amber-300">
-              Reached this session's limit — {st.imported} imported. Reload the CRM later to keep going.
-            </span>
-          ) : st.currentType ? (
-            <span className="text-mute">
-              <span className="text-signal">Scanning {st.currentType}…</span> · ~{st.radiusKm} km out
-              · {st.imported} imported this session
-            </span>
-          ) : (
-            <span className="text-mute">Starting up… · {st.imported} imported this session</span>
-          )}
-          {st.lastError ? <div className="mt-1 text-faint">Last hiccup: {st.lastError}</div> : null}
+          <div className="mt-3 text-xs">
+            {st.paused ? (
+              <span className="text-amber-300">
+                Reached this session's limit — {st.imported} imported. Reload the CRM later to keep
+                going.
+              </span>
+            ) : config.on ? (
+              st.currentType ? (
+                <span className="text-mute">
+                  <span className="text-signal">Scanning {st.currentType}…</span> · ~{st.radiusKm} km
+                  out · {st.imported} imported this session
+                </span>
+              ) : (
+                <span className="text-mute">Starting up… · {st.imported} imported this session</span>
+              )
+            ) : (
+              <span className="text-faint">Flip it on to start the sweep.</span>
+            )}
+            {st.lastError ? <div className="mt-1 text-faint">Last hiccup: {st.lastError}</div> : null}
+          </div>
         </div>
-      ) : null}
+
+        <div className="w-full justify-self-center sm:w-[260px]">
+          <RadarScope
+            on={config.on}
+            currentType={st.currentType}
+            radiusKm={st.radiusKm}
+            imported={st.imported}
+            paused={st.paused}
+          />
+        </div>
+      </div>
     </Card>
   );
 }
