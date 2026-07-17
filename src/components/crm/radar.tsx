@@ -4,7 +4,7 @@
 // Animation only runs while the scan is on; off/paused states dim gracefully.
 
 const R_START = 10; // km, matches autodiscover.ts
-const R_MAX = 90;
+const R_MAX = 240;
 const MAX_BLIPS = 40;
 
 // Deterministic scatter so blips sit still between renders. Golden-angle spread
@@ -29,7 +29,7 @@ export function RadarScope({
   imported: number;
   paused: boolean;
 }) {
-  // Expanding range ring as a fraction of the scope (grows 10km→90km).
+  // Expanding range ring as a fraction of the scope (grows 10km→240km).
   const frac = Math.max(0, Math.min(1, (radiusKm - R_START) / (R_MAX - R_START)));
   const ringPct = 20 + frac * 78; // 20% .. 98% diameter
 

@@ -48,10 +48,11 @@ const SESSION_CAP = 60; // most auto-imports per open session
 const TYPE_DELAY_MS = 30_000; // pause between business types
 const PER_TYPE_MAX = 6; // most imports taken from a single search pass
 
-// Expanding "radar" scan: start tight around the center, ring outward each pass.
+// Expanding "radar" scan: start tight in the picked state, then ring outward each
+// pass — widening far enough to roll into neighboring states before holding.
 const RADIUS_START = 10; // km
-const RADIUS_STEP = 6; // grow each scan
-const RADIUS_MAX = 90; // then hold at the outer edge
+const RADIUS_STEP = 14; // grow each scan
+const RADIUS_MAX = 240; // then hold (stays under the discoverLeads 250km cap)
 
 const STORAGE_KEY = "nx_autodiscover";
 

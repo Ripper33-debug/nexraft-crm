@@ -15,6 +15,7 @@ import { toast } from "../../components/crm/toast";
 import { OPPORTUNITY_BAND_INFO, type OpportunityBand } from "../../lib/crm/constants";
 import { useAutoConfig, useAutoStatus, setConfig } from "../../lib/crm/autodiscover";
 import { RadarScope } from "../../components/crm/radar";
+import { USStatePicker, stateAbbrFromArea, type USState } from "../../components/crm/state-picker";
 
 export const Route = createFileRoute("/_app/discover")({
   component: DiscoverPage,
@@ -164,11 +165,21 @@ function AutoPanel({ area }: { area: string }) {
   const config = useAutoConfig();
   const st = useAutoStatus();
 
+  const selectedAbbr = stateAbbrFromArea(config.area);
+  const targetLabel = config.area.replace(/,\s*USA$/i, "").trim();
+
+  // Clicking a state drops the radar there and starts the sweep. Changing states
+  // while it's running restarts the scan fresh from the new state's center.
+  function pickState(s: USState) {
+    setConfig({ on: true, area: `${s.name}, USA` });
+    toast(`Radar moving to ${s.name} — it'll ring outward from there.`, "success");
+  }
+
   function toggle() {
     if (!config.on) {
-      const a = area.trim();
+      const a = (config.area || area).trim();
       if (!a) {
-        toast("Type a city or area first, then switch auto-discover on.", "info");
+        toast("Pick a state on the map first.", "info");
         return;
       }
       setConfig({ on: true, area: a });
@@ -204,11 +215,15 @@ function AutoPanel({ area }: { area: string }) {
             </button>
           </div>
           <p className="mt-1.5 text-xs text-mute">
-            Radar scan out from{" "}
-            <span className="text-bone">{config.on ? config.area : area.trim() || "your center"}</span>{" "}
-            — starts tight, then rings wider each pass. Most new finds (~90%) are auto-assigned
-            round-robin to the team; the rest land in the claimable pool below.
+            Pick a state to drop the radar there:{" "}
+            <span className="text-bone">{targetLabel || "none yet"}</span> — it starts tight, rings
+            wider each pass, and rolls into neighboring states as it widens. Most new finds (~90%)
+            are auto-assigned round-robin to the team; the rest land in the claimable pool below.
           </p>
+
+          <div className="mt-3">
+            <USStatePicker selected={selectedAbbr} onPick={pickState} />
+          </div>
 
           <div className="mt-3 text-xs">
             {st.paused ? (
@@ -228,7 +243,7 @@ function AutoPanel({ area }: { area: string }) {
                 </span>
               )
             ) : (
-              <span className="text-faint">Flip it on to start the sweep.</span>
+              <span className="text-faint">Tap a state on the map to start the sweep.</span>
             )}
             {st.lastError ? <div className="mt-1 text-faint">Last hiccup: {st.lastError}</div> : null}
           </div>
