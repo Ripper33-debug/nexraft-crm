@@ -3060,10 +3060,13 @@ export const discoverLeads = createServerFn({ method: "POST" })
     }
 
     // Load existing companies so we can flag ones already in the CRM (by name or
-    // phone match) and avoid encouraging duplicate imports.
+    // phone match) and avoid encouraging duplicate imports. Includes trashed /
+    // archived companies on purpose: a business someone already called and
+    // dismissed should keep showing as "already in CRM" so it never re-surfaces
+    // as a fresh lead for another rep.
     const existing = (
       await db()
-        .prepare(`SELECT name, phone, website FROM companies WHERE archived_at IS NULL`)
+        .prepare(`SELECT name, phone, website FROM companies`)
         .all<{ name: string; phone: string | null; website: string | null }>()
     ).results ?? [];
     const existingNames = new Set(existing.map((c) => normName(c.name)));
@@ -3171,12 +3174,14 @@ export const importDiscoveredLead = createServerFn({ method: "POST" })
     const user = await requireUser();
     await ensureExtraSchema();
 
-    // Duplicate guard: skip if a live company already matches by name or phone.
+    // Duplicate guard: skip if ANY company already matches by name or phone —
+    // including trashed/archived ones. A lead a rep already called and marked
+    // "not interested" (archived to the trash) must stay permanently blocked so
+    // it can't be re-discovered and handed to a different rep as a fresh lead.
     const dupe = await db()
       .prepare(
         `SELECT id FROM companies
-          WHERE archived_at IS NULL
-            AND (lower(regexp_replace(name, '[^a-zA-Z0-9]', '', 'g')) = ?
+          WHERE (lower(regexp_replace(name, '[^a-zA-Z0-9]', '', 'g')) = ?
                  OR (? <> '' AND regexp_replace(COALESCE(phone,''), '\\D', '', 'g') = ?))
           LIMIT 1`,
       )
