@@ -289,6 +289,63 @@ export function opportunityScore(sig: OpportunitySignals): OpportunityScore {
   return { score, band: opportunityBand(score), reasons };
 }
 
+// ---------- Discovery scoring (Phase 3: new leads from Google Places) ----------
+// Rates a freshly-discovered local business on how promising it is as a Nexraft
+// target. The dominant signal is "no website yet" — a business without a site is
+// the clearest possible buyer for a web studio. Same 0-100 / hot-warm-cool shape
+// as opportunityScore so the two boards read consistently.
+export type DiscoverySignals = {
+  hasWebsite: boolean;
+  industry?: string | null; // Google's primary type text, e.g. "Dental clinic"
+  rating?: number | null; // 0-5 Google rating
+  reviews?: number | null; // number of Google reviews
+  hasPhone?: boolean;
+};
+
+export function discoveryScore(sig: DiscoverySignals): OpportunityScore {
+  let score = 30;
+  const reasons: string[] = [];
+
+  // 1) The buyer signal: no website means they need exactly what we sell.
+  if (!sig.hasWebsite) {
+    score += 32;
+    reasons.push("No website yet — prime target");
+  } else {
+    reasons.push("Already has a website (redesign play)");
+  }
+
+  // 2) Best-fit industry.
+  if (isBestFitIndustry(sig.industry)) {
+    score += 15;
+    reasons.push("In a best-fit industry");
+  }
+
+  // 3) Established & active: good rating with real review volume.
+  const rating = Number(sig.rating) || 0;
+  const reviews = Number(sig.reviews) || 0;
+  if (reviews >= 50 && rating >= 4.0) {
+    score += 16;
+    reasons.push(`Well-reviewed (${rating.toFixed(1)}★, ${reviews} reviews)`);
+  } else if (reviews >= 10) {
+    score += 9;
+    reasons.push(`Active listing (${rating ? rating.toFixed(1) + "★, " : ""}${reviews} reviews)`);
+  } else if (reviews === 0) {
+    score -= 5;
+    reasons.push("No reviews yet — may be inactive");
+  }
+
+  // 4) Reachable by phone (fits the call-first flow).
+  if (sig.hasPhone) {
+    score += 8;
+    reasons.push("Phone number on file");
+  } else {
+    reasons.push("No phone found");
+  }
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  return { score, band: opportunityBand(score), reasons };
+}
+
 // ---------- Sales payroll / commission ----------
 // Reps earn a cut of the monthly retainer on every signed deal, paid over the
 // first year, plus a flat bonus the first month they sign a batch of deals.

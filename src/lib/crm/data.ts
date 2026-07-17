@@ -12,6 +12,7 @@ import {
   dealCommission,
   salesBonus,
   opportunityScore,
+  discoveryScore,
   PRICING_PACKAGES,
 } from "./constants";
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
@@ -2744,4 +2745,233 @@ export const generateMissingBriefs = createServerFn({ method: "POST" })
       generated,
       remaining,
     };
+  });
+
+// ==================== Lead discovery (Phase 3, Google Places) ====================
+// On-demand prospecting: a rep searches a city + business type, and we pull real
+// local businesses from Google Places — name, address, phone, rating, and whether
+// they already have a website. Each candidate is scored (no website = prime
+// target) and can be imported into the CRM in one click as an unowned "To Call"
+// lead. Nothing is stored until the rep imports. Needs GOOGLE_PLACES_API_KEY; with
+// no key the feature degrades gracefully instead of breaking.
+
+export type DiscoveredLead = {
+  place_id: string;
+  name: string;
+  industry: string | null; // Google's primary type label
+  address: string | null;
+  city: string | null;
+  phone: string | null;
+  website: string | null;
+  rating: number | null;
+  reviews: number | null;
+  score: number;
+  band: string;
+  reasons: string[];
+  already_in_crm: boolean;
+};
+
+// Pull the "City, ST" out of a Google formatted address like
+// "123 Main St, Springfield, IL 62701, USA". Best-effort.
+function cityFromAddress(addr: string | null | undefined): string | null {
+  if (!addr) return null;
+  const parts = addr.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length >= 3) return parts[parts.length - 3]; // the city segment
+  if (parts.length === 2) return parts[0];
+  return null;
+}
+
+function normName(s: string | null | undefined): string {
+  return (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+function normPhone(s: string | null | undefined): string {
+  return (s ?? "").replace(/\D/g, "");
+}
+
+export const discoverLeads = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      businessType: z.string().min(1).max(80),
+      area: z.string().max(120).optional().nullable(),
+      limit: z.number().int().min(1).max(20).default(20),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireUser();
+    await ensureExtraSchema();
+
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!apiKey) {
+      return { ok: false as const, error: "NO_KEY", leads: [] as DiscoveredLead[] };
+    }
+
+    const textQuery = data.area ? `${data.businessType} in ${data.area}` : data.businessType;
+
+    let places: any[] = [];
+    try {
+      const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Goog-Api-Key": apiKey,
+          "X-Goog-FieldMask":
+            "places.id,places.displayName,places.formattedAddress,places.websiteUri,places.nationalPhoneNumber,places.rating,places.userRatingCount,places.primaryTypeDisplayName,places.businessStatus",
+        },
+        body: JSON.stringify({ textQuery, maxResultCount: data.limit }),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        return {
+          ok: false as const,
+          error: `SEARCH_ERROR_${res.status}: ${detail.slice(0, 300)}`,
+          leads: [] as DiscoveredLead[],
+        };
+      }
+      const json = (await res.json()) as { places?: any[] };
+      places = json.places ?? [];
+    } catch {
+      return { ok: false as const, error: "Couldn't reach Google Places.", leads: [] as DiscoveredLead[] };
+    }
+
+    // Load existing companies so we can flag ones already in the CRM (by name or
+    // phone match) and avoid encouraging duplicate imports.
+    const existing = (
+      await db()
+        .prepare(`SELECT name, phone, website FROM companies WHERE archived_at IS NULL`)
+        .all<{ name: string; phone: string | null; website: string | null }>()
+    ).results ?? [];
+    const existingNames = new Set(existing.map((c) => normName(c.name)));
+    const existingPhones = new Set(existing.map((c) => normPhone(c.phone)).filter(Boolean));
+
+    const leads: DiscoveredLead[] = places
+      .filter((p) => !p.businessStatus || p.businessStatus === "OPERATIONAL")
+      .map((p) => {
+        const name = p.displayName?.text ?? "";
+        const website = p.websiteUri ?? null;
+        const phone = p.nationalPhoneNumber ?? null;
+        const industry = p.primaryTypeDisplayName?.text ?? null;
+        const rating = typeof p.rating === "number" ? p.rating : null;
+        const reviews = typeof p.userRatingCount === "number" ? p.userRatingCount : null;
+        const scored = discoveryScore({
+          hasWebsite: Boolean(website),
+          industry,
+          rating,
+          reviews,
+          hasPhone: Boolean(phone),
+        });
+        const already =
+          existingNames.has(normName(name)) ||
+          (normPhone(phone) ? existingPhones.has(normPhone(phone)) : false);
+        return {
+          place_id: p.id ?? name,
+          name,
+          industry,
+          address: p.formattedAddress ?? null,
+          city: cityFromAddress(p.formattedAddress),
+          phone,
+          website,
+          rating,
+          reviews,
+          score: scored.score,
+          band: scored.band,
+          reasons: scored.reasons,
+          already_in_crm: already,
+        };
+      })
+      .filter((l) => l.name)
+      .sort((a, b) => b.score - a.score);
+
+    return { ok: true as const, leads };
+  });
+
+// Import a discovered lead into the CRM as an unowned company (open pool) with a
+// $0 "To Call" deal, so it immediately shows in the call queue and Opportunities
+// board for anyone to claim. Guards against duplicates by name/phone.
+export const importDiscoveredLead = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      name: z.string().min(1),
+      industry: z.string().optional().nullable(),
+      website: z.string().optional().nullable(),
+      phone: z.string().optional().nullable(),
+      city: z.string().optional().nullable(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+
+    // Duplicate guard: skip if a live company already matches by name or phone.
+    const dupe = await db()
+      .prepare(
+        `SELECT id FROM companies
+          WHERE archived_at IS NULL
+            AND (lower(regexp_replace(name, '[^a-zA-Z0-9]', '', 'g')) = ?
+                 OR (? <> '' AND regexp_replace(COALESCE(phone,''), '\\D', '', 'g') = ?))
+          LIMIT 1`,
+      )
+      .bind(normName(data.name), normPhone(data.phone), normPhone(data.phone))
+      .first<{ id: string }>();
+    if (dupe) return { ok: true as const, id: dupe.id, duplicate: true };
+
+    const id = uid();
+    await db()
+      .prepare(
+        `INSERT INTO companies (id, name, industry, website, phone, city, source, notes, tags, owner_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        id,
+        data.name,
+        data.industry ?? null,
+        data.website ?? null,
+        data.phone ?? null,
+        data.city ?? null,
+        "Discovered",
+        null,
+        null,
+        null, // unowned → open pool
+      )
+      .run();
+
+    // Same "drop into the pipeline as a $0 To Call deal" treatment as a manually
+    // added company — kept unowned so it sits in the open pool.
+    const now = new Date().toISOString();
+    await db()
+      .prepare(
+        `INSERT INTO deals (id, name, company_id, contact_id, owner_id, stage, value, expected_close, next_step, notes, lost_reason, win_reason, monthly_value, renewal_date, links, proposal_status, proposal_sent_at, created_at, updated_at, stage_changed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        uid(),
+        `${data.name} — Website`,
+        id,
+        null,
+        null,
+        TO_CALL_STAGE,
+        0,
+        null,
+        "Reach out & qualify",
+        null,
+        null,
+        null,
+        0,
+        null,
+        null,
+        "none",
+        null,
+        now,
+        now,
+        now,
+      )
+      .run();
+
+    await logEvent({
+      actorId: user.id,
+      verb: "created",
+      entityType: "company",
+      entityId: id,
+      summary: `${user.name} imported ${data.name} from lead discovery`,
+    });
+    return { ok: true as const, id, duplicate: false };
   });

@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -364,6 +364,13 @@ function OpportunitiesPage() {
       <PageHeader
         title="Opportunities"
         subtitle="Every company scored on how likely it is to close — grab the hot ones before anyone else."
+        actions={
+          <Link to="/discover">
+            <Button size="sm" variant="outline">
+              + Find new leads
+            </Button>
+          </Link>
+        }
       />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

@@ -21,6 +21,7 @@ import { Route as AppPipelineRouteImport } from './routes/_app/pipeline'
 import { Route as AppPayrollRouteImport } from './routes/_app/payroll'
 import { Route as AppOpportunitiesRouteImport } from './routes/_app/opportunities'
 import { Route as AppHelpRouteImport } from './routes/_app/help'
+import { Route as AppDiscoverRouteImport } from './routes/_app/discover'
 import { Route as AppContactsRouteImport } from './routes/_app/contacts'
 import { Route as AppCompaniesRouteImport } from './routes/_app/companies'
 import { Route as AppCallsRouteImport } from './routes/_app/calls'
@@ -88,6 +89,11 @@ const AppHelpRoute = AppHelpRouteImport.update({
   path: '/help',
   getParentRoute: () => AppRoute,
 } as any)
+const AppDiscoverRoute = AppDiscoverRouteImport.update({
+  id: '/discover',
+  path: '/discover',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppContactsRoute = AppContactsRouteImport.update({
   id: '/contacts',
   path: '/contacts',
@@ -134,6 +140,7 @@ export interface FileRoutesByFullPath {
   '/calls': typeof AppCallsRoute
   '/companies': typeof AppCompaniesRoute
   '/contacts': typeof AppContactsRoute
+  '/discover': typeof AppDiscoverRoute
   '/help': typeof AppHelpRoute
   '/opportunities': typeof AppOpportunitiesRoute
   '/payroll': typeof AppPayrollRoute
@@ -153,6 +160,7 @@ export interface FileRoutesByTo {
   '/calls': typeof AppCallsRoute
   '/companies': typeof AppCompaniesRoute
   '/contacts': typeof AppContactsRoute
+  '/discover': typeof AppDiscoverRoute
   '/help': typeof AppHelpRoute
   '/opportunities': typeof AppOpportunitiesRoute
   '/payroll': typeof AppPayrollRoute
@@ -175,6 +183,7 @@ export interface FileRoutesById {
   '/_app/calls': typeof AppCallsRoute
   '/_app/companies': typeof AppCompaniesRoute
   '/_app/contacts': typeof AppContactsRoute
+  '/_app/discover': typeof AppDiscoverRoute
   '/_app/help': typeof AppHelpRoute
   '/_app/opportunities': typeof AppOpportunitiesRoute
   '/_app/payroll': typeof AppPayrollRoute
@@ -198,6 +207,7 @@ export interface FileRouteTypes {
     | '/calls'
     | '/companies'
     | '/contacts'
+    | '/discover'
     | '/help'
     | '/opportunities'
     | '/payroll'
@@ -217,6 +227,7 @@ export interface FileRouteTypes {
     | '/calls'
     | '/companies'
     | '/contacts'
+    | '/discover'
     | '/help'
     | '/opportunities'
     | '/payroll'
@@ -238,6 +249,7 @@ export interface FileRouteTypes {
     | '/_app/calls'
     | '/_app/companies'
     | '/_app/contacts'
+    | '/_app/discover'
     | '/_app/help'
     | '/_app/opportunities'
     | '/_app/payroll'
@@ -347,6 +359,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppHelpRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/discover': {
+      id: '/_app/discover'
+      path: '/discover'
+      fullPath: '/discover'
+      preLoaderRoute: typeof AppDiscoverRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/contacts': {
       id: '/_app/contacts'
       path: '/contacts'
@@ -404,6 +423,7 @@ interface AppRouteChildren {
   AppCallsRoute: typeof AppCallsRoute
   AppCompaniesRoute: typeof AppCompaniesRoute
   AppContactsRoute: typeof AppContactsRoute
+  AppDiscoverRoute: typeof AppDiscoverRoute
   AppHelpRoute: typeof AppHelpRoute
   AppOpportunitiesRoute: typeof AppOpportunitiesRoute
   AppPayrollRoute: typeof AppPayrollRoute
@@ -418,6 +438,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppCallsRoute: AppCallsRoute,
   AppCompaniesRoute: AppCompaniesRoute,
   AppContactsRoute: AppContactsRoute,
+  AppDiscoverRoute: AppDiscoverRoute,
   AppHelpRoute: AppHelpRoute,
   AppOpportunitiesRoute: AppOpportunitiesRoute,
   AppPayrollRoute: AppPayrollRoute,
