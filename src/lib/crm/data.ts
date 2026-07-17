@@ -178,6 +178,21 @@ export const getMe = createServerFn({ method: "GET" }).handler(async () => {
   return await requireUser();
 });
 
+// Cheap count for the "Follow-ups" nav badge: companies that didn't pick up and
+// are still waiting on a nudge. Mirrors the Follow-ups worklist (call_outcome =
+// 'no_answer'), so the badge and that page always agree.
+export const getFollowupCount = createServerFn({ method: "GET" }).handler(async () => {
+  await requireUser();
+  await ensureExtraSchema();
+  const row = await db()
+    .prepare(
+      `SELECT COUNT(*)::int AS n FROM companies
+       WHERE archived_at IS NULL AND call_outcome = 'no_answer'`,
+    )
+    .first<{ n: number }>();
+  return { count: row?.n ?? 0 };
+});
+
 // ---------- Companies ----------
 const companySchema = z.object({
   id: z.string().optional(),
@@ -3051,7 +3066,12 @@ function osmFilters(businessType: string): string[] {
   if (has("pet")) f.push(`"shop"="pet"`);
   if (has("hotel", "motel", "inn", "lodg")) f.push(`"tourism"="hotel"`, `"tourism"="motel"`);
   if (has("photograph")) f.push(`"craft"="photographer"`, `"shop"="photo"`);
-  if (has("clean", "janitor")) f.push(`"shop"="dry_cleaning"`, `"office"="company"`);
+  if (has("clean", "janitor", "maid")) f.push(`"craft"="cleaning"`, `"shop"="dry_cleaning"`, `"office"="company"`);
+  // Elective / cash-pay medical (med spas, weight-loss & IV-therapy clinics,
+  // aesthetics) — high-budget prospects the auto-sweep tends to miss because
+  // they hide under generic clinic/beauty tags. Manual presets mine them by hand.
+  if (has("med spa", "medspa", "med-spa", "aesthetic", "botox", "weight loss", "weight-loss", "iv therapy", "iv drip", "wellness clinic"))
+    f.push(`"leisure"="spa"`, `"shop"="beauty"`, `"amenity"="clinic"`, `"healthcare"="clinic"`);
   if (has("retail", "store", "boutique", "shop")) f.push(`"shop"`);
   // Fallback: match the raw term (singularised) against the common keys.
   if (f.length === 0) {

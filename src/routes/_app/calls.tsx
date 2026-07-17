@@ -93,8 +93,8 @@ function CallQueue({
         <span className="font-mono text-[11px] text-faint">{total} left</span>
       </div>
 
-      <div className="mt-3 rounded-xl border border-line bg-surface p-4">
-        <div className="flex items-start justify-between gap-3">
+      <div className="mt-3 rounded-xl border border-line bg-surface p-3 sm:p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
           <div className="min-w-0">
             <div className="text-lg font-semibold text-bone">{current.name as string}</div>
             {sub ? <div className="mt-0.5 text-xs text-mute">{sub}</div> : null}
@@ -401,6 +401,25 @@ function CompanyBoard({
                       {c.phone ? (
                         <div className="mt-0.5 truncate text-[11px] text-mute">{c.phone as string}</div>
                       ) : null}
+                      {/* Tap-to-move: no dragging needed (esp. on mobile). Routes
+                          through the same move() as drag-and-drop. */}
+                      <select
+                        value={colOf(c) ?? "to_call"}
+                        draggable={false}
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          const next = BOARD_COLUMNS.find((bc) => bc.key === e.target.value);
+                          if (next) void move(c, next);
+                        }}
+                        className="mt-1.5 w-full rounded-md border border-line bg-surface-2 px-1.5 py-1 text-[11px] text-mute outline-none transition-colors focus:border-signal/50"
+                      >
+                        {BOARD_COLUMNS.map((bc) => (
+                          <option key={bc.key} value={bc.key}>
+                            {colOf(c) === bc.key ? `● ${bc.label}` : `Move to ${bc.label}`}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   );
                 })}
@@ -415,7 +434,7 @@ function CompanyBoard({
         })}
       </div>
       <p className="mt-2 px-1 text-[11px] text-faint">
-        Tip: drag a company between columns after you call them. Drop one on <strong className="text-mute">No answer</strong> to email them, or on <strong className="text-mute">Signed</strong> to pick their package.
+        Tip: drag a company between columns after you call them — or use the little dropdown on each card to move it without dragging. Pick <strong className="text-mute">No answer</strong> to email them, or <strong className="text-mute">Signed</strong> to choose their package.
       </p>
 
       <SignModal
@@ -672,6 +691,15 @@ function CallsPage() {
           withPhone={withPhone}
           openByCompany={openByCompany}
           onCall={(r) => setCalling(r)}
+          onNotAFit={async (r) => {
+            try {
+              await setCompanyCallOutcome({ data: { id: r.id as string, outcome: "not_interested" } });
+              toast(`${r.name as string} → No`);
+              router.invalidate();
+            } catch {
+              toast("Couldn't save — you may not own this one", "error");
+            }
+          }}
         />
       ) : null}
 
@@ -713,6 +741,7 @@ function ListView({
   withPhone,
   openByCompany,
   onCall,
+  onNotAFit,
 }: {
   mode: Mode;
   setMode: (m: Mode) => void;
@@ -725,6 +754,7 @@ function ListView({
   withPhone: number;
   openByCompany: Map<string, number>;
   onCall: (r: Row) => void;
+  onNotAFit: (r: Row) => void;
 }) {
   return (
     <>
@@ -816,6 +846,18 @@ function ListView({
                     <OwnerChip name={r.owner_name as string} />
                   )}
                 </div>
+
+                {/* Quick "Not a fit" on companies — marks a No (drops any open
+                    deal to Lost) without opening the full call panel. */}
+                {mode === "companies" && r.call_outcome !== "not_interested" && r.call_outcome !== "signed" ? (
+                  <button
+                    onClick={() => onNotAFit(r)}
+                    title="Mark as No — not a fit"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-xs font-semibold text-rose-300 transition-colors hover:bg-rose-500/20"
+                  >
+                    ✕<span className="hidden sm:inline"> Not a fit</span>
+                  </button>
+                ) : null}
 
                 <button
                   onClick={() => onCall(r)}

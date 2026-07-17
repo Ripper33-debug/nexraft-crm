@@ -39,6 +39,19 @@ const QUICK_TYPES = [
   "Chiropractors",
 ];
 
+// Niches the always-on auto-sweep can't reach well (they hide under generic OSM
+// tags), but which are strong web-design prospects: cleaning/janitorial has the
+// highest no-website rate, and elective/cash-pay medical has the budgets. These
+// presets let a rep mine them by hand.
+const NICHE_TYPES = [
+  "Cleaning services",
+  "Janitorial",
+  "Med spas",
+  "Weight-loss clinics",
+  "IV therapy",
+  "Aesthetics clinic",
+];
+
 function ScoreBadge({ score, band }: { score: number; band: OpportunityBand }) {
   const color = OPPORTUNITY_BAND_INFO[band].color;
   return (
@@ -506,6 +519,28 @@ function DiscoverPage() {
               {t}
             </button>
           ))}
+        </div>
+
+        {/* Hard-to-reach niches the auto-sweep can't mine well — search by hand. */}
+        <div className="mt-3 border-t border-line/60 pt-3">
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-faint">
+              Hard-to-find niches
+            </span>
+            <span className="text-[11px] text-faint">— the auto-sweep skips these; mine them by hand</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {NICHE_TYPES.map((t) => (
+              <button
+                key={t}
+                onClick={() => search(t)}
+                disabled={loading}
+                className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300 hover:bg-amber-500/20 disabled:opacity-50"
+              >
+                {t}
+              </button>
+            ))}
+          </div>
         </div>
       </Card>
 

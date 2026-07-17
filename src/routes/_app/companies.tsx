@@ -471,7 +471,7 @@ function CompanyModal({
             </span>
           </div>
         ) : null}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Industry">
             <Input name="industry" defaultValue={(company?.industry as string) || ""} />
           </Field>
@@ -485,7 +485,7 @@ function CompanyModal({
             />
           </Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Phone">
             <Input name="phone" defaultValue={(company?.phone as string) || ""} />
           </Field>
@@ -493,7 +493,7 @@ function CompanyModal({
             <Input name="city" defaultValue={(company?.city as string) || ""} />
           </Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Lead source">
             <Select name="source" defaultValue={(company?.source as string) || ""}>
               <option value="">—</option>

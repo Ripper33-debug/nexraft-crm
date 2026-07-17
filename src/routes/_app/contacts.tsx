@@ -336,7 +336,7 @@ function ContactModal({
       ) : null}
       <form onSubmit={onSubmit} className="space-y-3">
         <fieldset disabled={!canEdit} className={canEdit ? "space-y-3" : "space-y-3 opacity-60"}>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="First name">
             <Input name="first_name" required defaultValue={(contact?.first_name as string) || ""} />
           </Field>
@@ -344,7 +344,7 @@ function ContactModal({
             <Input name="last_name" defaultValue={(contact?.last_name as string) || ""} />
           </Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Company">
             <Select name="company_id" defaultValue={(contact?.company_id as string) || ""}>
               <option value="">—</option>
@@ -359,7 +359,7 @@ function ContactModal({
             <Input name="title" defaultValue={(contact?.title as string) || ""} />
           </Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Email">
             <Input name="email" type="email" defaultValue={(contact?.email as string) || ""} />
           </Field>
