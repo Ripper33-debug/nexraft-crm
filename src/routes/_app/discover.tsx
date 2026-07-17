@@ -206,7 +206,7 @@ function AutoPanel({ area }: { area: string }) {
           <p className="mt-1.5 text-xs text-mute">
             Radar scan out from{" "}
             <span className="text-bone">{config.on ? config.area : area.trim() || "your center"}</span>{" "}
-            — starts tight, then rings wider each pass. About half of each new find is auto-assigned
+            — starts tight, then rings wider each pass. Most new finds (~90%) are auto-assigned
             round-robin to the team; the rest land in the claimable pool below.
           </p>
 

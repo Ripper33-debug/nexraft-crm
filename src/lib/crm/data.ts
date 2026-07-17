@@ -3085,6 +3085,10 @@ export const discoverLeads = createServerFn({ method: "POST" })
 const AUTO_ASSIGN_EXCLUDE_EMAIL = "barry@nexraft.com";
 const AUTO_ASSIGN_EXCLUDE_NAME_LIKE = "%michael%";
 
+// Share of radar-discovered leads that get auto-assigned to a rep; the rest stay
+// in the claimable pool. 0.9 = ~90% assigned, ~10% pooled.
+const AUTO_ASSIGN_RATE = 0.9;
+
 // Pick the eligible rep with the lightest open pipeline (self-balancing round
 // robin), breaking ties at random. Returns null if nobody's eligible.
 async function pickAutoAssignee(): Promise<{ id: string; name: string } | null> {
@@ -3137,11 +3141,11 @@ export const importDiscoveredLead = createServerFn({ method: "POST" })
       .first<{ id: string }>();
     if (dupe) return { ok: true as const, id: dupe.id, duplicate: true, assignedTo: null };
 
-    // Auto-assign roll: only when the radar asks for it, and only ~half the time.
-    // If it lands, hand the lead to the least-loaded eligible rep; otherwise leave
-    // it unowned so it shows up in the claimable pool.
+    // Auto-assign roll: only when the radar asks for it. Most of the time (see
+    // AUTO_ASSIGN_RATE) it lands and hands the lead to the least-loaded eligible
+    // rep; otherwise the lead stays unowned in the claimable pool.
     let assignee: { id: string; name: string } | null = null;
-    if (data.autoAssign && Math.random() < 0.5) {
+    if (data.autoAssign && Math.random() < AUTO_ASSIGN_RATE) {
       assignee = await pickAutoAssignee();
     }
     const ownerId = assignee?.id ?? null;
