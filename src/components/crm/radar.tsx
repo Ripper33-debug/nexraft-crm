@@ -1,10 +1,9 @@
 // A live radar scope for the auto-discovery sweep. Purely presentational: it
 // takes the current engine status and renders a rotating beam, concentric range
-// rings, an expanding radius, and a blip for each lead found (newest ping in).
-// Animation only runs while the scan is on; off/paused states dim gracefully.
+// rings, a progress ring for the industry sweep, and a blip for each lead found
+// (newest ping in). Animation only runs while the scan is on; off/paused states
+// dim gracefully.
 
-const R_START = 10; // km, matches autodiscover.ts
-const R_MAX = 240;
 const MAX_BLIPS = 40;
 
 // Deterministic scatter so blips sit still between renders. Golden-angle spread
@@ -20,19 +19,19 @@ export function RadarScope({
   on,
   currentType,
   currentArea,
-  radiusKm,
+  progress,
   imported,
   paused,
 }: {
   on: boolean;
   currentType: string | null;
   currentArea?: string | null;
-  radiusKm: number;
+  progress: number; // 0..1 through the current state's industry sweep
   imported: number;
   paused: boolean;
 }) {
-  // Expanding range ring as a fraction of the scope (grows 10km→240km).
-  const frac = Math.max(0, Math.min(1, (radiusKm - R_START) / (R_MAX - R_START)));
+  // Ring grows with how far through the current state's industry sweep we are.
+  const frac = Math.max(0, Math.min(1, progress));
   const ringPct = 20 + frac * 78; // 20% .. 98% diameter
 
   const total = Math.min(imported, MAX_BLIPS);
@@ -118,9 +117,9 @@ export function RadarScope({
           />
         </div>
 
-        {/* range readout */}
+        {/* readout: which state is being swept */}
         <div className="absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap font-mono text-[10px] tracking-wide text-signal/70">
-          {on ? `~${radiusKm} km` : "standby"}
+          {on ? (currentArea ?? "scanning") : "standby"}
         </div>
       </div>
 

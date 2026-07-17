@@ -236,7 +236,7 @@ function AutoPanel({ area }: { area: string }) {
               st.currentType ? (
                 <span className="text-mute">
                   <span className="text-signal">Scanning {st.currentType}</span>
-                  {st.currentArea ? <> in {st.currentArea}</> : null}… · ~{st.radiusKm} km out ·{" "}
+                  {st.currentArea ? <> in {st.currentArea}</> : null}… ·{" "}
                   {st.imported} found · {st.assigned} auto-assigned
                 </span>
               ) : (
@@ -256,7 +256,7 @@ function AutoPanel({ area }: { area: string }) {
             on={config.on}
             currentType={st.currentType}
             currentArea={st.currentArea}
-            radiusKm={st.radiusKm}
+            progress={st.progress}
             imported={st.imported}
             paused={st.paused}
           />

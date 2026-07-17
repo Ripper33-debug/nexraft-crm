@@ -19,8 +19,8 @@ export type AutoDiscoverConfig = { on: boolean; area: string };
 export type AutoDiscoverStatus = {
   running: boolean;
   currentType: string | null;
-  currentArea: string | null; // which region the scan is currently sweeping
-  radiusKm: number; // how far out the scan has expanded
+  currentArea: string | null; // which state the scan is currently sweeping
+  progress: number; // 0..1 through the current state's industry sweep
   imported: number; // this session
   assigned: number; // of those, how many were auto-assigned to a rep
   lastError: string | null;
@@ -28,40 +28,22 @@ export type AutoDiscoverStatus = {
   paused: boolean; // hit the session cap
 };
 
-// After the picked state is saturated, the radar hops through this tour of anchor
-// cities to widen coverage. Scoped to North America for now — each anchor gets its
-// own expanding-radius sweep before the scan moves to the next. (The rest-of-world
-// anchors are kept below, commented out, ready to switch back on later.)
+// The scan works one state at a time: it sweeps every industry across the whole
+// state, then moves to the next. Starts from whichever state the user picks, then
+// follows this order (a rough Southeast-first sweep up and across the country).
 type Anchor = { label: string; query: string };
-export const GLOBAL_TOUR: Anchor[] = [
-  // North America
-  { label: "New York", query: "New York, USA" },
-  { label: "Atlanta", query: "Atlanta, USA" },
-  { label: "Chicago", query: "Chicago, USA" },
-  { label: "Dallas", query: "Dallas, USA" },
-  { label: "Denver", query: "Denver, USA" },
-  { label: "Phoenix", query: "Phoenix, USA" },
-  { label: "Los Angeles", query: "Los Angeles, USA" },
-  { label: "Seattle", query: "Seattle, USA" },
-  { label: "Minneapolis", query: "Minneapolis, USA" },
-  { label: "Boston", query: "Boston, USA" },
-  { label: "Toronto", query: "Toronto, Canada" },
-  { label: "Vancouver", query: "Vancouver, Canada" },
-  { label: "Mexico City", query: "Mexico City, Mexico" },
-  // Rest of the world — re-enable to go global:
-  // { label: "London", query: "London, UK" },
-  // { label: "Dublin", query: "Dublin, Ireland" },
-  // { label: "Paris", query: "Paris, France" },
-  // { label: "Berlin", query: "Berlin, Germany" },
-  // { label: "Madrid", query: "Madrid, Spain" },
-  // { label: "Amsterdam", query: "Amsterdam, Netherlands" },
-  // { label: "Dubai", query: "Dubai, UAE" },
-  // { label: "Singapore", query: "Singapore" },
-  // { label: "Sydney", query: "Sydney, Australia" },
-  // { label: "Auckland", query: "Auckland, New Zealand" },
-  // { label: "Tokyo", query: "Tokyo, Japan" },
-  // { label: "São Paulo", query: "Sao Paulo, Brazil" },
-];
+export const STATE_TOUR: Anchor[] = [
+  "Florida", "Georgia", "Alabama", "Mississippi", "Louisiana",
+  "South Carolina", "North Carolina", "Tennessee", "Arkansas", "Texas",
+  "Oklahoma", "Kentucky", "Virginia", "West Virginia", "Maryland",
+  "Delaware", "New Jersey", "Pennsylvania", "New York", "Connecticut",
+  "Rhode Island", "Massachusetts", "Vermont", "New Hampshire", "Maine",
+  "Ohio", "Michigan", "Indiana", "Illinois", "Wisconsin",
+  "Minnesota", "Iowa", "Missouri", "Kansas", "Nebraska",
+  "South Dakota", "North Dakota", "Montana", "Wyoming", "Colorado",
+  "New Mexico", "Arizona", "Utah", "Nevada", "Idaho",
+  "Washington", "Oregon", "California", "Alaska", "Hawaii",
+].map((name) => ({ label: name, query: `${name}, USA` }));
 
 // The rotation of best-fit business types the engine sweeps through.
 export const AUTO_TYPES = [
@@ -80,15 +62,9 @@ export const AUTO_TYPES = [
 ];
 
 // Safety rails.
-const SESSION_CAP = 250; // most auto-imports per open session (global sweep needs room)
-const TYPE_DELAY_MS = 30_000; // pause between business types
-const PER_TYPE_MAX = 6; // most imports taken from a single search pass
-
-// Expanding "radar" scan: start tight in the picked state, then ring outward each
-// pass — widening far enough to roll into neighboring states before holding.
-const RADIUS_START = 10; // km
-const RADIUS_STEP = 14; // grow each scan
-const RADIUS_MAX = 240; // then hold (stays under the discoverLeads 250km cap)
+const SESSION_CAP = 250; // most auto-imports per open session (state sweep needs room)
+const TYPE_DELAY_MS = 30_000; // pause between industry searches
+const PER_TYPE_MAX = 6; // most imports taken from a single industry search
 
 const STORAGE_KEY = "nx_autodiscover";
 
@@ -97,7 +73,7 @@ const DEFAULT_STATUS: AutoDiscoverStatus = {
   running: false,
   currentType: null,
   currentArea: null,
-  radiusKm: RADIUS_START,
+  progress: 0,
   imported: 0,
   assigned: 0,
   lastError: null,
@@ -168,6 +144,20 @@ export function useAutoStatus(): AutoDiscoverStatus {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+// Rotate the fixed state tour so it BEGINS with whichever state the user picked,
+// then follows the rest of the list in order. e.g. pick "Florida, USA" → the
+// sweep starts in Florida and rolls on to Georgia, Alabama, … from there.
+function buildStateTour(start: string): Anchor[] {
+  const startLabel = start.replace(/,\s*USA$/i, "").trim().toLowerCase();
+  const idx = STATE_TOUR.findIndex((s) => s.label.toLowerCase() === startLabel);
+  if (idx < 0) {
+    // Unknown label — just search it first, then the whole standard tour.
+    const first = { label: start.replace(/,\s*USA$/i, "").trim(), query: start };
+    return [first, ...STATE_TOUR];
+  }
+  return [...STATE_TOUR.slice(idx), ...STATE_TOUR.slice(0, idx)];
+}
+
 // Runs one full engine session. `cancelled` lets the caller stop it (config off /
 // unmount). `onImported` is fired so the layout can refresh the router when new
 // leads land. Returns when cancelled or the session cap is reached.
@@ -178,8 +168,7 @@ export async function runAutoDiscovery(
 ) {
   patchStatus({ ...DEFAULT_STATUS, running: true });
   let ti = 0;
-  let ai = 0; // which anchor in the tour we're sweeping
-  let radius = RADIUS_START;
+  let ai = 0; // which state in the tour we're sweeping
   while (!isCancelled()) {
     const start = getArea().trim();
     if (!start) {
@@ -187,28 +176,33 @@ export async function runAutoDiscovery(
       continue;
     }
     if (status.imported >= SESSION_CAP) {
-      patchStatus({ running: true, paused: true, currentType: null, currentArea: null });
+      patchStatus({ running: true, paused: true, currentType: null, currentArea: null, progress: 1 });
       return; // done for this session
     }
 
-    // The tour: the picked state first (saturate home turf + neighbors), then the
-    // North-America-first global anchors. Wraps around once the world's covered.
-    const tour: Anchor[] = [{ label: start.replace(/,\s*USA$/i, "").trim(), query: start }, ...GLOBAL_TOUR];
-    const anchor = tour[ai % tour.length];
+    // The tour is the states in order, but rotated to begin with whichever state
+    // the user picked — so it starts there (e.g. Florida) and moves on state by
+    // state from that point.
+    const tour = buildStateTour(start);
+    const state = tour[ai % tour.length];
 
     const type = AUTO_TYPES[ti % AUTO_TYPES.length];
+    const progress = (ti % AUTO_TYPES.length) / AUTO_TYPES.length;
     ti++;
-    patchStatus({ currentType: type, currentArea: anchor.label, radiusKm: radius, lastRunAt: Date.now() });
+    patchStatus({ currentType: type, currentArea: state.label, progress, lastRunAt: Date.now() });
 
     try {
-      const res = await discoverLeads({ data: { businessType: type, area: anchor.query, limit: 20, radiusKm: radius } });
+      // No radiusKm → discoverLeads searches the whole state's bounding box.
+      const res = await discoverLeads({ data: { businessType: type, area: state.query, limit: 40 } });
       if (isCancelled()) break;
       if (!res.ok) {
         patchStatus({ lastError: res.error ?? "Search failed." });
       } else {
         patchStatus({ lastError: null });
+        // Good-fit only: businesses with NO website (they need exactly what we
+        // sell) that score "hot" and aren't already in the CRM.
         const targets = (res.leads as DiscoveredLead[])
-          .filter((l) => l.band === "hot" && !l.already_in_crm)
+          .filter((l) => l.band === "hot" && !l.website && !l.already_in_crm)
           .slice(0, PER_TYPE_MAX);
         let importedNow = 0;
         for (const l of targets) {
@@ -241,16 +235,11 @@ export async function runAutoDiscovery(
       patchStatus({ lastError: "Couldn't reach the map service." });
     }
 
-    // Only ring outward once we've swept EVERY industry at the current radius, so a
-    // given area is fully covered (dentists, plumbers, roofers, …) before the scan
-    // widens — rather than a different trade at each distance. When an anchor is
-    // covered out to the max radius, reset and hop to the next region in the tour.
+    // Sweep EVERY industry across the whole state first (dentists, plumbers,
+    // roofers, …) so a state is fully mined before we move on. Once every industry
+    // has been swept for this state, hop to the next state in the tour.
     if (ti % AUTO_TYPES.length === 0) {
-      radius += RADIUS_STEP;
-      if (radius > RADIUS_MAX) {
-        radius = RADIUS_START;
-        ai++;
-      }
+      ai++;
     }
 
     if (isCancelled()) break;
