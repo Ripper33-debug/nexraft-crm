@@ -3168,3 +3168,89 @@ export const importDiscoveredLead = createServerFn({ method: "POST" })
     });
     return { ok: true as const, id, duplicate: false };
   });
+
+// The claimable "Fresh leads" pool shown on the Discover tab: every discovered
+// business that's still unowned (nobody has claimed it yet). Scored on the fly so
+// the strongest no-website prospects sort to the top. Claiming one is the normal
+// claimCompany action, which hands the company + its open deal to the rep.
+export type PoolLead = {
+  id: string;
+  name: string;
+  industry: string | null;
+  website: string | null;
+  phone: string | null;
+  city: string | null;
+  created_at: string | null;
+  score: number;
+  band: string;
+  reasons: string[];
+};
+
+export const getDiscoveredPool = createServerFn({ method: "GET" }).handler(async () => {
+  await requireUser();
+  await ensureExtraSchema();
+  const rows =
+    (
+      await db()
+        .prepare(
+          `SELECT id, name, industry, website, phone, city, created_at
+             FROM companies
+            WHERE archived_at IS NULL AND owner_id IS NULL AND source = 'Discovered'
+            ORDER BY created_at DESC
+            LIMIT 300`,
+        )
+        .all<{
+          id: string;
+          name: string;
+          industry: string | null;
+          website: string | null;
+          phone: string | null;
+          city: string | null;
+          created_at: string | null;
+        }>()
+    ).results ?? [];
+
+  const leads: PoolLead[] = rows.map((r) => {
+    const scored = discoveryScore({
+      hasWebsite: Boolean(r.website),
+      industry: r.industry,
+      rating: null,
+      reviews: null,
+      hasPhone: Boolean(r.phone),
+    });
+    return { ...r, score: scored.score, band: scored.band, reasons: scored.reasons };
+  });
+  leads.sort((a, b) => b.score - a.score);
+  return { leads };
+});
+
+// "Not a fit" — soft-archive an unclaimed discovered lead so it drops out of the
+// pool. Only works on still-unowned discovered companies (never on someone's
+// claimed account), and it's a reversible archive, not a delete.
+export const dismissDiscoveredLead = createServerFn({ method: "POST" })
+  .validator(z.object({ company_id: z.string() }))
+  .handler(async ({ data }) => {
+    const me = await requireUser();
+    await ensureExtraSchema();
+    const c = await db()
+      .prepare("SELECT id, name, owner_id FROM companies WHERE id = ? AND archived_at IS NULL")
+      .bind(data.company_id)
+      .first<{ id: string; name: string; owner_id: string | null }>();
+    if (!c) return { ok: false as const, error: "That lead is already gone." };
+    if (c.owner_id) return { ok: false as const, error: "That lead's already been claimed." };
+
+    const now = new Date().toISOString();
+    await db().prepare("UPDATE companies SET archived_at = ? WHERE id = ?").bind(now, c.id).run();
+    await db()
+      .prepare("UPDATE deals SET archived_at = ? WHERE company_id = ? AND archived_at IS NULL")
+      .bind(now, c.id)
+      .run();
+    await logEvent({
+      actorId: me.id,
+      verb: "archived",
+      entityType: "company",
+      entityId: c.id,
+      summary: `${me.name} dismissed ${c.name} from the discovery pool`,
+    });
+    return { ok: true as const };
+  });

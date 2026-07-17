@@ -1,7 +1,15 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
-import { discoverLeads, importDiscoveredLead, type DiscoveredLead } from "../../lib/crm/data";
+import {
+  discoverLeads,
+  importDiscoveredLead,
+  getDiscoveredPool,
+  claimCompany,
+  dismissDiscoveredLead,
+  type DiscoveredLead,
+  type PoolLead,
+} from "../../lib/crm/data";
 import { Button, Card, EmptyState, Input, PageHeader, Pill } from "../../components/crm/ui";
 import { toast } from "../../components/crm/toast";
 import { OPPORTUNITY_BAND_INFO, type OpportunityBand } from "../../lib/crm/constants";
@@ -10,6 +18,7 @@ import { RadarScope } from "../../components/crm/radar";
 
 export const Route = createFileRoute("/_app/discover")({
   component: DiscoverPage,
+  loader: async () => ({ pool: (await getDiscoveredPool()).leads }),
 });
 
 // Quick-pick business types that fill the search box in one tap.
@@ -92,6 +101,62 @@ function LeadCard({
   );
 }
 
+// A lead sitting in the open pool (auto-discovered, unclaimed). Reps claim it —
+// which hands them the company + its open "To Call" deal — or wave it off as not
+// a fit, which quietly archives it out of the pool.
+function PoolLeadCard({
+  lead,
+  busy,
+  onClaim,
+  onDismiss,
+}: {
+  lead: PoolLead;
+  busy: boolean;
+  onClaim: (l: PoolLead) => void;
+  onDismiss: (l: PoolLead) => void;
+}) {
+  return (
+    <Card className="p-4">
+      <div className="flex items-start gap-3">
+        <ScoreBadge score={lead.score} band={lead.band as OpportunityBand} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="truncate text-sm font-semibold text-bone">{lead.name}</span>
+            {!lead.website ? <Pill tone="ok">No website</Pill> : <Pill tone="neutral">Has site</Pill>}
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-mute">
+            {lead.industry ? <span>{lead.industry}</span> : null}
+            {lead.city ? <span className="text-faint">· {lead.city}</span> : null}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {lead.reasons.slice(0, 3).map((r, i) => (
+              <span key={i} className="rounded-md bg-surface-2 px-2 py-0.5 text-[11px] text-mute">
+                {r}
+              </span>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-faint">{lead.phone || "No phone found"}</span>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => onDismiss(lead)}
+              >
+                Not a fit
+              </Button>
+              <Button size="sm" disabled={busy} onClick={() => onClaim(lead)}>
+                Claim
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 // The always-on prospecting panel: flip it on with an area and the engine (mounted
 // app-wide in the layout) keeps importing new no-website businesses while the CRM
 // is open.
@@ -142,23 +207,23 @@ function AutoPanel({ area }: { area: string }) {
             Radar scan out from{" "}
             <span className="text-bone">{config.on ? config.area : area.trim() || "your center"}</span>{" "}
             — starts tight, then rings wider each pass, dropping new no-website businesses into the
-            open pool automatically while the CRM is open.
+            claimable pool below while the CRM is open.
           </p>
 
           <div className="mt-3 text-xs">
             {st.paused ? (
               <span className="text-amber-300">
-                Reached this session's limit — {st.imported} imported. Reload the CRM later to keep
+                Reached this session's limit — {st.imported} found. Reload the CRM later to keep
                 going.
               </span>
             ) : config.on ? (
               st.currentType ? (
                 <span className="text-mute">
                   <span className="text-signal">Scanning {st.currentType}…</span> · ~{st.radiusKm} km
-                  out · {st.imported} imported this session
+                  out · {st.imported} found this session
                 </span>
               ) : (
-                <span className="text-mute">Starting up… · {st.imported} imported this session</span>
+                <span className="text-mute">Starting up… · {st.imported} found this session</span>
               )
             ) : (
               <span className="text-faint">Flip it on to start the sweep.</span>
@@ -183,7 +248,10 @@ function AutoPanel({ area }: { area: string }) {
 
 function DiscoverPage() {
   const router = useRouter();
+  const { pool } = Route.useLoaderData();
   const savedArea = useAutoConfig().area;
+  const [poolBusyId, setPoolBusyId] = useState<string | null>(null);
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [businessType, setBusinessType] = useState("");
   const [area, setArea] = useState("");
   const seeded = useRef(false);
@@ -247,7 +315,7 @@ function DiscoverPage() {
       });
       if (res.ok) {
         setImported((prev) => new Set(prev).add(l.place_id));
-        toast(res.duplicate ? "Already in your CRM — linked up." : "Imported into your pipeline.", "success");
+        toast(res.duplicate ? "Already in your CRM — linked up." : "Added to the open pool — claim it above.", "success");
         router.invalidate();
       } else {
         toast("Couldn't import that one.", "error");
@@ -259,6 +327,46 @@ function DiscoverPage() {
     }
   }
 
+  async function claimLead(l: PoolLead) {
+    setPoolBusyId(l.id);
+    try {
+      const res = await claimCompany({ data: { company_id: l.id } });
+      if (res.ok) {
+        setRemoved((prev) => new Set(prev).add(l.id));
+        toast(`${l.name} is yours — it's in your pipeline now.`, "success");
+        router.invalidate();
+      } else {
+        toast(res.error ?? "Couldn't claim that one.", "error");
+        router.invalidate();
+      }
+    } catch {
+      toast("Something went wrong claiming that lead.", "error");
+    } finally {
+      setPoolBusyId(null);
+    }
+  }
+
+  async function dismissLead(l: PoolLead) {
+    setPoolBusyId(l.id);
+    try {
+      const res = await dismissDiscoveredLead({ data: { company_id: l.id } });
+      if (res.ok) {
+        setRemoved((prev) => new Set(prev).add(l.id));
+        toast(`Cleared ${l.name} from the pool.`, "info");
+        router.invalidate();
+      } else {
+        toast(res.error ?? "Couldn't remove that one.", "error");
+        router.invalidate();
+      }
+    } catch {
+      toast("Something went wrong removing that lead.", "error");
+    } finally {
+      setPoolBusyId(null);
+    }
+  }
+
+  const visiblePool = pool.filter((l) => !removed.has(l.id));
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -267,6 +375,39 @@ function DiscoverPage() {
       />
 
       <AutoPanel area={area} />
+
+      <Card className="p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold text-bone">Fresh leads — claim yours</h2>
+            <p className="mt-0.5 text-xs text-mute">
+              No-website businesses the radar has dropped into the open pool. Claiming one moves it
+              into your pipeline as a “To Call”. First come, first served.
+            </p>
+          </div>
+          {visiblePool.length > 0 ? (
+            <Pill tone="signal">{visiblePool.length} waiting</Pill>
+          ) : null}
+        </div>
+        {visiblePool.length > 0 ? (
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {visiblePool.map((l) => (
+              <PoolLeadCard
+                key={l.id}
+                lead={l}
+                busy={poolBusyId === l.id}
+                onClaim={claimLead}
+                onDismiss={dismissLead}
+              />
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            title="No unclaimed leads right now"
+            hint="Flip on auto-discover above, or run a manual search below — new finds land here for the team to claim."
+          />
+        )}
+      </Card>
 
       <Card className="p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
