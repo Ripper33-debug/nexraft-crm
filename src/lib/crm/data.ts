@@ -3080,7 +3080,11 @@ export const discoverLeads = createServerFn({ method: "POST" })
     z.object({
       businessType: z.string().min(1).max(80),
       area: z.string().max(120).optional().nullable(),
-      limit: z.number().int().min(1).max(20).default(20),
+      // Auto-discovery asks for up to 40 candidates per sweep so it has enough to
+      // filter down to the best-fit hot leads; the Overpass query itself returns up
+      // to 60. This cap must stay >= the largest caller (the auto-scanner's 40) —
+      // a lower cap makes Zod reject the request and the scan fails before it runs.
+      limit: z.number().int().min(1).max(60).default(20),
       // When set, search a growing circle of ~radiusKm around the area's center
       // instead of the area's own bounding box (used by the expanding auto-scan).
       radiusKm: z.number().min(1).max(250).optional().nullable(),
