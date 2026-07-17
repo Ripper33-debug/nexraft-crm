@@ -336,6 +336,47 @@ function Dashboard() {
         />
       </div>
 
+      {/* Conservative, stage-weighted recurring-revenue forecast. Every open deal's
+          monthly value (unpriced ones counted at the Starter floor) is multiplied by
+          its stage's win odds, so this is what we'd realistically bank if the pipeline
+          played out to form — not the full sticker total. */}
+      <Card className="mt-4 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <Eyebrow className="mb-1">Weighted revenue forecast</Eyebrow>
+            <p className="max-w-md text-sm text-mute">
+              Conservative estimate of the recurring revenue you'll actually land — each open
+              deal's monthly value weighted by its stage's odds of closing.
+            </p>
+          </div>
+          <span className="rounded-full border border-signal/30 bg-signal/10 px-2.5 py-1 text-xs font-medium text-signal">
+            Stage-weighted · conservative
+          </span>
+        </div>
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border border-signal/20 bg-signal/[0.06] p-4">
+            <div className="text-xs uppercase tracking-wide text-mute">Forecast MRR</div>
+            <div className="mt-1 text-3xl font-semibold text-bone">{formatMoney(d.forecast.mrr)}<span className="text-lg text-mute">/mo</span></div>
+            <div className="mt-1 text-xs text-mute">
+              Weighted down from {formatMoney(d.forecast.rawMrr)}/mo of open recurring pipeline
+            </div>
+          </div>
+          <div className="rounded-lg border border-signal/20 bg-signal/[0.06] p-4">
+            <div className="text-xs uppercase tracking-wide text-mute">Forecast ARR</div>
+            <div className="mt-1 text-3xl font-semibold text-bone">{formatMoney(d.forecast.arr)}</div>
+            <div className="mt-1 text-xs text-mute">
+              Forecast MRR × 12 · vs {formatMoney(d.forecast.rawArr)} unweighted
+            </div>
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-mute">
+          How it works: each open deal's monthly value is multiplied by its stage's chance of
+          closing (Discovery 25%, Proposal 50%, Negotiation 70%, In Build 90%…), then summed.
+          Deals not yet priced are counted at the {formatMoney(299)}/mo Starter floor, so the
+          number stays deliberately cautious.
+        </p>
+      </Card>
+
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Card className="p-4">
           <Eyebrow className="mb-2">Pipeline value by stage</Eyebrow>

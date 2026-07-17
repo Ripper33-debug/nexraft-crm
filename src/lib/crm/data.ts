@@ -15,6 +15,7 @@ import {
   discoveryScore,
   estimateDealValue,
   PRICING_PACKAGES,
+  ESTIMATE_LOW_MONTHLY,
 } from "./constants";
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 
@@ -1734,6 +1735,36 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
       return sum + s.value * p;
     }, 0);
 
+  // Weighted recurring-revenue forecast (conservative). For every open deal we
+  // take its monthly retainer x its stage's win-odds and add them up: early-stage
+  // deals barely count, near-close deals count almost fully — so a big raw
+  // pipeline shrinks to a realistic "what we'll actually bank each month" number.
+  // Deals with no price yet are valued at the LOW end of our range ($299/mo) so
+  // the forecast stays a floor, never optimistic. MRR x 12 = ARR.
+  const { results: fcRows } = await database
+    .prepare(
+      `SELECT stage,
+        COALESCE(SUM(CASE WHEN monthly_value > 0 THEN monthly_value END),0) AS priced_monthly,
+        COALESCE(SUM(CASE WHEN COALESCE(monthly_value,0) <= 0 THEN 1 END),0)::int AS unpriced_count
+       FROM deals WHERE stage IN (${OPEN_LIST}) AND archived_at IS NULL
+       GROUP BY stage`,
+    )
+    .all<{ stage: string; priced_monthly: number; unpriced_count: number }>();
+  let forecastMrr = 0; // stage-weighted (conservative)
+  let rawOpenMrr = 0; // unweighted total, for the "of $X pipeline" context
+  for (const r of fcRows ?? []) {
+    const prob = STAGES.find((x) => x.name === r.stage)?.prob ?? 0;
+    const stageMrr = Number(r.priced_monthly) + r.unpriced_count * ESTIMATE_LOW_MONTHLY;
+    forecastMrr += stageMrr * prob;
+    rawOpenMrr += stageMrr;
+  }
+  const forecast = {
+    mrr: Math.round(forecastMrr),
+    arr: Math.round(forecastMrr * 12),
+    rawMrr: Math.round(rawOpenMrr),
+    rawArr: Math.round(rawOpenMrr * 12),
+  };
+
   // Leaderboard per owner
   const { results: lbRows } = await database
     .prepare(
@@ -1876,6 +1907,7 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
       lost_count: 0,
     },
     weighted,
+    forecast,
     mrr: mrrRow?.mrr ?? 0,
     retainer_count: mrrRow?.retainer_count ?? 0,
     byStage,
