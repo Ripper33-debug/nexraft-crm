@@ -27,6 +27,7 @@ import {
   Pill,
   Avatar,
   cx,
+  PageSkeleton,
 } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
 import { RecordAccessButton } from "../../components/crm/record-access";
@@ -96,6 +97,7 @@ export const Route = createFileRoute("/_app/pipeline")({
     return { deals, companies, contacts, users };
   },
   component: PipelinePage,
+  pendingComponent: () => <PageSkeleton cards={3} rows={6} />,
 });
 
 function PipelinePage() {
@@ -341,6 +343,7 @@ function PipelinePage() {
           onStageChange={onStageChange}
           onEdit={startEdit}
           onArchive={onArchive}
+          onAdd={startAdd}
           users={users as Row[]}
           me={me}
           onAccessDone={() => router.invalidate()}
@@ -551,6 +554,7 @@ function PipelineTable({
   onStageChange,
   onEdit,
   onArchive,
+  onAdd,
   users,
   me,
   onAccessDone,
@@ -562,6 +566,7 @@ function PipelineTable({
   onStageChange: (id: string, stage: string) => void;
   onEdit: (d: Row) => void;
   onArchive: (id: string) => void;
+  onAdd: () => void;
   users: Row[];
   me: { id: string; role: string };
   onAccessDone: () => void;
@@ -674,7 +679,11 @@ function PipelineTable({
         </div>
         {deals.length === 0 ? (
           <div className="p-4">
-            <EmptyState title="No deals here yet" hint="Click “New deal” to add your first one." />
+            <EmptyState
+              title="No deals here yet"
+              hint="A deal is a website project you're working to win. Add your first one to start tracking it through the pipeline."
+              action={<Button onClick={onAdd}>+ New deal</Button>}
+            />
           </div>
         ) : null}
       </Card>

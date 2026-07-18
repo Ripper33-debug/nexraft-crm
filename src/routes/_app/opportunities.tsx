@@ -17,6 +17,7 @@ import {
   Pill,
   OwnerChip,
   SummaryCard,
+  PageSkeleton,
 } from "../../components/crm/ui";
 import { toast } from "../../components/crm/toast";
 import {
@@ -40,6 +41,7 @@ export const Route = createFileRoute("/_app/opportunities")({
     return { companies, contacts, users, briefs, me };
   },
   component: OpportunitiesPage,
+  pendingComponent: () => <PageSkeleton cards={3} rows={6} />,
 });
 
 type Scored = {

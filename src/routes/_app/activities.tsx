@@ -10,7 +10,7 @@ import {
   toggleActivity,
   deleteActivity,
 } from "../../lib/crm/data";
-import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, Pill } from "../../components/crm/ui";
+import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, Pill, PageSkeleton } from "../../components/crm/ui";
 import { ACTIVITY_TYPES } from "../../lib/crm/constants";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
 
@@ -42,6 +42,7 @@ export const Route = createFileRoute("/_app/activities")({
     return { activities, deals, contacts, users };
   },
   component: ActivitiesPage,
+  pendingComponent: () => <PageSkeleton cards={0} rows={7} />,
 });
 
 function isOverdue(due: unknown): boolean {
@@ -142,7 +143,34 @@ function ActivitiesPage() {
         </ul>
         {rows.length === 0 ? (
           <div className="p-4">
-            <EmptyState title="Nothing here" hint="Log a call or set a follow-up reminder." />
+            <EmptyState
+              title={
+                !showDone && (activities as Row[]).length > 0
+                  ? "Nothing outstanding"
+                  : "No activities yet"
+              }
+              hint={
+                !showDone && (activities as Row[]).length > 0
+                  ? "Everything's done. Flip on “Show done” to see completed activities."
+                  : "Activities are the calls, emails, and to-dos tied to your deals. Log one, and anything with a due date shows up as a follow-up."
+              }
+              action={
+                !showDone && (activities as Row[]).length > 0 ? (
+                  <Button variant="outline" onClick={() => setShowDone(true)}>
+                    Show done
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      setEditing(null);
+                      setOpen(true);
+                    }}
+                  >
+                    + New activity
+                  </Button>
+                )
+              }
+            />
           </div>
         ) : null}
       </Card>

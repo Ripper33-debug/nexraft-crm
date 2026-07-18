@@ -326,11 +326,76 @@ export function Modal({
   );
 }
 
-export function EmptyState({ title, hint }: { title: string; hint?: string }) {
+export function EmptyState({
+  title,
+  hint,
+  action,
+}: {
+  title: string;
+  hint?: string;
+  action?: ReactNode;
+}) {
   return (
     <div className="rounded-xl border border-dashed border-line bg-surface px-6 py-12 text-center">
       <p className="text-sm font-medium text-bone">{title}</p>
-      {hint ? <p className="mt-1 text-xs text-mute">{hint}</p> : null}
+      {hint ? <p className="mx-auto mt-1 max-w-sm text-xs text-mute">{hint}</p> : null}
+      {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
+    </div>
+  );
+}
+
+// ---------- Loading skeletons ----------
+// A single pulsing placeholder block. The subtle shimmer says "content is on the
+// way" so a slow navigation reads as loading rather than frozen.
+export function Skeleton({ className }: { className?: string }) {
+  return <div className={cx("animate-pulse rounded-md bg-surface-2", className)} aria-hidden="true" />;
+}
+
+// Placeholder shaped like a SummaryCard, so KPI rows reserve their space and
+// don't jump when the real numbers land.
+export function SummaryCardSkeleton() {
+  return (
+    <div className="rounded-xl border border-line bg-surface p-4">
+      <Skeleton className="h-2.5 w-20" />
+      <Skeleton className="mt-3 h-7 w-24" />
+      <Skeleton className="mt-2.5 h-2.5 w-16" />
+    </div>
+  );
+}
+
+// Whole-page loading state used as a route pendingComponent: a header block, a
+// row of KPI cards, and a few list rows. Matches the real layout closely enough
+// that the swap to live content is calm, not a flash.
+export function PageSkeleton({ cards = 4, rows = 6 }: { cards?: number; rows?: number }) {
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6" aria-busy="true" aria-live="polite">
+      <span className="sr-only">Loading…</span>
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="mt-2 h-3 w-64" />
+        </div>
+        <Skeleton className="h-9 w-28 rounded-lg" />
+      </div>
+      {cards > 0 ? (
+        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {Array.from({ length: cards }).map((_, i) => (
+            <SummaryCardSkeleton key={i} />
+          ))}
+        </div>
+      ) : null}
+      <div className="mt-4 rounded-xl border border-line bg-surface p-4">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div key={i} className="flex items-center gap-3 border-b border-line/60 py-3 last:border-0">
+            <Skeleton className="h-9 w-9 rounded-full" />
+            <div className="flex-1">
+              <Skeleton className="h-3 w-1/3" />
+              <Skeleton className="mt-2 h-2.5 w-1/4" />
+            </div>
+            <Skeleton className="h-3 w-16" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

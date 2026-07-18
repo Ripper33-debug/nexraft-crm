@@ -19,6 +19,7 @@ import {
   SummaryCard,
   Avatar,
   Pill,
+  PageSkeleton,
 } from "../../components/crm/ui";
 import { toast } from "../../components/crm/toast";
 import {
@@ -49,6 +50,7 @@ export const Route = createFileRoute("/_app/payroll")({
     return data;
   },
   component: PayrollPage,
+  pendingComponent: () => <PageSkeleton cards={3} rows={6} />,
 });
 
 function todayISO(): string {

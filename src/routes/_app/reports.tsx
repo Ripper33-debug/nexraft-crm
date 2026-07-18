@@ -19,6 +19,7 @@ import {
   Button,
   OwnerChip,
   EmptyState,
+  PageSkeleton,
 } from "../../components/crm/ui";
 import { formatMoney } from "../../lib/crm/constants";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
@@ -32,6 +33,7 @@ export const Route = createFileRoute("/_app/reports")({
   loaderDeps: ({ search: { range } }) => ({ range }),
   loader: ({ deps: { range } }) => getAnalytics({ data: { range } }),
   component: ReportsPage,
+  pendingComponent: () => <PageSkeleton cards={4} rows={5} />,
 });
 
 function ReportsPage() {

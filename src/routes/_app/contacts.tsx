@@ -11,7 +11,7 @@ import {
   restoreContact,
   importContacts,
 } from "../../lib/crm/data";
-import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, Pill } from "../../components/crm/ui";
+import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, Pill, PageSkeleton } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
 import { CallMode } from "../../components/crm/call-mode";
 import { RecordAccessButton } from "../../components/crm/record-access";
@@ -62,6 +62,7 @@ export const Route = createFileRoute("/_app/contacts")({
     return { contacts, companies, users, deals };
   },
   component: ContactsPage,
+  pendingComponent: () => <PageSkeleton cards={0} rows={8} />,
 });
 
 function ContactsPage() {
@@ -233,7 +234,20 @@ function ContactsPage() {
         </div>
         {(contacts as Row[]).length === 0 ? (
           <div className="p-4">
-            <EmptyState title="No contacts yet" hint="Add the people you talk to at each company." />
+            <EmptyState
+              title="No contacts yet"
+              hint="Add the people you talk to at each company — the decision-makers you'll be calling and emailing."
+              action={
+                <Button
+                  onClick={() => {
+                    setEditing(null);
+                    setOpen(true);
+                  }}
+                >
+                  + New contact
+                </Button>
+              }
+            />
           </div>
         ) : null}
       </Card>

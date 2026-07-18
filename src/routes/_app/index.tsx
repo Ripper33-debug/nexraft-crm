@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { getDashboard, getActivityFeed, getCompanies, type FeedRow } from "../../lib/crm/data";
-import { Card, StageBadge, SummaryCard, Eyebrow, OwnerChip, Pill, Avatar } from "../../components/crm/ui";
+import { Card, StageBadge, SummaryCard, Eyebrow, OwnerChip, Pill, Avatar, PageSkeleton } from "../../components/crm/ui";
 import { StageBarChart, MonthlyTrendChart } from "../../components/crm/charts";
 import {
   formatMoney,
@@ -24,6 +24,7 @@ export const Route = createFileRoute("/_app/")({
     return { ...dash, feed, companies };
   },
   component: Dashboard,
+  pendingComponent: () => <PageSkeleton cards={4} rows={6} />,
 });
 
 // Tiny inline SVG sparkline — a filled area under a 30-point trend line. No

@@ -10,7 +10,7 @@ import {
   restoreCompany,
   importCompanies,
 } from "../../lib/crm/data";
-import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip } from "../../components/crm/ui";
+import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, PageSkeleton } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
 import { CallMode } from "../../components/crm/call-mode";
 import { RecordAccessButton } from "../../components/crm/record-access";
@@ -63,6 +63,7 @@ export const Route = createFileRoute("/_app/companies")({
     return { companies, users, deals };
   },
   component: CompaniesPage,
+  pendingComponent: () => <PageSkeleton cards={0} rows={8} />,
 });
 
 function CompaniesPage() {
@@ -330,7 +331,29 @@ function CompaniesPage() {
           <div className="p-4">
             <EmptyState
               title={tagFilter || ownerFilter ? "No companies match these filters" : "No companies yet"}
-              hint={tagFilter || ownerFilter ? "Try a different owner or tag, or clear the filters." : "Add the businesses you're selling to."}
+              hint={tagFilter || ownerFilter ? "Try a different owner or tag, or clear the filters." : "Add the businesses you're selling to, or import a list from a spreadsheet."}
+              action={
+                tagFilter || ownerFilter ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setTagFilter(null);
+                      setOwnerFilter("");
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      setEditing(null);
+                      setOpen(true);
+                    }}
+                  >
+                    + New company
+                  </Button>
+                )
+              }
             />
           </div>
         ) : null}
