@@ -11,7 +11,8 @@ export type ThemePref = "midnight" | "daylight" | "system";
 export type ResolvedTheme = "midnight" | "daylight";
 
 export const THEME_STORAGE_KEY = "nx-theme";
-export const DEFAULT_THEME_PREF: ThemePref = "midnight";
+// Warm Paper (light) is the primary product look; new users land here.
+export const DEFAULT_THEME_PREF: ThemePref = "daylight";
 
 function isPref(v: unknown): v is ThemePref {
   return v === "midnight" || v === "daylight" || v === "system";

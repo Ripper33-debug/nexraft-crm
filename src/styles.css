@@ -42,20 +42,23 @@
 @theme {
   --spacing: 0.25rem;
 
-  /* ---- Nexraft brand palette (dark, premium, teal "signal" accent) ---- */
-  --color-ink: #0a0e0c; /* app background */
-  --color-surface: #0f1512; /* cards, sidebar, modals */
-  --color-surface-2: #141b17; /* inputs, hover rows, raised chips */
-  --color-line: #222c26; /* hairline borders */
-  --color-line-strong: #2e3a33; /* stronger dividers */
-  --color-bone: #e8ede9; /* primary text */
-  --color-mute: #8a978f; /* secondary text */
-  --color-faint: #5c6862; /* tertiary / placeholders */
-  --color-signal: #2dd4bf; /* teal accent */
-  --color-signal-strong: #14b8a6; /* accent hover / pressed */
-  --color-signal-soft: #0e2b28; /* tinted accent background */
-  --color-sunk: #0c110e; /* deepest recess — gradient bottoms, sidebar foot */
-  --color-signal-top: #3ce0cd; /* bright top-stop of accent gradients */
+  /* ---- Nexraft brand palette — Dark mode (warm charcoal + clay-teal) ----
+   * The default (no data-theme) is the warm dark counterpart to Warm Paper;
+   * both modes share one clay-teal accent so the product reads as a single
+   * identity in two skins. */
+  --color-ink: #14120e; /* app background base (warm near-black) */
+  --color-surface: #1b1813; /* cards, sidebar, modals */
+  --color-surface-2: #221e18; /* inputs, hover rows, raised chips */
+  --color-line: #2c2822; /* hairline borders (warm) */
+  --color-line-strong: #3a352d; /* stronger dividers */
+  --color-bone: #ece7dd; /* primary text (warm off-white) */
+  --color-mute: #a29a8d; /* secondary text */
+  --color-faint: #6f675c; /* tertiary / placeholders */
+  --color-signal: #3bb5a6; /* clay-teal accent (dark-mode brightness) */
+  --color-signal-strong: #2f9689; /* accent hover / pressed */
+  --color-signal-soft: #123230; /* tinted accent background */
+  --color-sunk: #100e0a; /* deepest recess */
+  --color-signal-top: #4cc7b8; /* light top-stop for any residual gradient */
 }
 
 @theme inline {
@@ -107,42 +110,39 @@
 :root {
   --radius: 0.625rem;
 
-  /* ---- Themeable app-shell surfaces (Midnight is the default) ---- */
+  /* ---- Themeable app-shell surfaces (warm Dark is the default) ---- */
   color-scheme: dark;
-  --nx-body-bg: #080b09;
-  /* Layered aurora glow — atmospheric depth on the dark shell. */
+  --nx-body-bg: #100e0b;
+  /* Restrained warm glow — a whisper of depth, not an aurora. */
   --nx-body-glow:
-    radial-gradient(900px 520px at 88% -8%, rgba(45, 212, 191, 0.1), transparent 62%),
-    radial-gradient(760px 480px at -6% 8%, rgba(56, 189, 248, 0.055), transparent 60%),
-    radial-gradient(1100px 700px at 50% 116%, rgba(20, 184, 166, 0.07), transparent 64%);
+    radial-gradient(1000px 560px at 84% -12%, rgba(59, 181, 166, 0.05), transparent 60%),
+    radial-gradient(900px 520px at -6% 4%, rgba(150, 110, 60, 0.03), transparent 60%);
 }
 
-/* ---- Daylight theme: warm paper light mode with a deep-teal accent ----
- * Overriding the --color-* tokens here (higher specificity than @theme's
- * :root, and unlayered so it beats @layer theme) re-skins every bg-ink /
- * text-bone / bg-signal-soft utility at runtime with no rebuild. The accent
- * flips DARK so white text on accent stays readable while the shell goes light. */
+/* ---- Daylight = Warm Paper: bright, warm light mode sharing the clay-teal
+ * accent. Overriding the --color-* tokens here (higher specificity than
+ * @theme's :root, and unlayered so it beats @layer theme) re-skins every
+ * bg-ink / text-bone / bg-signal-soft utility at runtime with no rebuild.
+ * The accent flips DEEP so white text on it stays readable in light mode. */
 :root[data-theme="daylight"] {
   color-scheme: light;
-  --color-ink: #f5f3ee; /* app background (warm paper) */
+  --color-ink: #f3efe7; /* app background (warm paper) */
   --color-surface: #ffffff; /* cards, sidebar, modals */
-  --color-surface-2: #f4f2ec; /* inputs, hover rows, raised chips */
-  --color-line: #e9e6dd; /* hairline borders */
-  --color-line-strong: #dcd7cb; /* stronger dividers */
-  --color-bone: #16211c; /* primary text (near-black green) */
-  --color-mute: #5d6a62; /* secondary text */
-  --color-faint: #97a099; /* tertiary / placeholders */
-  --color-signal: #0d9488; /* deep teal accent */
-  --color-signal-strong: #0f766e; /* accent hover / pressed */
-  --color-signal-soft: #d8efeb; /* tinted accent background */
-  --color-sunk: #fbfaf6; /* lightest recess for gradient bottoms */
-  --color-signal-top: #0f766e; /* accent gradients stay solid-deep */
+  --color-surface-2: #f5f1e9; /* inputs, hover rows, raised chips */
+  --color-line: #e6e0d3; /* hairline borders */
+  --color-line-strong: #d8d1c1; /* stronger dividers */
+  --color-bone: #1c211d; /* primary text (near-black) */
+  --color-mute: #5c655e; /* secondary text */
+  --color-faint: #98a096; /* tertiary / placeholders */
+  --color-signal: #0d6e66; /* deep clay-teal accent */
+  --color-signal-strong: #0a5852; /* accent hover / pressed */
+  --color-signal-soft: #dcece8; /* tinted accent background */
+  --color-sunk: #efeadf; /* lightest recess */
+  --color-signal-top: #0d6e66; /* accent stays solid-deep */
 
-  --nx-body-bg: #f2efe8;
+  --nx-body-bg: #f3efe7;
   --nx-body-glow:
-    radial-gradient(900px 520px at 88% -8%, rgba(13, 148, 136, 0.08), transparent 62%),
-    radial-gradient(760px 480px at -6% 8%, rgba(15, 118, 110, 0.05), transparent 60%),
-    radial-gradient(1100px 700px at 50% 116%, rgba(13, 148, 136, 0.06), transparent 64%);
+    radial-gradient(1000px 560px at 84% -12%, rgba(13, 110, 102, 0.05), transparent 62%);
 }
 
 @layer base {

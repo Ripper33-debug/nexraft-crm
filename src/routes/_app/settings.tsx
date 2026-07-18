@@ -74,29 +74,29 @@ const THEME_OPTIONS: {
   swatch: { bg: string; card: string; text: string; accent: string };
 }[] = [
   {
-    value: "midnight",
-    label: "Midnight",
-    hint: "Deep, focused dark shell",
-    swatch: { bg: "#080b09", card: "#141b17", text: "#e8ede9", accent: "#2dd4bf" },
+    value: "daylight",
+    label: "Warm Paper",
+    hint: "Bright, warm — easy all day",
+    swatch: { bg: "#f3efe7", card: "#ffffff", text: "#1c211d", accent: "#0d6e66" },
   },
   {
-    value: "daylight",
-    label: "Daylight",
-    hint: "Warm, bright paper light",
-    swatch: { bg: "#f2efe8", card: "#ffffff", text: "#16211c", accent: "#0d9488" },
+    value: "midnight",
+    label: "Dark",
+    hint: "Warm charcoal, easy at night",
+    swatch: { bg: "#100e0b", card: "#221e18", text: "#ece7dd", accent: "#3bb5a6" },
   },
   {
     value: "system",
     label: "System",
     hint: "Match your device setting",
-    swatch: { bg: "#7c8b83", card: "#c9cec8", text: "#1c2521", accent: "#14b8a6" },
+    swatch: { bg: "#8a8378", card: "#cfc9bd", text: "#1c211d", accent: "#0d6e66" },
   },
 ];
 
 function AppearanceCard() {
   // Preference is client-only (localStorage); hydrate after mount so SSR and the
   // first client render agree, then reflect the blocking-script's choice.
-  const [pref, setPref] = useState<ThemePref>("midnight");
+  const [pref, setPref] = useState<ThemePref>("daylight");
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -117,9 +117,9 @@ function AppearanceCard() {
         <div className="min-w-0">
           <Eyebrow className="mb-1">Appearance</Eyebrow>
           <p className="text-sm leading-relaxed text-mute">
-            Choose how the CRM looks. <strong className="text-bone">Midnight</strong> is the signature
-            dark shell; <strong className="text-bone">Daylight</strong> is a bright, warm light mode.
-            Your choice is saved on this device and applies instantly.
+            Choose how the CRM looks. <strong className="text-bone">Warm Paper</strong> is a bright,
+            warm light mode; <strong className="text-bone">Dark</strong> is its warm-charcoal
+            counterpart. Your choice is saved on this device and applies instantly.
           </p>
         </div>
       </div>
@@ -221,7 +221,7 @@ function SettingsPage() {
                 <form method="post" action="/api/gmail/disconnect">
                   <button
                     type="submit"
-                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-line-strong bg-gradient-to-b from-surface-2 to-surface px-3.5 py-2 text-sm font-semibold text-bone shadow-[0_1px_2px_rgba(0,0,0,0.25)] transition-all duration-150 hover:border-red-400/50 hover:text-red-300 active:translate-y-px"
+                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-line-strong bg-surface-2 px-3.5 py-2 text-sm font-semibold text-bone shadow-[0_1px_2px_rgba(0,0,0,0.25)] transition-all duration-150 hover:border-red-400/50 hover:text-red-300 active:translate-y-px"
                   >
                     Disconnect
                   </button>
@@ -235,7 +235,7 @@ function SettingsPage() {
                 {/* Plain link — the connect route is a GET that bounces to Google. */}
                 <a
                   href="/api/gmail/connect"
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-b from-signal-top to-signal-strong px-3.5 py-2 text-sm font-semibold text-ink shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.3)] transition-all duration-150 hover:shadow-[0_2px_14px_rgba(20,184,166,0.4),inset_0_1px_0_rgba(255,255,255,0.3)] active:translate-y-px"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-signal hover:bg-signal-strong px-3.5 py-2 text-sm font-semibold text-ink transition-all duration-150 active:translate-y-px"
                 >
                   Connect Gmail
                 </a>

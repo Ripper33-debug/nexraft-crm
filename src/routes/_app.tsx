@@ -211,7 +211,7 @@ function AppLayout() {
       <WelcomeTour name={user.name} />
       <CommandPalette isAdmin={isAdmin} />
       {/* Sidebar (desktop) */}
-      <aside className="hidden w-60 flex-col border-r border-line bg-gradient-to-b from-surface to-sunk md:flex">
+      <aside className="hidden w-60 flex-col border-r border-line bg-surface md:flex">
         <div className="border-b border-line/60 px-5 py-4">
           <Wordmark />
         </div>
@@ -280,7 +280,7 @@ function AppLayout() {
               style={{ animation: "nx-fade-in 150ms ease-out" }}
             />
             <div
-              className="absolute inset-y-0 left-0 flex w-[82%] max-w-xs flex-col border-r border-line bg-gradient-to-b from-surface to-sunk shadow-2xl shadow-black/50"
+              className="absolute inset-y-0 left-0 flex w-[82%] max-w-xs flex-col border-r border-line bg-surface shadow-2xl shadow-black/50"
               style={{ animation: "nx-drawer-in 200ms ease-out" }}
             >
               <div className="flex items-center justify-between border-b border-line/60 px-5 py-4">
