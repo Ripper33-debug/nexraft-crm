@@ -50,7 +50,7 @@ export function Wordmark({ small }: { small?: boolean }) {
     <div className="flex items-center gap-2.5">
       <LogoMark size={small ? 28 : 32} radius={small ? 7 : 8} />
       <div className="leading-tight">
-        <div className="text-sm font-semibold tracking-tight text-bone">
+        <div className="font-display text-sm font-semibold tracking-tight text-bone">
           Nexraft<span className="text-signal"> CRM</span>
         </div>
         {!small ? (

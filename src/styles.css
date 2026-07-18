@@ -42,6 +42,17 @@
 @theme {
   --spacing: 0.25rem;
 
+  /* ---- Typefaces (now actually loaded in __root.tsx) ----
+   * The design system references these names everywhere but the fonts were
+   * never linked, so everything silently fell back to the OS default — the
+   * single biggest "generic / AI-generated" tell. Wiring them into the
+   * --font-* namespace emits `font-sans` / `font-display` / `font-mono`
+   * utilities; `font-mono` now resolves the eyebrow labels to IBM Plex Mono,
+   * and the new `font-display` gives headings + KPI numbers real character. */
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
   /* ---- Nexraft brand palette — Dark mode (warm charcoal + clay-teal) ----
    * The default (no data-theme) is the warm dark counterpart to Warm Paper;
    * both modes share one clay-teal accent so the product reads as a single
@@ -159,7 +170,7 @@
     background-attachment: fixed;
     background-repeat: no-repeat;
     color: var(--color-bone);
-    font-family: var(--hf-type-family-secondary);
+    font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     transition:
@@ -169,6 +180,20 @@
 
   * {
     border-color: var(--color-line);
+  }
+
+  /* Real type hierarchy: Space Grotesk gives headings a tighter, more
+   * deliberate feel than the body Inter — the "designed by a person" cue. */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+
+  ::selection {
+    background: var(--color-signal-soft);
+    color: var(--color-signal-strong);
   }
 
   /* Premium numerics: money and KPI figures line up in columns. */

@@ -144,7 +144,7 @@ export function PageHeader({
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-[1.35rem] font-semibold tracking-tight text-bone">{title}</h1>
+        <h1 className="font-display text-[1.35rem] font-semibold tracking-tight text-bone">{title}</h1>
         {subtitle ? <p className="mt-1 text-sm text-mute">{subtitle}</p> : null}
       </div>
       {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
@@ -184,7 +184,7 @@ export function SummaryCard({
       </Eyebrow>
       <div
         className={cx(
-          "tnum mt-2 text-[1.7rem] font-semibold leading-none tracking-tight",
+          "tnum font-display mt-2 text-[1.7rem] font-semibold leading-none tracking-tight",
           accent ? "text-signal" : "text-bone",
         )}
       >
