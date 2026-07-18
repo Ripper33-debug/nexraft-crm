@@ -59,7 +59,7 @@ const btnStyles: Record<BtnVariant, string> = {
   // Tactile gradient fill with a top highlight, teal glow on hover, and a
   // subtle press — reads like a physical control, not a flat rectangle.
   primary:
-    "bg-gradient-to-b from-[#3ce0cd] to-signal-strong text-ink shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.3)] hover:shadow-[0_2px_14px_rgba(20,184,166,0.4),inset_0_1px_0_rgba(255,255,255,0.3)] active:translate-y-px disabled:opacity-50 disabled:shadow-none disabled:active:translate-y-0",
+    "bg-gradient-to-b from-signal-top to-signal-strong text-ink shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.3)] hover:shadow-[0_2px_14px_rgba(20,184,166,0.4),inset_0_1px_0_rgba(255,255,255,0.3)] active:translate-y-px disabled:opacity-50 disabled:shadow-none disabled:active:translate-y-0",
   outline:
     "border border-line-strong bg-gradient-to-b from-surface-2 to-surface text-bone shadow-[0_1px_2px_rgba(0,0,0,0.25)] hover:border-signal/40 hover:text-bone active:translate-y-px disabled:opacity-50",
   ghost: "text-mute hover:bg-surface-2 hover:text-bone disabled:opacity-50",
@@ -96,7 +96,7 @@ export function Card({ className, children }: { className?: string; children: Re
   return (
     <div
       className={cx(
-        "rounded-xl border border-line bg-gradient-to-b from-surface to-[#0c110e] shadow-[0_1px_2px_rgba(0,0,0,0.3),0_8px_24px_-16px_rgba(0,0,0,0.6),inset_0_1px_0_0_rgba(255,255,255,0.03)]",
+        "rounded-xl border border-line bg-gradient-to-b from-surface to-sunk shadow-[0_1px_2px_rgba(0,0,0,0.3),0_8px_24px_-16px_rgba(0,0,0,0.6),inset_0_1px_0_0_rgba(255,255,255,0.03)]",
         className,
       )}
     >
@@ -172,7 +172,7 @@ export function SummaryCard({
         "group relative overflow-hidden rounded-xl border p-4 transition-all duration-200 hover:-translate-y-0.5",
         accent
           ? "border-signal/25 bg-gradient-to-br from-signal-soft/50 via-surface to-surface shadow-[0_8px_30px_-18px_rgba(20,184,166,0.6)] hover:shadow-[0_14px_36px_-16px_rgba(20,184,166,0.7)]"
-          : "border-line bg-gradient-to-b from-surface to-[#0c110e] shadow-[0_1px_2px_rgba(0,0,0,0.3)] hover:border-line-strong hover:shadow-[0_12px_30px_-16px_rgba(0,0,0,0.7)]",
+          : "border-line bg-gradient-to-b from-surface to-sunk shadow-[0_1px_2px_rgba(0,0,0,0.3)] hover:border-line-strong hover:shadow-[0_12px_30px_-16px_rgba(0,0,0,0.7)]",
       )}
     >
       {accent ? (
@@ -304,7 +304,7 @@ export function Modal({
     >
       <div
         className={cx(
-          "mt-4 w-full rounded-2xl border border-line-strong bg-gradient-to-b from-surface to-[#0c110e] shadow-[0_24px_70px_-20px_rgba(0,0,0,0.85)] ring-1 ring-white/5 duration-200 animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 sm:mt-8",
+          "mt-4 w-full rounded-2xl border border-line-strong bg-gradient-to-b from-surface to-sunk shadow-[0_24px_70px_-20px_rgba(0,0,0,0.85)] ring-1 ring-white/5 duration-200 animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 sm:mt-8",
           wide ? "max-w-2xl" : "max-w-md",
         )}
       >

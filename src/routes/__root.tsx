@@ -135,11 +135,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   errorComponent: ErrorComponent,
 });
 
+// Runs before first paint so the saved theme is applied with no flash. Mirrors
+// the logic in src/lib/crm/theme.ts (kept inline + dependency-free on purpose).
+const THEME_INIT_SCRIPT = `(function(){try{var p=localStorage.getItem('nx-theme')||'midnight';var t=p;if(p==='system'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'daylight':'midnight';}document.documentElement.setAttribute('data-theme',t==='daylight'?'daylight':'midnight');}catch(e){}})();`;
+
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" style={{ colorScheme: "dark" }}>
+    <html lang="en" data-theme="midnight">
       <head>
         <HeadContent />
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="bg-ink text-bone antialiased">
         {children}

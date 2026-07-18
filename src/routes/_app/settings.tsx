@@ -1,7 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 
 import { getGmailStatus } from "../../lib/crm/data";
 import { Card, PageHeader, Eyebrow, Pill } from "../../components/crm/ui";
+import {
+  type ThemePref,
+  getThemePref,
+  setThemePref,
+  watchSystemTheme,
+} from "../../lib/crm/theme";
 
 type GmailStatus = { configured: boolean; connected: boolean; email: string | null };
 
@@ -29,6 +36,134 @@ export const Route = createFileRoute("/_app/settings")({
   component: SettingsPage,
 });
 
+// Small preview chip for a theme option — a miniature of the app shell so the
+// choice is legible at a glance, not just a word.
+function ThemeSwatch({
+  bg,
+  card,
+  text,
+  accent,
+}: {
+  bg: string;
+  card: string;
+  text: string;
+  accent: string;
+}) {
+  return (
+    <span
+      className="flex h-9 w-12 shrink-0 flex-col justify-between overflow-hidden rounded-md border border-black/10 p-1 shadow-inner"
+      style={{ backgroundColor: bg }}
+      aria-hidden
+    >
+      <span className="flex items-center gap-0.5">
+        <span className="h-1 w-1 rounded-full" style={{ backgroundColor: accent }} />
+        <span className="h-1 w-4 rounded-full" style={{ backgroundColor: text, opacity: 0.7 }} />
+      </span>
+      <span
+        className="h-3 w-full rounded-sm"
+        style={{ backgroundColor: card, border: `1px solid ${accent}33` }}
+      />
+    </span>
+  );
+}
+
+const THEME_OPTIONS: {
+  value: ThemePref;
+  label: string;
+  hint: string;
+  swatch: { bg: string; card: string; text: string; accent: string };
+}[] = [
+  {
+    value: "midnight",
+    label: "Midnight",
+    hint: "Deep, focused dark shell",
+    swatch: { bg: "#080b09", card: "#141b17", text: "#e8ede9", accent: "#2dd4bf" },
+  },
+  {
+    value: "daylight",
+    label: "Daylight",
+    hint: "Warm, bright paper light",
+    swatch: { bg: "#f2efe8", card: "#ffffff", text: "#16211c", accent: "#0d9488" },
+  },
+  {
+    value: "system",
+    label: "System",
+    hint: "Match your device setting",
+    swatch: { bg: "#7c8b83", card: "#c9cec8", text: "#1c2521", accent: "#14b8a6" },
+  },
+];
+
+function AppearanceCard() {
+  // Preference is client-only (localStorage); hydrate after mount so SSR and the
+  // first client render agree, then reflect the blocking-script's choice.
+  const [pref, setPref] = useState<ThemePref>("midnight");
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    setPref(getThemePref());
+    setReady(true);
+    // Keep the shell in sync with the OS while "System" is selected.
+    return watchSystemTheme(() => getThemePref());
+  }, []);
+
+  function choose(next: ThemePref) {
+    setPref(next);
+    setThemePref(next); // applies data-theme + persists immediately
+  }
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <Eyebrow className="mb-1">Appearance</Eyebrow>
+          <p className="text-sm leading-relaxed text-mute">
+            Choose how the CRM looks. <strong className="text-bone">Midnight</strong> is the signature
+            dark shell; <strong className="text-bone">Daylight</strong> is a bright, warm light mode.
+            Your choice is saved on this device and applies instantly.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2 border-t border-line pt-4 sm:grid-cols-3">
+        {THEME_OPTIONS.map((opt) => {
+          const active = ready && pref === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => choose(opt.value)}
+              aria-pressed={active}
+              className={
+                "flex items-center gap-3 rounded-xl border p-3 text-left transition-all duration-150 active:translate-y-px " +
+                (active
+                  ? "border-signal bg-signal-soft shadow-[0_0_0_1px_var(--color-signal)]"
+                  : "border-line bg-surface-2 hover:border-line-strong")
+              }
+            >
+              <ThemeSwatch {...opt.swatch} />
+              <span className="min-w-0">
+                <span className="flex items-center gap-1.5">
+                  <span className="text-sm font-semibold text-bone">{opt.label}</span>
+                  {active ? (
+                    <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 text-signal" fill="currentColor">
+                      <path
+                        fillRule="evenodd"
+                        d="M16.7 5.3a1 1 0 0 1 0 1.4l-7.5 7.5a1 1 0 0 1-1.4 0L3.3 9.7a1 1 0 1 1 1.4-1.4l3.3 3.3 6.8-6.8a1 1 0 0 1 1.4 0Z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  ) : null}
+                </span>
+                <span className="mt-0.5 block truncate text-xs text-faint">{opt.hint}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 function SettingsPage() {
   const { gmail } = Route.useLoaderData();
   const { email: flag } = Route.useSearch();
@@ -48,6 +183,8 @@ function SettingsPage() {
       ) : null}
 
       <div className="mt-6 space-y-4">
+        <AppearanceCard />
+
         <Card className="p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -98,7 +235,7 @@ function SettingsPage() {
                 {/* Plain link — the connect route is a GET that bounces to Google. */}
                 <a
                   href="/api/gmail/connect"
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-b from-[#3ce0cd] to-signal-strong px-3.5 py-2 text-sm font-semibold text-ink shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.3)] transition-all duration-150 hover:shadow-[0_2px_14px_rgba(20,184,166,0.4),inset_0_1px_0_rgba(255,255,255,0.3)] active:translate-y-px"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-b from-signal-top to-signal-strong px-3.5 py-2 text-sm font-semibold text-ink shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.3)] transition-all duration-150 hover:shadow-[0_2px_14px_rgba(20,184,166,0.4),inset_0_1px_0_rgba(255,255,255,0.3)] active:translate-y-px"
                 >
                   Connect Gmail
                 </a>

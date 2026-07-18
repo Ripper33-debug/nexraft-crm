@@ -492,7 +492,7 @@ export function CallMode({
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-md duration-200 animate-in fade-in-0 sm:p-8"
     >
-      <div className="mt-2 w-full max-w-4xl rounded-2xl border border-line-strong bg-gradient-to-b from-surface to-[#0c110e] shadow-[0_24px_70px_-20px_rgba(0,0,0,0.85)] ring-1 ring-white/5 duration-200 animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 sm:mt-6">
+      <div className="mt-2 w-full max-w-4xl rounded-2xl border border-line-strong bg-gradient-to-b from-surface to-sunk shadow-[0_24px_70px_-20px_rgba(0,0,0,0.85)] ring-1 ring-white/5 duration-200 animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 sm:mt-6">
         {/* Header — who you're calling + a live pulsing indicator */}
         <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
           <div className="flex items-center gap-3">
@@ -518,7 +518,7 @@ export function CallMode({
             {phone ? (
               <a
                 href={`tel:${phone.replace(/[^\d+]/g, "")}`}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-b from-[#3ce0cd] to-signal-strong px-3 py-2 text-sm font-semibold text-ink shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.3)] transition-all hover:shadow-[0_2px_14px_rgba(20,184,166,0.4)] active:translate-y-px"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-b from-signal-top to-signal-strong px-3 py-2 text-sm font-semibold text-ink shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.3)] transition-all hover:shadow-[0_2px_14px_rgba(20,184,166,0.4)] active:translate-y-px"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
