@@ -33,17 +33,26 @@ export type AutoDiscoverStatus = {
 // follows this order (a rough Southeast-first sweep up and across the country).
 type Anchor = { label: string; query: string };
 export const STATE_TOUR: Anchor[] = [
-  "Florida", "Georgia", "Alabama", "Mississippi", "Louisiana",
-  "South Carolina", "North Carolina", "Tennessee", "Arkansas", "Texas",
-  "Oklahoma", "Kentucky", "Virginia", "West Virginia", "Maryland",
-  "Delaware", "New Jersey", "Pennsylvania", "New York", "Connecticut",
-  "Rhode Island", "Massachusetts", "Vermont", "New Hampshire", "Maine",
-  "Ohio", "Michigan", "Indiana", "Illinois", "Wisconsin",
-  "Minnesota", "Iowa", "Missouri", "Kansas", "Nebraska",
-  "South Dakota", "North Dakota", "Montana", "Wyoming", "Colorado",
-  "New Mexico", "Arizona", "Utah", "Nevada", "Idaho",
-  "Washington", "Oregon", "California", "Alaska", "Hawaii",
-].map((name) => ({ label: name, query: `${name}, USA` }));
+  ...[
+    "Florida", "Georgia", "Alabama", "Mississippi", "Louisiana",
+    "South Carolina", "North Carolina", "Tennessee", "Arkansas", "Texas",
+    "Oklahoma", "Kentucky", "Virginia", "West Virginia", "Maryland",
+    "Delaware", "New Jersey", "Pennsylvania", "New York", "Connecticut",
+    "Rhode Island", "Massachusetts", "Vermont", "New Hampshire", "Maine",
+    "Ohio", "Michigan", "Indiana", "Illinois", "Wisconsin",
+    "Minnesota", "Iowa", "Missouri", "Kansas", "Nebraska",
+    "South Dakota", "North Dakota", "Montana", "Wyoming", "Colorado",
+    "New Mexico", "Arizona", "Utah", "Nevada", "Idaho",
+    "Washington", "Oregon", "California", "Alaska", "Hawaii",
+  ].map((name) => ({ label: name, query: `${name}, USA` })),
+  // Once the US sweep wraps, the radar rolls north into Canada, province by
+  // province, so the same engine keeps mining no-website businesses up there.
+  ...[
+    "Ontario", "Quebec", "British Columbia", "Alberta", "Manitoba",
+    "Saskatchewan", "Nova Scotia", "New Brunswick",
+    "Newfoundland and Labrador", "Prince Edward Island",
+  ].map((name) => ({ label: name, query: `${name}, Canada` })),
+];
 
 // The rotation of best-fit business types the engine sweeps through. Ordered
 // roughly by fit: home-service trades first (highest no-website rates + real
@@ -157,11 +166,11 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 // then follows the rest of the list in order. e.g. pick "Florida, USA" → the
 // sweep starts in Florida and rolls on to Georgia, Alabama, … from there.
 function buildStateTour(start: string): Anchor[] {
-  const startLabel = start.replace(/,\s*USA$/i, "").trim().toLowerCase();
+  const startLabel = start.replace(/,\s*(USA|Canada)$/i, "").trim().toLowerCase();
   const idx = STATE_TOUR.findIndex((s) => s.label.toLowerCase() === startLabel);
   if (idx < 0) {
     // Unknown label — just search it first, then the whole standard tour.
-    const first = { label: start.replace(/,\s*USA$/i, "").trim(), query: start };
+    const first = { label: start.replace(/,\s*(USA|Canada)$/i, "").trim(), query: start };
     return [first, ...STATE_TOUR];
   }
   return [...STATE_TOUR.slice(idx), ...STATE_TOUR.slice(0, idx)];

@@ -67,7 +67,7 @@ export function MonthlyTrendChart({
         <XAxis dataKey="label" tick={AXIS_TICK} axisLine={{ stroke: "#222c26" }} tickLine={false} />
         <YAxis tickFormatter={(v) => `$${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`} tick={AXIS_TICK} width={44} axisLine={false} tickLine={false} />
         <Tooltip formatter={(v: number) => formatMoney(v)} cursor={{ fill: "rgba(255,255,255,0.04)" }} contentStyle={TOOLTIP_STYLE} labelStyle={{ color: "#8a978f" }} />
-        <Bar dataKey="value" fill="#2dd4bf" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="value" fill="#f9531e" radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );

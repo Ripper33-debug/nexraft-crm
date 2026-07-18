@@ -29,7 +29,7 @@ export const Route = createFileRoute("/_app/")({
 
 // Tiny inline SVG sparkline — a filled area under a 30-point trend line. No
 // axes, no library; just a quick "which way is this heading" cue on a KPI.
-function Sparkline({ data, color = "#2dd4bf" }: { data: number[]; color?: string }) {
+function Sparkline({ data, color = "#f9531e" }: { data: number[]; color?: string }) {
   const w = 120;
   const h = 32;
   const pad = 2;

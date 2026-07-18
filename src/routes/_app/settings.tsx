@@ -1,14 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
 
 import { getGmailStatus } from "../../lib/crm/data";
 import { Card, PageHeader, Eyebrow, Pill } from "../../components/crm/ui";
-import {
-  type ThemePref,
-  getThemePref,
-  setThemePref,
-  watchSystemTheme,
-} from "../../lib/crm/theme";
 
 type GmailStatus = { configured: boolean; connected: boolean; email: string | null };
 
@@ -36,134 +29,6 @@ export const Route = createFileRoute("/_app/settings")({
   component: SettingsPage,
 });
 
-// Small preview chip for a theme option — a miniature of the app shell so the
-// choice is legible at a glance, not just a word.
-function ThemeSwatch({
-  bg,
-  card,
-  text,
-  accent,
-}: {
-  bg: string;
-  card: string;
-  text: string;
-  accent: string;
-}) {
-  return (
-    <span
-      className="flex h-9 w-12 shrink-0 flex-col justify-between overflow-hidden rounded-md border border-black/10 p-1 shadow-inner"
-      style={{ backgroundColor: bg }}
-      aria-hidden
-    >
-      <span className="flex items-center gap-0.5">
-        <span className="h-1 w-1 rounded-full" style={{ backgroundColor: accent }} />
-        <span className="h-1 w-4 rounded-full" style={{ backgroundColor: text, opacity: 0.7 }} />
-      </span>
-      <span
-        className="h-3 w-full rounded-sm"
-        style={{ backgroundColor: card, border: `1px solid ${accent}33` }}
-      />
-    </span>
-  );
-}
-
-const THEME_OPTIONS: {
-  value: ThemePref;
-  label: string;
-  hint: string;
-  swatch: { bg: string; card: string; text: string; accent: string };
-}[] = [
-  {
-    value: "daylight",
-    label: "Warm Paper",
-    hint: "Bright, warm — easy all day",
-    swatch: { bg: "#f3efe7", card: "#ffffff", text: "#1c211d", accent: "#0d6e66" },
-  },
-  {
-    value: "midnight",
-    label: "Dark",
-    hint: "Warm charcoal, easy at night",
-    swatch: { bg: "#100e0b", card: "#221e18", text: "#ece7dd", accent: "#3bb5a6" },
-  },
-  {
-    value: "system",
-    label: "System",
-    hint: "Match your device setting",
-    swatch: { bg: "#8a8378", card: "#cfc9bd", text: "#1c211d", accent: "#0d6e66" },
-  },
-];
-
-function AppearanceCard() {
-  // Preference is client-only (localStorage); hydrate after mount so SSR and the
-  // first client render agree, then reflect the blocking-script's choice.
-  const [pref, setPref] = useState<ThemePref>("daylight");
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    setPref(getThemePref());
-    setReady(true);
-    // Keep the shell in sync with the OS while "System" is selected.
-    return watchSystemTheme(() => getThemePref());
-  }, []);
-
-  function choose(next: ThemePref) {
-    setPref(next);
-    setThemePref(next); // applies data-theme + persists immediately
-  }
-
-  return (
-    <Card className="p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <Eyebrow className="mb-1">Appearance</Eyebrow>
-          <p className="text-sm leading-relaxed text-mute">
-            Choose how the CRM looks. <strong className="text-bone">Warm Paper</strong> is a bright,
-            warm light mode; <strong className="text-bone">Dark</strong> is its warm-charcoal
-            counterpart. Your choice is saved on this device and applies instantly.
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-2 border-t border-line pt-4 sm:grid-cols-3">
-        {THEME_OPTIONS.map((opt) => {
-          const active = ready && pref === opt.value;
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => choose(opt.value)}
-              aria-pressed={active}
-              className={
-                "flex items-center gap-3 rounded-xl border p-3 text-left transition-all duration-150 active:translate-y-px " +
-                (active
-                  ? "border-signal bg-signal-soft shadow-[0_0_0_1px_var(--color-signal)]"
-                  : "border-line bg-surface-2 hover:border-line-strong")
-              }
-            >
-              <ThemeSwatch {...opt.swatch} />
-              <span className="min-w-0">
-                <span className="flex items-center gap-1.5">
-                  <span className="text-sm font-semibold text-bone">{opt.label}</span>
-                  {active ? (
-                    <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 text-signal" fill="currentColor">
-                      <path
-                        fillRule="evenodd"
-                        d="M16.7 5.3a1 1 0 0 1 0 1.4l-7.5 7.5a1 1 0 0 1-1.4 0L3.3 9.7a1 1 0 1 1 1.4-1.4l3.3 3.3 6.8-6.8a1 1 0 0 1 1.4 0Z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                  ) : null}
-                </span>
-                <span className="mt-0.5 block truncate text-xs text-faint">{opt.hint}</span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </Card>
-  );
-}
-
 function SettingsPage() {
   const { gmail } = Route.useLoaderData();
   const { email: flag } = Route.useSearch();
@@ -183,8 +48,6 @@ function SettingsPage() {
       ) : null}
 
       <div className="mt-6 space-y-4">
-        <AppearanceCard />
-
         <Card className="p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">

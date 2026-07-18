@@ -11,8 +11,8 @@ export type ThemePref = "midnight" | "daylight" | "system";
 export type ResolvedTheme = "midnight" | "daylight";
 
 export const THEME_STORAGE_KEY = "nx-theme";
-// Warm Paper (light) is the primary product look; new users land here.
-export const DEFAULT_THEME_PREF: ThemePref = "daylight";
+// The app ships dark-only now — every preference resolves to the midnight skin.
+export const DEFAULT_THEME_PREF: ThemePref = "midnight";
 
 function isPref(v: unknown): v is ThemePref {
   return v === "midnight" || v === "daylight" || v === "system";
@@ -29,17 +29,15 @@ export function getThemePref(): ThemePref {
   }
 }
 
-/** What the OS currently prefers, mapped to our two skins. */
+/** Dark-only build: the app always resolves to the midnight skin. */
 export function systemTheme(): ResolvedTheme {
-  if (typeof window === "undefined" || !window.matchMedia) return "midnight";
-  return window.matchMedia("(prefers-color-scheme: light)").matches
-    ? "daylight"
-    : "midnight";
+  return "midnight";
 }
 
-/** Turn a preference into the concrete skin to apply. */
-export function resolveTheme(pref: ThemePref): ResolvedTheme {
-  return pref === "system" ? systemTheme() : pref;
+/** Turn a preference into the concrete skin to apply. Dark-only for now, so
+ * any saved preference (including a stale "daylight") resolves to midnight. */
+export function resolveTheme(_pref: ThemePref): ResolvedTheme {
+  return "midnight";
 }
 
 /** Apply a resolved skin to the document root (sets data-theme). */

@@ -1,12 +1,14 @@
 // Nexraft brand marks, rebuilt as crisp vectors so they scale perfectly and can
-// be recolored via CSS. Faithful to the uploaded logo: bold white wordmark on a
-// deep-green tile with a bright-green underline accent.
+// be recolored via CSS. Faithful to nexraft.com: a bone/cream "NEXRAFT."
+// wordmark whose trailing period is the signature red-orange dot — no tile, no
+// underline. The compact monogram carries the same bone "N" + orange dot.
 
-const TILE = "#0e1f17"; // deep green background
-const ACCENT = "#35df80"; // bright green underline
+const TILE = "#171512"; // warm near-black tile (matches --color-surface)
+const ACCENT = "#f9531e"; // Nexraft red-orange (the "." dot)
+const BONE = "#ece7dd"; // cream wordmark
 
-// Square monogram tile (sidebar, favicon, mobile bar): white "N" over the deep
-// green tile with the signature underline bar.
+// Square monogram tile (sidebar, favicon, mobile bar): bone "N" over the warm
+// near-black tile with the signature orange dot in the corner.
 export function LogoMark({ size = 32, radius = 8 }: { size?: number; radius?: number }) {
   return (
     <svg
@@ -20,26 +22,27 @@ export function LogoMark({ size = 32, radius = 8 }: { size?: number; radius?: nu
     >
       <rect width="64" height="64" rx={radius * (64 / size)} fill={TILE} />
       <path
-        d="M18 46V18h6.2l15.6 19.2V18H46v28h-6.2L24.2 26.8V46H18Z"
-        fill="#ffffff"
+        d="M16 47V17h6.4l16 19.8V17H45v30h-6.4L22.4 27.2V47H16Z"
+        fill={BONE}
       />
-      <rect x="18" y="49.5" width="28" height="4.5" rx="2.25" fill={ACCENT} />
+      <circle cx="47.5" cy="45.5" r="3.6" fill={ACCENT} />
     </svg>
   );
 }
 
-// Full wordmark for the auth screens: "NEXRAFT" on a tile with the underline.
+// Full wordmark for the auth screens: bone "NEXRAFT" with the orange period.
 export function FullLogo({ className = "" }: { className?: string }) {
   return (
-    <div
-      className={"inline-flex flex-col items-center rounded-2xl px-6 py-4 " + className}
-      style={{ backgroundColor: TILE }}
-    >
-      <span className="text-2xl font-extrabold tracking-[0.18em] text-white">NEXRAFT</span>
+    <div className={"inline-flex items-baseline " + className}>
       <span
-        className="mt-1.5 h-1 w-16 rounded-full"
-        style={{ backgroundColor: ACCENT }}
-      />
+        className="font-display text-3xl font-extrabold uppercase tracking-[0.16em]"
+        style={{ color: BONE }}
+      >
+        Nexraft
+      </span>
+      <span className="font-display text-3xl font-extrabold" style={{ color: ACCENT }}>
+        .
+      </span>
     </div>
   );
 }

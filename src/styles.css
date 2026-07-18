@@ -50,26 +50,26 @@
    * utilities; `font-mono` now resolves the eyebrow labels to IBM Plex Mono,
    * and the new `font-display` gives headings + KPI numbers real character. */
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
-  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-display: "Archivo", "Space Grotesk", "Inter", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* ---- Nexraft brand palette — Dark mode (warm charcoal + clay-teal) ----
-   * The default (no data-theme) is the warm dark counterpart to Warm Paper;
-   * both modes share one clay-teal accent so the product reads as a single
-   * identity in two skins. */
-  --color-ink: #14120e; /* app background base (warm near-black) */
-  --color-surface: #1b1813; /* cards, sidebar, modals */
-  --color-surface-2: #221e18; /* inputs, hover rows, raised chips */
-  --color-line: #2c2822; /* hairline borders (warm) */
-  --color-line-strong: #3a352d; /* stronger dividers */
-  --color-bone: #ece7dd; /* primary text (warm off-white) */
+  /* ---- Nexraft brand palette — Dark mode (near-black + signal orange) ----
+   * Matched to nexraft.com: a warm near-black canvas, bone/cream type, and a
+   * single punchy red-orange accent. Both light and dark skins share that one
+   * orange so the product reads as the same identity as the marketing site. */
+  --color-ink: #0e0d0b; /* app background base (warm near-black) */
+  --color-surface: #171512; /* cards, sidebar, modals */
+  --color-surface-2: #201d18; /* inputs, hover rows, raised chips */
+  --color-line: #2a2620; /* hairline borders (warm) */
+  --color-line-strong: #39342b; /* stronger dividers */
+  --color-bone: #ece7dd; /* primary text (warm off-white / cream) */
   --color-mute: #a29a8d; /* secondary text */
   --color-faint: #6f675c; /* tertiary / placeholders */
-  --color-signal: #3bb5a6; /* clay-teal accent (dark-mode brightness) */
-  --color-signal-strong: #2f9689; /* accent hover / pressed */
-  --color-signal-soft: #123230; /* tinted accent background */
-  --color-sunk: #100e0a; /* deepest recess */
-  --color-signal-top: #4cc7b8; /* light top-stop for any residual gradient */
+  --color-signal: #f9531e; /* Nexraft red-orange accent */
+  --color-signal-strong: #e23f11; /* accent hover / pressed */
+  --color-signal-soft: #2a1710; /* tinted accent background (dark) */
+  --color-sunk: #090806; /* deepest recess */
+  --color-signal-top: #ff7a45; /* light top-stop for any residual gradient */
 }
 
 @theme inline {
@@ -123,38 +123,17 @@
 
   /* ---- Themeable app-shell surfaces (warm Dark is the default) ---- */
   color-scheme: dark;
-  --nx-body-bg: #100e0b;
-  /* Restrained warm glow — a whisper of depth, not an aurora. */
+  --nx-body-bg: #0b0a08;
+  /* Restrained warm glow — a whisper of orange depth, not an aurora. */
   --nx-body-glow:
-    radial-gradient(1000px 560px at 84% -12%, rgba(59, 181, 166, 0.05), transparent 60%),
-    radial-gradient(900px 520px at -6% 4%, rgba(150, 110, 60, 0.03), transparent 60%);
+    radial-gradient(1000px 560px at 84% -12%, rgba(249, 83, 30, 0.06), transparent 60%),
+    radial-gradient(900px 520px at -6% 4%, rgba(150, 90, 50, 0.03), transparent 60%);
+  /* Fine film grain — echoes the noise texture on nexraft.com's hero. */
+  --nx-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
 }
 
-/* ---- Daylight = Warm Paper: bright, warm light mode sharing the clay-teal
- * accent. Overriding the --color-* tokens here (higher specificity than
- * @theme's :root, and unlayered so it beats @layer theme) re-skins every
- * bg-ink / text-bone / bg-signal-soft utility at runtime with no rebuild.
- * The accent flips DEEP so white text on it stays readable in light mode. */
-:root[data-theme="daylight"] {
-  color-scheme: light;
-  --color-ink: #f3efe7; /* app background (warm paper) */
-  --color-surface: #ffffff; /* cards, sidebar, modals */
-  --color-surface-2: #f5f1e9; /* inputs, hover rows, raised chips */
-  --color-line: #e6e0d3; /* hairline borders */
-  --color-line-strong: #d8d1c1; /* stronger dividers */
-  --color-bone: #1c211d; /* primary text (near-black) */
-  --color-mute: #5c655e; /* secondary text */
-  --color-faint: #98a096; /* tertiary / placeholders */
-  --color-signal: #0d6e66; /* deep clay-teal accent */
-  --color-signal-strong: #0a5852; /* accent hover / pressed */
-  --color-signal-soft: #dcece8; /* tinted accent background */
-  --color-sunk: #efeadf; /* lightest recess */
-  --color-signal-top: #0d6e66; /* accent stays solid-deep */
-
-  --nx-body-bg: #f3efe7;
-  --nx-body-glow:
-    radial-gradient(1000px 560px at 84% -12%, rgba(13, 110, 102, 0.05), transparent 62%);
-}
+/* The app is dark-only. The former "Warm Paper" light skin has been retired so
+ * the product always matches nexraft.com's near-black canvas. */
 
 @layer base {
   html {
@@ -165,10 +144,12 @@
   body {
     min-height: 100vh;
     background-color: var(--nx-body-bg);
-    /* Layered aurora glow — gives the flat app real atmospheric depth. */
-    background-image: var(--nx-body-glow);
+    /* Fine film grain (top layer) over the warm aurora glow — echoes the noise
+     * texture on nexraft.com's near-black hero. Both are backgrounds, so they
+     * always sit behind content and never touch legibility or clicks. */
+    background-image: var(--nx-grain, none), var(--nx-body-glow);
     background-attachment: fixed;
-    background-repeat: no-repeat;
+    background-repeat: repeat, no-repeat;
     color: var(--color-bone);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
@@ -182,13 +163,15 @@
     border-color: var(--color-line);
   }
 
-  /* Real type hierarchy: Space Grotesk gives headings a tighter, more
-   * deliberate feel than the body Inter — the "designed by a person" cue. */
+  /* Real type hierarchy: Archivo gives headings the heavier, wider grotesque
+   * "poster" feel from nexraft.com; tighter tracking + weight reads deliberate
+   * rather than the generic OS default. */
   h1,
   h2,
   h3 {
     font-family: var(--font-display);
-    letter-spacing: -0.01em;
+    font-weight: 700;
+    letter-spacing: -0.015em;
   }
 
   ::selection {

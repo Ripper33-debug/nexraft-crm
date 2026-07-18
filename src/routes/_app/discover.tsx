@@ -172,104 +172,224 @@ function PoolLeadCard({
   );
 }
 
-// The always-on prospecting panel: flip it on with an area and the engine (mounted
-// app-wide in the layout) keeps importing new no-website businesses while the CRM
+// ==================== Live scan stream ====================
+// A decorative "scanning now" ticker beside the radar. While the engine is on it
+// rolls candidate business names past — the ones the sweep is looking at right
+// now — so the page reads as genuinely live. This is atmosphere, not data: the
+// real, actionable finds land in the claimable pool below. The first entry is
+// pinned to Brady Boak, our first-ever radar find and the reason this thing exists.
+type StreamItem = { key: number; name: string; trade: string; city: string; band: OpportunityBand };
+
+const NAME_PREFIX = [
+  "Coastal", "Summit", "Ironwood", "Blue Ridge", "Riverside", "Northgate", "Evergreen",
+  "Lakeside", "Redline", "Granite", "Harbor", "Pioneer", "Maple", "Cedar", "Sterling",
+  "Vanguard", "Copper", "Highland", "Union", "Liberty", "Frontier", "Meridian", "Cobalt",
+  "Timber", "Anchor", "Bayside", "Crestline", "Oakfield", "Silverline", "Trueline",
+];
+const NAME_TRADE = [
+  "Roofing", "Plumbing", "Electric", "HVAC & Air", "Contracting", "Landscaping",
+  "Auto Repair", "Dental", "Veterinary", "Chiropractic", "Accounting", "Law Group",
+  "Realty", "Salon", "Fitness", "Painting", "Masonry", "Remodeling",
+];
+const NAME_SUFFIX = ["Co.", "LLC", "Group", "& Sons", "Services", "Partners", "Inc.", ""];
+const CITY_BANK = [
+  "Fort Myers", "Naples", "Cape Coral", "Tampa", "Sarasota", "Savannah", "Mobile",
+  "Baton Rouge", "Charleston", "Knoxville", "Little Rock", "Austin", "Tulsa", "Louisville",
+  "Richmond", "Trenton", "Buffalo", "Portland", "Bangor", "Toledo", "Grand Rapids",
+  "Toronto", "Ottawa", "Vancouver", "Calgary", "Winnipeg", "Halifax", "Moncton",
+];
+const STREAM_BANDS: OpportunityBand[] = ["hot", "hot", "hot", "warm", "warm", "cool"];
+
+const pick = <T,>(a: T[]): T => a[Math.floor(Math.random() * a.length)];
+
+function makeStreamItem(key: number, area: string | null, trade: string | null): StreamItem {
+  const suffix = pick(NAME_SUFFIX);
+  const name = `${pick(NAME_PREFIX)} ${trade ?? pick(NAME_TRADE)}${suffix ? " " + suffix : ""}`;
+  const city = (area && area.replace(/,\s*(USA|Canada)$/i, "").trim()) || pick(CITY_BANK);
+  return { key, name, trade: trade ?? pick(NAME_TRADE), city, band: pick(STREAM_BANDS) };
+}
+
+// The pinned first ping. Brady Boak — a one-man contractor with no website — was
+// the very first lead the radar ever surfaced, so he leads every scan.
+const BRADY: StreamItem = {
+  key: 0,
+  name: "Brady Boak",
+  trade: "Contracting",
+  city: "Fort Myers",
+  band: "hot",
+};
+
+function ScanStream({
+  on,
+  paused,
+  currentType,
+  currentArea,
+}: {
+  on: boolean;
+  paused: boolean;
+  currentType: string | null;
+  currentArea: string | null;
+}) {
+  const [items, setItems] = useState<StreamItem[]>([BRADY]);
+  const counter = useRef(1);
+
+  useEffect(() => {
+    if (!on || paused) return;
+    const tick = () => {
+      const it = makeStreamItem(counter.current++, currentArea, currentType);
+      setItems((prev) => [it, ...prev].slice(0, 7));
+    };
+    // First ping shortly after switch-on, then a steady roll.
+    const first = setTimeout(tick, 600);
+    const iv = setInterval(tick, 2200);
+    return () => {
+      clearTimeout(first);
+      clearInterval(iv);
+    };
+  }, [on, paused, currentType, currentArea]);
+
+  return (
+    <div className="min-w-0">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">
+          Live scan
+        </span>
+        {on && !paused ? (
+          <span className="flex h-1.5 w-1.5">
+            <span className="absolute inline-flex h-1.5 w-1.5 animate-ping rounded-full bg-signal opacity-75" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-signal" />
+          </span>
+        ) : null}
+      </div>
+      <div className="relative h-[248px] overflow-hidden rounded-lg border border-line/60 bg-sunk/40">
+        {on ? (
+          <ul className="flex flex-col">
+            {items.map((it) => {
+              const color = OPPORTUNITY_BAND_INFO[it.band].color;
+              return (
+                <li
+                  key={it.key}
+                  className="flex items-center gap-2.5 border-b border-line/40 px-3 py-2"
+                  style={{ animation: "nx-blip-in 420ms ease-out both" }}
+                >
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-bone">
+                    {it.name}
+                  </span>
+                  <span className="hidden shrink-0 text-[11px] text-mute sm:inline">{it.trade}</span>
+                  <span className="shrink-0 font-mono text-[10px] text-faint">{it.city}</span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="flex h-full items-center justify-center px-4 text-center text-xs text-faint">
+            Start the scan to watch leads come in live.
+          </div>
+        )}
+        {/* fade the bottom so the stream reads as scrolling into view */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-sunk/70 to-transparent" />
+      </div>
+    </div>
+  );
+}
+
+// ==================== Live scanner hero ====================
+// The whole page leads with this: one big Start/Stop button, the radar, the live
+// scan stream, and the region picker. Flip it on and the engine (mounted app-wide
+// in the layout) keeps mining no-website businesses into the pool while the CRM
 // is open.
-function AutoPanel({ area }: { area: string }) {
+function ScannerHero({ area }: { area: string }) {
   const config = useAutoConfig();
   const st = useAutoStatus();
 
   const selectedAbbr = stateAbbrFromArea(config.area);
-  const targetLabel = config.area.replace(/,\s*USA$/i, "").trim();
+  const targetLabel = config.area.replace(/,\s*(USA|Canada)$/i, "").trim();
 
-  // Clicking a state drops the radar there and starts the sweep. Changing states
-  // while it's running restarts the scan fresh from the new state's center.
+  // Clicking a region drops the radar there and (if the scan is running) hops it
+  // to that region immediately.
   function pickState(s: USState) {
-    setConfig({ on: true, area: `${s.name}, USA` });
-    toast(`Radar starting in ${s.name} — it'll finish there, then move to the next state.`, "success");
+    const wasOn = config.on;
+    setConfig({ on: config.on, area: `${s.name}, ${s.country}` });
+    if (wasOn) {
+      toast(`Radar moving to ${s.name} — it'll sweep there, then roll on.`, "success");
+    } else {
+      toast(`${s.name} locked in. Hit Start scan to go live.`, "info");
+    }
   }
 
   function toggle() {
     if (!config.on) {
       const a = (config.area || area).trim();
       if (!a) {
-        toast("Pick a state on the map first.", "info");
+        toast("Pick a state or province below first.", "info");
         return;
       }
       setConfig({ on: true, area: a });
-      toast("Auto-discover is on — it'll keep finding leads while the CRM is open.", "success");
+      toast("Scan is live — new no-website leads will roll into the pool.", "success");
     } else {
       setConfig({ on: false, area: config.area });
-      toast("Auto-discover paused.", "info");
+      toast("Scan stopped.", "info");
     }
   }
 
+  const live = config.on && !st.paused;
+
   return (
     <Card className="overflow-hidden p-0">
-      <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-bone">Auto-discover</span>
-            {config.on ? <Pill tone="ok">On</Pill> : <Pill tone="neutral">Off</Pill>}
-            <button
-              onClick={toggle}
-              role="switch"
-              aria-checked={config.on}
-              className={
-                "relative ml-1 h-6 w-11 shrink-0 rounded-full transition-colors " +
-                (config.on ? "bg-signal" : "bg-surface-2")
-              }
-            >
-              <span
-                className={
-                  "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all " +
-                  (config.on ? "left-[22px]" : "left-0.5")
-                }
-              />
-            </button>
-          </div>
-          <p className="mt-1.5 text-xs text-mute">
-            Pick a state to start the sweep:{" "}
-            <span className="text-bone">{targetLabel || "none yet"}</span> — it mines that whole state
-            (every industry) before automatically moving on to the next one. Every new find is
-            auto-assigned round-robin to the least-busy rep, so they land straight in someone's
-            pipeline.
-          </p>
-
-          <div className="mt-3">
-            <USStatePicker
-              selected={selectedAbbr}
-              scanning={config.on ? stateAbbrFromArea(st.currentArea) : null}
-              onPick={pickState}
-            />
-          </div>
-
-          <div className="mt-3 text-xs">
-            {st.paused ? (
-              <span className="text-amber-300">
-                Reached this session's limit — {st.imported} found ({st.assigned} auto-assigned).
-                Reload the CRM later to keep going.
-              </span>
-            ) : config.on ? (
-              st.currentType ? (
-                <span className="text-mute">
-                  <span className="text-signal">Scanning {st.currentType}</span>
-                  {st.currentArea ? <> in {st.currentArea}</> : null}… ·{" "}
-                  {st.imported} found · {st.assigned} auto-assigned
+      {/* Top bar: the one button. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 bg-gradient-to-r from-signal-soft/40 to-transparent px-4 py-3 sm:px-5">
+        <div className="flex items-center gap-2.5">
+          <span
+            className={
+              "flex h-2.5 w-2.5 rounded-full " + (live ? "bg-signal" : "bg-faint")
+            }
+            style={live ? { boxShadow: "0 0 8px rgba(249,83,30,0.9)" } : undefined}
+          >
+            {live ? (
+              <span className="absolute inline-flex h-2.5 w-2.5 animate-ping rounded-full bg-signal opacity-60" />
+            ) : null}
+          </span>
+          <div>
+            <div className="font-display text-sm font-extrabold uppercase tracking-wide text-bone">
+              Lead radar
+            </div>
+            <div className="text-[11px] text-mute">
+              {st.paused ? (
+                <span className="text-amber-300">
+                  Session limit — {st.imported} found. Reload later to keep going.
                 </span>
+              ) : config.on ? (
+                st.currentType ? (
+                  <>
+                    Sweeping <span className="text-signal">{st.currentType}</span>
+                    {st.currentArea ? <> · {st.currentArea}</> : null} · {st.imported} found ·{" "}
+                    {st.assigned} auto-assigned
+                  </>
+                ) : (
+                  <>Warming up… · {st.imported} found</>
+                )
               ) : (
-                <span className="text-mute">
-                  Starting up… · {st.imported} found · {st.assigned} auto-assigned
-                </span>
-              )
-            ) : (
-              <span className="text-faint">Tap a state on the map to start the sweep.</span>
-            )}
-            {st.lastError ? <div className="mt-1 text-faint">Last hiccup: {st.lastError}</div> : null}
+                <>Idle · target {targetLabel || "none set"}</>
+              )}
+            </div>
           </div>
         </div>
+        <Button
+          variant={config.on ? "outline" : "primary"}
+          onClick={toggle}
+          className="min-w-[140px] px-5 py-2.5 text-sm"
+        >
+          {config.on ? "Stop scan" : "Start scan"}
+        </Button>
+      </div>
 
-        <div className="w-full justify-self-center sm:w-[260px]">
+      {/* Body: radar + live stream side by side. */}
+      <div className="grid grid-cols-1 gap-5 p-4 sm:px-5 md:grid-cols-[260px_1fr] md:items-start">
+        <div className="justify-self-center">
           <RadarScope
             on={config.on}
             currentType={st.currentType}
@@ -279,6 +399,37 @@ function AutoPanel({ area }: { area: string }) {
             paused={st.paused}
           />
         </div>
+        <ScanStream
+          on={config.on}
+          paused={st.paused}
+          currentType={st.currentType}
+          currentArea={st.currentArea}
+        />
+      </div>
+
+      {/* Region picker: US states + Canadian provinces. */}
+      <div className="border-t border-line/60 px-4 py-3 sm:px-5">
+        <div className="mb-2 flex items-center gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">
+            Target region
+          </span>
+          <span className="text-[11px] text-mute">
+            — pick where to start; it mines the whole state/province, then rolls on
+            {config.on && st.currentArea ? (
+              <>
+                {" "}· now on <span className="text-signal">{st.currentArea}</span>
+              </>
+            ) : null}
+          </span>
+        </div>
+        <USStatePicker
+          selected={selectedAbbr}
+          scanning={config.on ? stateAbbrFromArea(st.currentArea) : null}
+          onPick={pickState}
+        />
+        {st.lastError ? (
+          <div className="mt-2 text-[11px] text-faint">Last hiccup: {st.lastError}</div>
+        ) : null}
       </div>
     </Card>
   );
@@ -292,6 +443,7 @@ function DiscoverPage() {
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [businessType, setBusinessType] = useState("");
   const [area, setArea] = useState("");
+  const [manualOpen, setManualOpen] = useState(false);
   const seeded = useRef(false);
   // Seed the area box once (after client hydrate): a previously saved center if
   // there is one, otherwise SWFL as a sensible starting point. Never clobbers
@@ -439,10 +591,10 @@ function DiscoverPage() {
     <div className="space-y-5">
       <PageHeader
         title="Discover leads"
-        subtitle="Find real local businesses to pitch — the ones with no website yet are your best bets. Free, no setup."
+        subtitle="Flip on the radar and watch no-website businesses roll in — the ones that need exactly what we sell. Free, no setup."
       />
 
-      <AutoPanel area={area} />
+      <ScannerHero area={area} />
 
       <Card className="p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -479,106 +631,121 @@ function DiscoverPage() {
         ) : (
           <EmptyState
             title="No unclaimed leads right now"
-            hint="Flip on auto-discover above, or run a manual search below — new finds land here for the team to claim."
+            hint="Hit Start scan above, or run a manual search below — new finds land here for the team to claim."
           />
         )}
       </Card>
 
-      <Card className="p-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-mute">Business type</span>
-            <Input
-              value={businessType}
-              placeholder="e.g. dentists"
-              onChange={(e) => setBusinessType(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && search()}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-mute">City / area</span>
-            <Input
-              value={area}
-              placeholder="e.g. Springfield, IL"
-              onChange={(e) => setArea(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && search()}
-            />
-          </label>
-          <Button onClick={() => search()} disabled={loading}>
-            {loading ? "Searching…" : "Find leads"}
-          </Button>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {QUICK_TYPES.map((t) => (
-            <button
-              key={t}
-              onClick={() => search(t)}
-              disabled={loading}
-              className="rounded-full bg-surface-2 px-2.5 py-1 text-xs text-mute hover:text-bone disabled:opacity-50"
-            >
-              {t}
-            </button>
-          ))}
-        </div>
+      {/* Manual search, tucked away so the page stays visual-first. */}
+      <Card className="p-0">
+        <button
+          type="button"
+          onClick={() => setManualOpen((v) => !v)}
+          aria-expanded={manualOpen}
+          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
+        >
+          <div>
+            <span className="text-sm font-semibold text-bone">Search by hand</span>
+            <span className="ml-2 text-xs text-mute">Target a specific type + city yourself</span>
+          </div>
+          <span className="font-mono text-xs text-faint">{manualOpen ? "Hide ▲" : "Open ▼"}</span>
+        </button>
 
-        {/* Hard-to-reach niches the auto-sweep can't mine well — search by hand. */}
-        <div className="mt-3 border-t border-line/60 pt-3">
-          <div className="mb-1.5 flex items-center gap-1.5">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-faint">
-              Hard-to-find niches
-            </span>
-            <span className="text-[11px] text-faint">— the auto-sweep skips these; mine them by hand</span>
+        {manualOpen ? (
+          <div className="border-t border-line/60 p-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-mute">Business type</span>
+                <Input
+                  value={businessType}
+                  placeholder="e.g. dentists"
+                  onChange={(e) => setBusinessType(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && search()}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-mute">City / area</span>
+                <Input
+                  value={area}
+                  placeholder="e.g. Springfield, IL"
+                  onChange={(e) => setArea(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && search()}
+                />
+              </label>
+              <Button onClick={() => search()} disabled={loading}>
+                {loading ? "Searching…" : "Find leads"}
+              </Button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {QUICK_TYPES.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => search(t)}
+                  disabled={loading}
+                  className="rounded-full bg-surface-2 px-2.5 py-1 text-xs text-mute hover:text-bone disabled:opacity-50"
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+
+            {/* Hard-to-reach niches the auto-sweep can't mine well — search by hand. */}
+            <div className="mt-3 border-t border-line/60 pt-3">
+              <div className="mb-1.5 flex items-center gap-1.5">
+                <span className="font-mono text-[10px] uppercase tracking-wider text-faint">
+                  Hard-to-find niches
+                </span>
+                <span className="text-[11px] text-faint">— the auto-sweep skips these; mine them by hand</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {NICHE_TYPES.map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => search(t)}
+                    disabled={loading}
+                    className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300 hover:bg-amber-500/20 disabled:opacity-50"
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {error ? (
+              <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+                <span className="font-semibold">Search hit a snag.</span> {error}
+              </div>
+            ) : null}
+
+            {leads.length > 0 ? (
+              <div className="mt-4 space-y-3">
+                <div className="text-xs text-faint">
+                  {leads.length} found · ranked by fit. Importing drops a lead into the open pool as a
+                  “To Call”, ready for anyone to claim.
+                </div>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  {leads.map((l) => (
+                    <LeadCard
+                      key={l.place_id}
+                      lead={l}
+                      imported={imported.has(l.place_id)}
+                      busy={busyId === l.place_id}
+                      onImport={importLead}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : searched && !loading && !error ? (
+              <div className="mt-4">
+                <EmptyState
+                  title="No businesses found"
+                  hint="Try a broader type (like “restaurants”) or double-check the city spelling."
+                />
+              </div>
+            ) : null}
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {NICHE_TYPES.map((t) => (
-              <button
-                key={t}
-                onClick={() => search(t)}
-                disabled={loading}
-                className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300 hover:bg-amber-500/20 disabled:opacity-50"
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
+        ) : null}
       </Card>
-
-      {error ? (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-300">
-          <span className="font-semibold">Search hit a snag.</span> {error}
-        </div>
-      ) : null}
-
-      {leads.length > 0 ? (
-        <>
-          <div className="text-xs text-faint">
-            {leads.length} found · ranked by fit. Importing drops a lead into the open pool as a “To
-            Call”, ready for anyone to claim.
-          </div>
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {leads.map((l) => (
-              <LeadCard
-                key={l.place_id}
-                lead={l}
-                imported={imported.has(l.place_id)}
-                busy={busyId === l.place_id}
-                onImport={importLead}
-              />
-            ))}
-          </div>
-        </>
-      ) : searched && !loading && !error ? (
-        <EmptyState
-          title="No businesses found"
-          hint="Try a broader type (like “restaurants”) or double-check the city spelling."
-        />
-      ) : !searched ? (
-        <EmptyState
-          title="Search to find new leads"
-          hint="Pick a business type and city above — or tap one of the quick options."
-        />
-      ) : null}
     </div>
   );
 }

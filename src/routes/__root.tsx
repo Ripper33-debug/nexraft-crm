@@ -75,7 +75,7 @@ function buildHead(meta: AppMeta) {
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" as const },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap",
       },
       { rel: "stylesheet", href: appCss },
       // Custom favicon override wins; otherwise fall back to the bundled brand mark.
@@ -144,13 +144,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   errorComponent: ErrorComponent,
 });
 
-// Runs before first paint so the saved theme is applied with no flash. Mirrors
-// the logic in src/lib/crm/theme.ts (kept inline + dependency-free on purpose).
-const THEME_INIT_SCRIPT = `(function(){try{var p=localStorage.getItem('nx-theme')||'daylight';var t=p;if(p==='system'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'daylight':'midnight';}document.documentElement.setAttribute('data-theme',t==='daylight'?'daylight':'midnight');}catch(e){}})();`;
+// The app ships dark-only now, so pin the shell to the midnight skin before
+// first paint (and clear any stale saved preference from earlier builds).
+const THEME_INIT_SCRIPT = `(function(){try{localStorage.removeItem('nx-theme');}catch(e){}document.documentElement.setAttribute('data-theme','midnight');})();`;
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" data-theme="daylight">
+    <html lang="en" data-theme="midnight">
       <head>
         <HeadContent />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />

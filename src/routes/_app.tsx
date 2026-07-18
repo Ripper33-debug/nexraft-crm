@@ -26,7 +26,7 @@ function RouteProgress() {
           "h-full bg-signal transition-all duration-300 ease-out " +
           (show ? "w-2/3 opacity-100" : "w-full opacity-0")
         }
-        style={{ boxShadow: "0 0 8px rgba(45,212,191,0.6)" }}
+        style={{ boxShadow: "0 0 8px rgba(249,83,30,0.6)" }}
       />
     </div>
   );
@@ -157,12 +157,12 @@ function NavLink({
       className={
         "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150 md:py-2 " +
         (active
-          ? "bg-gradient-to-r from-signal-soft to-signal-soft/30 text-signal shadow-[inset_0_0_0_1px_rgba(45,212,191,0.15)]"
+          ? "bg-gradient-to-r from-signal-soft to-signal-soft/30 text-signal shadow-[inset_0_0_0_1px_rgba(249,83,30,0.18)]"
           : "text-mute hover:bg-surface-2 hover:text-bone")
       }
     >
       {active ? (
-        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-signal shadow-[0_0_8px_rgba(45,212,191,0.7)]" />
+        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-signal shadow-[0_0_8px_rgba(249,83,30,0.7)]" />
       ) : null}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d={item.icon} />

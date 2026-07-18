@@ -5,11 +5,18 @@
 
 import { useEffect, useState } from "react";
 
-export type USState = { abbr: string; name: string };
+// "USState" is a slight misnomer now — the picker also covers Canadian
+// provinces. Each entry carries the country so callers can build the right
+// area query ("Florida, USA" vs "Ontario, Canada").
+export type USState = { abbr: string; name: string; country: "USA" | "Canada" };
 
 type Region = { name: string; states: USState[] };
 
-const S = (abbr: string, name: string): USState => ({ abbr, name });
+const S = (abbr: string, name: string, country: "USA" | "Canada" = "USA"): USState => ({
+  abbr,
+  name,
+  country,
+});
 
 // Roughly ordered to follow the sweep (Southeast first, since that's where the
 // tour begins). Every state + DC appears exactly once.
@@ -95,6 +102,23 @@ export const US_REGIONS: Region[] = [
   {
     name: "Non-contiguous",
     states: [S("AK", "Alaska"), S("HI", "Hawaii")],
+  },
+  // Once the US sweep wraps, the radar rolls north into Canada, province by
+  // province — same engine, same no-website prospecting, just up north.
+  {
+    name: "Canada",
+    states: [
+      S("ON", "Ontario", "Canada"),
+      S("QC", "Quebec", "Canada"),
+      S("BC", "British Columbia", "Canada"),
+      S("AB", "Alberta", "Canada"),
+      S("MB", "Manitoba", "Canada"),
+      S("SK", "Saskatchewan", "Canada"),
+      S("NS", "Nova Scotia", "Canada"),
+      S("NB", "New Brunswick", "Canada"),
+      S("NL", "Newfoundland and Labrador", "Canada"),
+      S("PE", "Prince Edward Island", "Canada"),
+    ],
   },
 ];
 
@@ -188,7 +212,7 @@ export function USStatePicker({
               className={
                 "relative inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors " +
                 (isSel
-                  ? "border-signal bg-signal text-black shadow-[0_0_10px_rgba(45,212,191,0.5)]"
+                  ? "border-signal bg-signal text-black shadow-[0_0_10px_rgba(249,83,30,0.5)]"
                   : "border-white/5 bg-surface-2 text-bone hover:border-signal/50 hover:bg-surface-3") +
                 (isScan && !isSel ? " border-signal/80 ring-1 ring-signal/60" : "")
               }

@@ -44,8 +44,8 @@ export function RadarScope({
         className="relative aspect-square w-full max-w-[260px] rounded-full border border-signal/25"
         style={{
           background:
-            "radial-gradient(circle at center, rgba(45,212,191,0.08), rgba(11,16,13,0.9) 72%)",
-          boxShadow: "inset 0 0 40px rgba(45,212,191,0.08)",
+            "radial-gradient(circle at center, rgba(249,83,30,0.08), rgba(11,10,8,0.9) 72%)",
+          boxShadow: "inset 0 0 40px rgba(249,83,30,0.08)",
         }}
       >
         {/* concentric range rings */}
@@ -66,8 +66,8 @@ export function RadarScope({
           style={{
             width: `${ringPct}%`,
             height: `${ringPct}%`,
-            borderColor: "rgba(45,212,191,0.55)",
-            boxShadow: on ? "0 0 12px rgba(45,212,191,0.25)" : "none",
+            borderColor: "rgba(249,83,30,0.55)",
+            boxShadow: on ? "0 0 12px rgba(249,83,30,0.25)" : "none",
           }}
         />
 
@@ -77,7 +77,7 @@ export function RadarScope({
             className="absolute inset-0 rounded-full"
             style={{
               background:
-                "conic-gradient(from 0deg, rgba(45,212,191,0) 0deg, rgba(45,212,191,0) 288deg, rgba(45,212,191,0.05) 320deg, rgba(45,212,191,0.35) 356deg, rgba(45,212,191,0.7) 360deg)",
+                "conic-gradient(from 0deg, rgba(249,83,30,0) 0deg, rgba(249,83,30,0) 288deg, rgba(249,83,30,0.05) 320deg, rgba(249,83,30,0.35) 356deg, rgba(249,83,30,0.7) 360deg)",
               animation: "nx-radar-spin 4s linear infinite",
               maskImage: "radial-gradient(circle at center, #000 99%, transparent 100%)",
               WebkitMaskImage: "radial-gradient(circle at center, #000 99%, transparent 100%)",
@@ -101,7 +101,7 @@ export function RadarScope({
               <div
                 className="h-1.5 w-1.5 rounded-full bg-signal"
                 style={{
-                  boxShadow: "0 0 6px rgba(45,212,191,0.9)",
+                  boxShadow: "0 0 6px rgba(249,83,30,0.9)",
                   animation: "nx-blip-in 500ms ease-out both",
                 }}
               />
@@ -113,7 +113,7 @@ export function RadarScope({
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
           <div
             className="h-2 w-2 rounded-full bg-signal"
-            style={{ boxShadow: "0 0 8px rgba(45,212,191,0.9)" }}
+            style={{ boxShadow: "0 0 8px rgba(249,83,30,0.9)" }}
           />
         </div>
 

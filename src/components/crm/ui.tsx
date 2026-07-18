@@ -144,7 +144,7 @@ export function PageHeader({
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="font-display text-[1.35rem] font-semibold tracking-tight text-bone">{title}</h1>
+        <h1 className="font-display text-[1.4rem] font-extrabold uppercase tracking-[0.005em] text-bone">{title}</h1>
         {subtitle ? <p className="mt-1 text-sm text-mute">{subtitle}</p> : null}
       </div>
       {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
@@ -171,7 +171,7 @@ export function SummaryCard({
       className={cx(
         "group relative overflow-hidden rounded-xl border p-4 transition-all duration-200 hover:-translate-y-0.5",
         accent
-          ? "border-signal/25 bg-gradient-to-br from-signal-soft/50 via-surface to-surface shadow-[0_8px_30px_-18px_rgba(20,184,166,0.6)] hover:shadow-[0_14px_36px_-16px_rgba(20,184,166,0.7)]"
+          ? "border-signal/25 bg-gradient-to-br from-signal-soft/50 via-surface to-surface shadow-[0_8px_30px_-18px_rgba(249,83,30,0.6)] hover:shadow-[0_14px_36px_-16px_rgba(249,83,30,0.7)]"
           : "border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.3)] hover:border-line-strong hover:shadow-[0_12px_30px_-16px_rgba(0,0,0,0.7)]",
       )}
     >
