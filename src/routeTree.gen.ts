@@ -15,6 +15,7 @@ import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppTodayRouteImport } from './routes/_app/today'
 import { Route as AppTeamRouteImport } from './routes/_app/team'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
@@ -62,6 +63,11 @@ const AppRoute = AppRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTodayRoute = AppTodayRouteImport.update({
+  id: '/today',
+  path: '/today',
   getParentRoute: () => AppRoute,
 } as any)
 const AppTeamRoute = AppTeamRouteImport.update({
@@ -179,6 +185,7 @@ export interface FileRoutesByFullPath {
   '/reports': typeof AppReportsRoute
   '/settings': typeof AppSettingsRoute
   '/team': typeof AppTeamRoute
+  '/today': typeof AppTodayRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
@@ -204,6 +211,7 @@ export interface FileRoutesByTo {
   '/reports': typeof AppReportsRoute
   '/settings': typeof AppSettingsRoute
   '/team': typeof AppTeamRoute
+  '/today': typeof AppTodayRoute
   '/': typeof AppIndexRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
@@ -232,6 +240,7 @@ export interface FileRoutesById {
   '/_app/reports': typeof AppReportsRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/team': typeof AppTeamRoute
+  '/_app/today': typeof AppTodayRoute
   '/_app/': typeof AppIndexRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
@@ -261,6 +270,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/team'
+    | '/today'
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/signup'
@@ -286,6 +296,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/team'
+    | '/today'
     | '/'
     | '/api/auth/login'
     | '/api/auth/logout'
@@ -313,6 +324,7 @@ export interface FileRouteTypes {
     | '/_app/reports'
     | '/_app/settings'
     | '/_app/team'
+    | '/_app/today'
     | '/_app/'
     | '/api/auth/login'
     | '/api/auth/logout'
@@ -378,6 +390,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/today': {
+      id: '/_app/today'
+      path: '/today'
+      fullPath: '/today'
+      preLoaderRoute: typeof AppTodayRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/team': {
@@ -530,6 +549,7 @@ interface AppRouteChildren {
   AppReportsRoute: typeof AppReportsRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppTeamRoute: typeof AppTeamRoute
+  AppTodayRoute: typeof AppTodayRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -547,6 +567,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppReportsRoute: AppReportsRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppTeamRoute: AppTeamRoute,
+  AppTodayRoute: AppTodayRoute,
   AppIndexRoute: AppIndexRoute,
 }
 
