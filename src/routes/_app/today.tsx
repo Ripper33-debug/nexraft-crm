@@ -246,8 +246,8 @@ function TodayPage() {
         {myStale.map(({ row: d, days }) => (
           <li key={d.id as string} className="px-4 py-2.5">
             <Link
-              to="/pipeline"
-              search={{ focus: d.id as string, new: undefined }}
+              to="/deals/$dealId"
+              params={{ dealId: d.id as string }}
               className="flex items-center justify-between gap-3 hover:opacity-90"
             >
               <div className="min-w-0">
@@ -278,8 +278,8 @@ function TodayPage() {
           return (
             <li key={d.id as string} className="px-4 py-2.5">
               <Link
-                to="/pipeline"
-                search={{ focus: d.id as string, new: undefined }}
+                to="/deals/$dealId"
+                params={{ dealId: d.id as string }}
                 className="flex items-center justify-between gap-3 hover:opacity-90"
               >
                 <div className="min-w-0">

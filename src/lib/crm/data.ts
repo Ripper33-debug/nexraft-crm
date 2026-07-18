@@ -2254,6 +2254,28 @@ export const addNote = createServerFn({ method: "POST" })
     return { id };
   });
 
+// The full activity history for a single record — every logged event (created,
+// stage moves, notes, emails, shares, wins…) newest-first. This is what the
+// record detail pages render as a timeline. Unlike getActivityFeed (the global,
+// capped, discovery-filtered feed) this is scoped to one entity and uncapped.
+export const getEntityTimeline = createServerFn({ method: "GET" })
+  .validator(z.object({ entity_type: entityTypeSchema, entity_id: z.string() }))
+  .handler(async ({ data }) => {
+    await requireUser();
+    await ensureExtraSchema();
+    const { results } = await db()
+      .prepare(
+        `SELECT e.id, e.actor_id, u.name AS actor_name, e.verb, e.entity_type, e.entity_id, e.summary, e.created_at
+         FROM events e LEFT JOIN users u ON u.id = e.actor_id
+         WHERE e.entity_type = ? AND e.entity_id = ?
+         ORDER BY e.created_at DESC
+         LIMIT 200`,
+      )
+      .bind(data.entity_type, data.entity_id)
+      .all<FeedRow>();
+    return (results ?? []) as FeedRow[];
+  });
+
 // ================= ACTIVITY FEED =================
 export type FeedRow = {
   id: string;

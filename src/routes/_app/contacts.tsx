@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import {
@@ -175,15 +175,14 @@ function ContactsPage() {
                   <tr key={c.id as string} className="border-b border-line/60 last:border-0 hover:bg-surface-2/60">
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => {
-                            setEditing(c);
-                            setOpen(true);
-                          }}
+                        <Link
+                          to="/contacts/$contactId"
+                          params={{ contactId: c.id as string }}
+                          search={{ focus: undefined, new: undefined }}
                           className="font-medium text-bone hover:text-signal"
                         >
                           {`${c.first_name as string} ${(c.last_name as string) || ""}`.trim()}
-                        </button>
+                        </Link>
                         {warn ? (
                           <span title={warn}>
                             <Pill tone="warn">⚠ Overlap</Pill>

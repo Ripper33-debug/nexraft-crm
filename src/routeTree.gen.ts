@@ -35,6 +35,9 @@ import { Route as ApiGmailCallbackRouteImport } from './routes/api/gmail/callbac
 import { Route as ApiAuthSignupRouteImport } from './routes/api/auth/signup'
 import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
+import { Route as AppDealsDealIdRouteImport } from './routes/_app/deals.$dealId'
+import { Route as AppContactsContactIdRouteImport } from './routes/_app/contacts.$contactId'
+import { Route as AppCompaniesCompanyIdRouteImport } from './routes/_app/companies.$companyId'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -165,6 +168,21 @@ const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
   path: '/api/auth/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppDealsDealIdRoute = AppDealsDealIdRouteImport.update({
+  id: '/deals/$dealId',
+  path: '/deals/$dealId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppContactsContactIdRoute = AppContactsContactIdRouteImport.update({
+  id: '/$contactId',
+  path: '/$contactId',
+  getParentRoute: () => AppContactsRoute,
+} as any)
+const AppCompaniesCompanyIdRoute = AppCompaniesCompanyIdRouteImport.update({
+  id: '/$companyId',
+  path: '/$companyId',
+  getParentRoute: () => AppCompaniesRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -174,8 +192,8 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/activities': typeof AppActivitiesRoute
   '/calls': typeof AppCallsRoute
-  '/companies': typeof AppCompaniesRoute
-  '/contacts': typeof AppContactsRoute
+  '/companies': typeof AppCompaniesRouteWithChildren
+  '/contacts': typeof AppContactsRouteWithChildren
   '/discover': typeof AppDiscoverRoute
   '/followups': typeof AppFollowupsRoute
   '/help': typeof AppHelpRoute
@@ -186,6 +204,9 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AppSettingsRoute
   '/team': typeof AppTeamRoute
   '/today': typeof AppTodayRoute
+  '/companies/$companyId': typeof AppCompaniesCompanyIdRoute
+  '/contacts/$contactId': typeof AppContactsContactIdRoute
+  '/deals/$dealId': typeof AppDealsDealIdRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
@@ -200,8 +221,8 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/activities': typeof AppActivitiesRoute
   '/calls': typeof AppCallsRoute
-  '/companies': typeof AppCompaniesRoute
-  '/contacts': typeof AppContactsRoute
+  '/companies': typeof AppCompaniesRouteWithChildren
+  '/contacts': typeof AppContactsRouteWithChildren
   '/discover': typeof AppDiscoverRoute
   '/followups': typeof AppFollowupsRoute
   '/help': typeof AppHelpRoute
@@ -213,6 +234,9 @@ export interface FileRoutesByTo {
   '/team': typeof AppTeamRoute
   '/today': typeof AppTodayRoute
   '/': typeof AppIndexRoute
+  '/companies/$companyId': typeof AppCompaniesCompanyIdRoute
+  '/contacts/$contactId': typeof AppContactsContactIdRoute
+  '/deals/$dealId': typeof AppDealsDealIdRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
@@ -229,8 +253,8 @@ export interface FileRoutesById {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_app/activities': typeof AppActivitiesRoute
   '/_app/calls': typeof AppCallsRoute
-  '/_app/companies': typeof AppCompaniesRoute
-  '/_app/contacts': typeof AppContactsRoute
+  '/_app/companies': typeof AppCompaniesRouteWithChildren
+  '/_app/contacts': typeof AppContactsRouteWithChildren
   '/_app/discover': typeof AppDiscoverRoute
   '/_app/followups': typeof AppFollowupsRoute
   '/_app/help': typeof AppHelpRoute
@@ -242,6 +266,9 @@ export interface FileRoutesById {
   '/_app/team': typeof AppTeamRoute
   '/_app/today': typeof AppTodayRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/companies/$companyId': typeof AppCompaniesCompanyIdRoute
+  '/_app/contacts/$contactId': typeof AppContactsContactIdRoute
+  '/_app/deals/$dealId': typeof AppDealsDealIdRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
@@ -271,6 +298,9 @@ export interface FileRouteTypes {
     | '/settings'
     | '/team'
     | '/today'
+    | '/companies/$companyId'
+    | '/contacts/$contactId'
+    | '/deals/$dealId'
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/signup'
@@ -298,6 +328,9 @@ export interface FileRouteTypes {
     | '/team'
     | '/today'
     | '/'
+    | '/companies/$companyId'
+    | '/contacts/$contactId'
+    | '/deals/$dealId'
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/signup'
@@ -326,6 +359,9 @@ export interface FileRouteTypes {
     | '/_app/team'
     | '/_app/today'
     | '/_app/'
+    | '/_app/companies/$companyId'
+    | '/_app/contacts/$contactId'
+    | '/_app/deals/$dealId'
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/signup'
@@ -532,14 +568,59 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/deals/$dealId': {
+      id: '/_app/deals/$dealId'
+      path: '/deals/$dealId'
+      fullPath: '/deals/$dealId'
+      preLoaderRoute: typeof AppDealsDealIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/contacts/$contactId': {
+      id: '/_app/contacts/$contactId'
+      path: '/$contactId'
+      fullPath: '/contacts/$contactId'
+      preLoaderRoute: typeof AppContactsContactIdRouteImport
+      parentRoute: typeof AppContactsRoute
+    }
+    '/_app/companies/$companyId': {
+      id: '/_app/companies/$companyId'
+      path: '/$companyId'
+      fullPath: '/companies/$companyId'
+      preLoaderRoute: typeof AppCompaniesCompanyIdRouteImport
+      parentRoute: typeof AppCompaniesRoute
+    }
   }
 }
+
+interface AppCompaniesRouteChildren {
+  AppCompaniesCompanyIdRoute: typeof AppCompaniesCompanyIdRoute
+}
+
+const AppCompaniesRouteChildren: AppCompaniesRouteChildren = {
+  AppCompaniesCompanyIdRoute: AppCompaniesCompanyIdRoute,
+}
+
+const AppCompaniesRouteWithChildren = AppCompaniesRoute._addFileChildren(
+  AppCompaniesRouteChildren,
+)
+
+interface AppContactsRouteChildren {
+  AppContactsContactIdRoute: typeof AppContactsContactIdRoute
+}
+
+const AppContactsRouteChildren: AppContactsRouteChildren = {
+  AppContactsContactIdRoute: AppContactsContactIdRoute,
+}
+
+const AppContactsRouteWithChildren = AppContactsRoute._addFileChildren(
+  AppContactsRouteChildren,
+)
 
 interface AppRouteChildren {
   AppActivitiesRoute: typeof AppActivitiesRoute
   AppCallsRoute: typeof AppCallsRoute
-  AppCompaniesRoute: typeof AppCompaniesRoute
-  AppContactsRoute: typeof AppContactsRoute
+  AppCompaniesRoute: typeof AppCompaniesRouteWithChildren
+  AppContactsRoute: typeof AppContactsRouteWithChildren
   AppDiscoverRoute: typeof AppDiscoverRoute
   AppFollowupsRoute: typeof AppFollowupsRoute
   AppHelpRoute: typeof AppHelpRoute
@@ -551,13 +632,14 @@ interface AppRouteChildren {
   AppTeamRoute: typeof AppTeamRoute
   AppTodayRoute: typeof AppTodayRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppDealsDealIdRoute: typeof AppDealsDealIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppActivitiesRoute: AppActivitiesRoute,
   AppCallsRoute: AppCallsRoute,
-  AppCompaniesRoute: AppCompaniesRoute,
-  AppContactsRoute: AppContactsRoute,
+  AppCompaniesRoute: AppCompaniesRouteWithChildren,
+  AppContactsRoute: AppContactsRouteWithChildren,
   AppDiscoverRoute: AppDiscoverRoute,
   AppFollowupsRoute: AppFollowupsRoute,
   AppHelpRoute: AppHelpRoute,
@@ -569,6 +651,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppTeamRoute: AppTeamRoute,
   AppTodayRoute: AppTodayRoute,
   AppIndexRoute: AppIndexRoute,
+  AppDealsDealIdRoute: AppDealsDealIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -254,15 +254,14 @@ function CompaniesPage() {
                 return (
                   <tr key={c.id as string} className="border-b border-line/60 last:border-0 hover:bg-surface-2/60">
                     <td className="px-4 py-2.5">
-                      <button
-                        onClick={() => {
-                          setEditing(c);
-                          setOpen(true);
-                        }}
+                      <Link
+                        to="/companies/$companyId"
+                        params={{ companyId: c.id as string }}
+                        search={{ focus: undefined, new: undefined }}
                         className="font-medium text-bone hover:text-signal"
                       >
                         {c.name as string}
-                      </button>
+                      </Link>
                       {c.call_outcome === "signed" ? (
                         <span className="ml-2 align-middle rounded-full bg-signal px-1.5 py-0.5 text-[10px] font-semibold text-ink">Signed</span>
                       ) : c.call_outcome === "interested" ? (
