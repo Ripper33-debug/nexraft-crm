@@ -54,7 +54,49 @@ export const Route = createFileRoute("/_app")({
     return { user: context.user, followupCount };
   },
   component: AppLayout,
+  errorComponent: RouteError,
 });
+
+// Friendly, recoverable fallback for any error thrown while rendering a page.
+// Without this, an unexpected data shape or render throw white-screens the whole
+// app; here the shell survives and the user gets a "try again" + a way home.
+function RouteError({ error, reset }: { error: Error; reset: () => void }) {
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-ink px-6">
+      <div className="w-full max-w-md rounded-2xl border border-line bg-surface p-8 text-center shadow-xl shadow-black/20">
+        <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-signal-soft text-signal">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          </svg>
+        </div>
+        <h1 className="font-display text-lg font-semibold text-bone">Something went sideways</h1>
+        <p className="mt-2 text-sm leading-relaxed text-mute">
+          This page hit an unexpected snag. Your data is safe — nothing was changed. Try again, or head
+          back to the dashboard.
+        </p>
+        {error?.message ? (
+          <p className="mt-3 break-words rounded-lg bg-surface-2 px-3 py-2 text-left font-mono text-[11px] text-faint">
+            {error.message}
+          </p>
+        ) : null}
+        <div className="mt-5 flex items-center justify-center gap-2">
+          <button
+            onClick={reset}
+            className="rounded-lg bg-signal px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-signal-strong"
+          >
+            Try again
+          </button>
+          <Link
+            to="/"
+            className="rounded-lg border border-line-strong bg-surface px-4 py-2 text-sm font-medium text-bone transition-colors hover:bg-surface-2"
+          >
+            Back to dashboard
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type NavItem = { to: string; label: string; icon: string; admin?: boolean; badgeKey?: "followups" };
 type NavGroup = { label?: string; items: NavItem[] };

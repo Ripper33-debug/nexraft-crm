@@ -181,11 +181,18 @@ export const BEST_FIT_INDUSTRIES: string[] = [
   "auto",
 ];
 
-// Does a company's industry text fall in our best-fit set?
+// Does a company's industry text fall in our best-fit set? Single-word keywords
+// are stems matched against the START of each word (so "plumb" catches
+// "plumbing" and "dentist" catches "dentistry"), which avoids false positives
+// where a keyword hides mid-word — e.g. "spa" inside "aero-spa-ce". Multi-word
+// keywords like "real estate" fall back to a plain substring match.
 export function isBestFitIndustry(industry: string | null | undefined): boolean {
   const s = (industry ?? "").toLowerCase().trim();
   if (!s) return false;
-  return BEST_FIT_INDUSTRIES.some((k) => s.includes(k));
+  const words = s.split(/[^a-z]+/).filter(Boolean);
+  return BEST_FIT_INDUSTRIES.some((k) =>
+    k.includes(" ") ? s.includes(k) : words.some((w) => w.startsWith(k)),
+  );
 }
 
 export type OpportunityBand = "hot" | "warm" | "cool";
@@ -407,9 +414,15 @@ export function dealCommission(
 ): { earnedMonths: number; earned: number; lifetime: number } {
   const m = Number(monthly) || 0;
   if (m <= 0) return { earnedMonths: 0, earned: 0, lifetime: 0 };
-  const lifetime = m * COMMISSION_RATE * COMMISSION_MONTHS;
+  // `lifetime` is the projected maximum (all 12 months), used as a "what this
+  // deal is worth to the rep" ceiling — not what's been earned yet.
+  const lifetime = Math.round(m * COMMISSION_RATE * COMMISSION_MONTHS);
   const earnedMonths = Math.min(COMMISSION_MONTHS, Math.max(1, monthsElapsed(signedIso, to) + 1));
-  return { earnedMonths, earned: m * COMMISSION_RATE * earnedMonths, lifetime };
+  // Round to whole dollars: 30% of e.g. $399 is $119.70, and carrying those
+  // cents through the payroll sums leaves fractional "owed" balances that can
+  // never be paid off cleanly. Commissions are reconciled in whole dollars.
+  const earned = Math.round(m * COMMISSION_RATE * earnedMonths);
+  return { earnedMonths, earned, lifetime };
 }
 
 // Given the count of a rep's signed deals per calendar month (e.g. {"2026-07": 6}),

@@ -254,9 +254,11 @@ function PipelinePage() {
               ))}
               <option value="__none__">Unassigned</option>
             </Select>
-            <div className="flex rounded-lg border border-line bg-surface p-0.5">
+            <div className="flex rounded-lg border border-line bg-surface p-0.5" role="group" aria-label="Pipeline view">
               <button
                 onClick={() => setView("board")}
+                aria-pressed={view === "board"}
+                aria-label="Board view"
                 className={cx(
                   "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                   view === "board" ? "bg-signal-soft text-signal" : "text-mute hover:text-bone",
@@ -266,6 +268,8 @@ function PipelinePage() {
               </button>
               <button
                 onClick={() => setView("table")}
+                aria-pressed={view === "table"}
+                aria-label="Table view"
                 className={cx(
                   "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                   view === "table" ? "bg-signal-soft text-signal" : "text-mute hover:text-bone",

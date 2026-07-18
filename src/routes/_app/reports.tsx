@@ -71,11 +71,13 @@ function ReportsPage() {
         subtitle="Win/loss performance and a clean export for your Monday migration."
         actions={
           <div className="flex items-center gap-2">
-            <div className="flex rounded-lg border border-line bg-surface p-0.5">
+            <div className="flex rounded-lg border border-line bg-surface p-0.5" role="group" aria-label="Time range">
               {RANGES.map((r) => (
                 <button
                   key={r.value}
                   onClick={() => navigate({ search: { range: r.value }, replace: true })}
+                  aria-pressed={range === r.value}
+                  aria-label={`Show ${r.label}`}
                   className={
                     "rounded-md px-2.5 py-1 text-xs font-medium transition-colors " +
                     (range === r.value ? "bg-signal-soft text-signal" : "text-mute hover:text-bone")
