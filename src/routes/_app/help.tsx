@@ -32,7 +32,26 @@ function HelpPage() {
       />
 
       <div className="mt-6 space-y-4">
-        <Section title="The big picture">
+        <Section title="What Nexraft does">
+          <p>
+            <strong className="text-bone">Nexraft builds clean, professional websites for local
+            businesses.</strong> We handle the whole thing — design, copy, and hosting — so it's genuinely
+            hands-off for the client, and most local businesses are up and running within a couple of weeks.
+          </p>
+          <p>
+            The best-fit customers are local businesses that either have no website yet or have one that's
+            dated and holding them back. We reach out, show them what a modern site could do for them, and
+            build it once they're on board.
+          </p>
+          <p>
+            After launch, many clients stay on a <strong className="text-bone">monthly retainer</strong> —
+            hosting, upkeep, and small changes — which is where the steady, predictable income comes from.
+            So the business has two halves: <em>winning new website projects</em>, and{" "}
+            <em>keeping clients on recurring plans</em>. This CRM is the tool that runs both.
+          </p>
+        </Section>
+
+        <Section title="The big picture — how a client moves through the CRM">
           <p>
             This CRM keeps track of the companies you're talking to, the people at those companies, and
             the deals you're working to win. Everything flows in one direction: a new company comes in,
@@ -70,6 +89,28 @@ function HelpPage() {
             <strong className="text-bone">Interested</strong> or{" "}
             <strong className="text-bone">Not interested</strong>, and the company moves out of the queue
             into that bucket. That's it — no forms to fill in.
+          </p>
+        </Section>
+
+        <Section title="Finding new businesses to pitch (Discover)">
+          <p>
+            <Link to="/discover" className="text-signal hover:underline">Discover</Link> helps you find
+            real local businesses to reach out to — no setup, no cost. It leans toward the ones with{" "}
+            <strong className="text-bone">no website yet</strong>, since those are the easiest to help and
+            the most likely to say yes.
+          </p>
+          <p>
+            When you find a good one, <strong className="text-bone">claim</strong> it — that pulls it into
+            your Companies list as your lead and drops it into your call queue, so it flows straight into
+            the same process as everything else.
+          </p>
+        </Section>
+
+        <Section title="Where to spend your time first (Opportunities)">
+          <p>
+            <Link to="/opportunities" className="text-signal hover:underline">Opportunities</Link> scores
+            every company on how likely it is to close and sorts the hottest to the top, so you're always
+            working the best chances first instead of guessing. Grab the strong ones before a teammate does.
           </p>
         </Section>
 
@@ -145,6 +186,57 @@ function HelpPage() {
             <strong className="text-bone">Import CSV</strong> to bulk-add records from a spreadsheet. You'll
             get a preview before anything is saved. <strong className="text-bone">Export CSV</strong> pulls
             everything back out — handy for backups or moving data elsewhere later.
+          </p>
+        </Section>
+
+        <Section title="Emailing prospects who don't pick up">
+          <p>
+            When someone doesn't answer a call, head to{" "}
+            <Link to="/followups" className="text-signal hover:underline">Follow-ups</Link> and send them a
+            nudge by email. The CRM writes a friendly, ready-to-send draft for you — a gentle set of
+            escalating notes ("sorry we missed you," then a quick idea, then a graceful last check-in) — so
+            you never stare at a blank message.
+          </p>
+          <p>
+            If you connect your Google account under{" "}
+            <Link to="/settings" search={{ email: undefined }} className="text-signal hover:underline">Settings</Link>, those emails send
+            straight from your own address, replies land in your own inbox, and every send is logged on the
+            company's timeline. The CRM only ever <strong className="text-bone">sends</strong> mail — it
+            never reads your inbox.
+          </p>
+        </Section>
+
+        <Section title="Reports (win/loss & exports)">
+          <p>
+            <Link to="/reports" search={{ range: "all" }} className="text-signal hover:underline">Reports</Link> shows how the team is
+            performing — how many deals are being won versus lost, and by whom. It's also where you can pull
+            a clean export of your data if you ever need it elsewhere.
+          </p>
+        </Section>
+
+        <Section title="For admins: the Team view & commissions">
+          <p>
+            If you're an admin, <Link to="/team" className="text-signal hover:underline">Team</Link> gives
+            you a bird's-eye view of everything each teammate owns — their deals, companies, contacts, and
+            activity — and lets you add new teammates, reset a password, or reassign someone's records if
+            they leave or hand off an account.
+          </p>
+          <p>
+            <Link to="/payroll" className="text-signal hover:underline">Payroll</Link> tracks what each rep
+            has earned. Reps make a commission on every signed retainer (for the first several months),
+            plus a bonus the first month they hit their signing target — so this page turns closed deals
+            into exactly what everyone gets paid.
+          </p>
+        </Section>
+
+        <Section title="Making it yours (appearance)">
+          <p>
+            Under <Link to="/settings" search={{ email: undefined }} className="text-signal hover:underline">Settings</Link> you can
+            switch between <strong className="text-bone">Warm Paper</strong> (a bright, easy-on-the-eyes
+            light look), <strong className="text-bone">Dark</strong> (its warm-charcoal counterpart for
+            evenings), or <strong className="text-bone">System</strong> (follow your device). Your choice is
+            saved on your device and applies instantly — it's just for you and doesn't change anything for
+            the rest of the team.
           </p>
         </Section>
 
