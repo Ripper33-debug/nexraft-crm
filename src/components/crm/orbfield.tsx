@@ -149,7 +149,7 @@ export function OrbField({ live, pulse }: { live: boolean; pulse: number }) {
         const g = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, o.r);
         if (o.warm) {
           g.addColorStop(0, `rgba(249, 110, 60, ${(alpha * 1.0).toFixed(3)})`);
-          g.addColorStop(0.55, `rgba(249, 83, 30, ${(alpha * 0.45).toFixed(3)})`);
+          g.addColorStop(0.55, `rgba(255, 77, 28, ${(alpha * 0.45).toFixed(3)})`);
         } else {
           g.addColorStop(0, `rgba(200, 55, 30, ${(alpha * 1.0).toFixed(3)})`);
           g.addColorStop(0.55, `rgba(150, 40, 25, ${(alpha * 0.45).toFixed(3)})`);
@@ -175,7 +175,7 @@ export function OrbField({ live, pulse }: { live: boolean; pulse: number }) {
         ctx.beginPath();
         ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(255, 160, 90, ${alpha.toFixed(3)})`;
-        ctx.shadowColor = "rgba(249, 83, 30, 0.55)";
+        ctx.shadowColor = "rgba(255, 77, 28, 0.55)";
         ctx.shadowBlur = 5;
         ctx.fill();
         ctx.shadowBlur = 0;

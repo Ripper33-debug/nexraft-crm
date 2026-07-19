@@ -4,7 +4,7 @@
 // underline. The compact monogram carries the same bone "N" + orange dot.
 
 const TILE = "#171512"; // warm near-black tile (matches --color-surface)
-const ACCENT = "#f9531e"; // Nexraft red-orange (the "." dot)
+const ACCENT = "#ff4d1c"; // Nexraft red-orange (the "." dot)
 const BONE = "#ece7dd"; // cream wordmark
 
 // Square monogram tile (sidebar, favicon, mobile bar): bone "N" over the warm

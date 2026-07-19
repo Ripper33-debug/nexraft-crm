@@ -49,26 +49,26 @@
    * --font-* namespace emits `font-sans` / `font-display` / `font-mono`
    * utilities; `font-mono` now resolves the eyebrow labels to IBM Plex Mono,
    * and the new `font-display` gives headings + KPI numbers real character. */
-  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
-  --font-display: "Archivo", "Space Grotesk", "Inter", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: "Geist", "Inter", system-ui, -apple-system, sans-serif;
+  --font-display: "Bricolage Grotesque", "Geist", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* ---- Nexraft brand palette — Dark mode (near-black + signal orange) ----
-   * Matched to nexraft.com: a warm near-black canvas, bone/cream type, and a
-   * single punchy red-orange accent. Both light and dark skins share that one
-   * orange so the product reads as the same identity as the marketing site. */
-  --color-ink: #0e0d0b; /* app background base (warm near-black) */
-  --color-surface: #171512; /* cards, sidebar, modals */
-  --color-surface-2: #201d18; /* inputs, hover rows, raised chips */
-  --color-line: #2a2620; /* hairline borders (warm) */
-  --color-line-strong: #39342b; /* stronger dividers */
-  --color-bone: #ece7dd; /* primary text (warm off-white / cream) */
-  --color-mute: #a29a8d; /* secondary text */
-  --color-faint: #6f675c; /* tertiary / placeholders */
-  --color-signal: #f9531e; /* Nexraft red-orange accent */
-  --color-signal-strong: #e23f11; /* accent hover / pressed */
-  --color-signal-soft: #2a1710; /* tinted accent background (dark) */
-  --color-sunk: #090806; /* deepest recess */
+  /* ---- Nexraft brand palette — synced to nexraft.com's live "ember" theme ----
+   * These values come straight from the marketing site's globals.css
+   * (html[data-theme="ember"]) so the CRM and nexraft.com read as one product:
+   * the same cool near-black canvas, warm bone type, and #ff4d1c signal orange. */
+  --color-ink: #08080b; /* app background base (site --color-ink) */
+  --color-surface: #0e0e13; /* cards, sidebar, modals (site --color-ink2) */
+  --color-surface-2: #16161c; /* inputs, hover rows (a step above site --color-panel) */
+  --color-line: #26262c; /* hairline borders (site --color-line) */
+  --color-line-strong: #34343c; /* stronger dividers */
+  --color-bone: #e9e5db; /* primary text (site --color-bone) */
+  --color-mute: #c9c4b8; /* secondary text (site --color-mute) */
+  --color-faint: #8b867c; /* tertiary / placeholders (darker cut of site --color-faint) */
+  --color-signal: #ff4d1c; /* Nexraft signal orange (site --color-signal) */
+  --color-signal-strong: #c93a12; /* accent hover / pressed (site --color-signal-dim) */
+  --color-signal-soft: #2a120c; /* tinted accent background (dark) */
+  --color-sunk: #060608; /* deepest recess (site --color-surface-deep) */
   --color-signal-top: #ff7a45; /* light top-stop for any residual gradient */
 }
 
@@ -123,12 +123,12 @@
 
   /* ---- Themeable app-shell surfaces (warm Dark is the default) ---- */
   color-scheme: dark;
-  --nx-body-bg: #0b0a08;
+  --nx-body-bg: #060608;
   /* Ember Command atmosphere: one warm light source bleeding from the top-left
    * plus a faint answering glow bottom-right. Depth without visual noise. */
   --nx-body-glow:
-    radial-gradient(1100px 520px at 18% -8%, rgba(249, 83, 30, 0.075), transparent 62%),
-    radial-gradient(900px 700px at 100% 110%, rgba(249, 83, 30, 0.035), transparent 60%);
+    radial-gradient(1100px 520px at 18% -8%, rgba(255, 77, 28, 0.075), transparent 62%),
+    radial-gradient(900px 700px at 100% 110%, rgba(255, 77, 28, 0.035), transparent 60%);
   /* Fine film grain — echoes the noise texture on nexraft.com's hero. */
   --nx-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
 }
@@ -221,7 +221,7 @@
   z-index: 1;
   background: radial-gradient(
     340px circle at var(--mx, 50%) var(--my, 50%),
-    rgba(249, 83, 30, 0.09),
+    rgba(255, 77, 28, 0.09),
     transparent 65%
   );
 }
@@ -242,7 +242,7 @@
   z-index: 2;
   background: radial-gradient(
     240px circle at var(--mx, 50%) var(--my, 50%),
-    rgba(249, 83, 30, 0.55),
+    rgba(255, 77, 28, 0.55),
     transparent 70%
   );
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -259,7 +259,7 @@
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 20px rgba(249, 83, 30, 0.22));
+  filter: drop-shadow(0 0 20px rgba(255, 77, 28, 0.22));
 }
 
 /* Live ticker tape: edge-faded, pauses on hover. */

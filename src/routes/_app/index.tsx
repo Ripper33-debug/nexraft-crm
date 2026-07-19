@@ -29,7 +29,7 @@ export const Route = createFileRoute("/_app/")({
 
 // Tiny inline SVG sparkline — a filled area under a 30-point trend line. No
 // axes, no library; just a quick "which way is this heading" cue on a KPI.
-function Sparkline({ data, color = "#f9531e" }: { data: number[]; color?: string }) {
+function Sparkline({ data, color = "#ff4d1c" }: { data: number[]; color?: string }) {
   const w = 120;
   const h = 32;
   const pad = 2;
@@ -264,7 +264,7 @@ function feedDot(verb: string): string {
   if (verb === "completed") return "#a855f7";
   if (verb === "invoiced") return "#f59e0b";
   if (verb === "flagged") return "#fb7185";
-  if (verb === "radar") return "#f9531e";
+  if (verb === "radar") return "#ff4d1c";
   return "#8a978f";
 }
 

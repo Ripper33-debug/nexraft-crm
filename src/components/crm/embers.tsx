@@ -78,7 +78,7 @@ export function Embers() {
         ctx.beginPath();
         ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(249, 110, 60, ${alpha.toFixed(3)})`;
-        ctx.shadowColor = "rgba(249, 83, 30, 0.5)";
+        ctx.shadowColor = "rgba(255, 77, 28, 0.5)";
         ctx.shadowBlur = 6;
         ctx.fill();
         ctx.shadowBlur = 0;

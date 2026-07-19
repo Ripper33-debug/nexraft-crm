@@ -68,14 +68,14 @@ function buildHead(meta: AppMeta) {
       ...(ogVideo ? [{ property: "og:video", content: ogVideo }] : []),
     ],
     links: [
-      // Load the real typefaces the design system already references (Inter for
-      // body, Space Grotesk for display headings/numbers, IBM Plex Mono for the
-      // small mono labels) — previously these names resolved to the OS default.
+      // Same type stack as nexraft.com so the CRM reads as the same product:
+      // Geist for body copy, Bricolage Grotesque for display headings/numbers,
+      // JetBrains Mono for the small mono labels. (Inter stays as a fallback.)
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" as const },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700;800&family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap",
       },
       { rel: "stylesheet", href: appCss },
       // Custom favicon override wins; otherwise fall back to the bundled brand mark.

@@ -76,7 +76,7 @@ function ProgressBar({ done, total }: { done: number; total: number }) {
         <div
           className={cx(
             "h-full rounded-full transition-all duration-500",
-            pct >= 100 ? "bg-emerald-400" : "bg-signal shadow-[0_0_8px_rgba(249,83,30,0.5)]",
+            pct >= 100 ? "bg-emerald-400" : "bg-signal shadow-[0_0_8px_rgba(255,77,28,0.5)]",
           )}
           style={{ width: `${pct}%` }}
         />
@@ -196,7 +196,7 @@ function ProjectCard({
                       checked={item.done}
                       disabled={busy}
                       onChange={() => void toggleItem(i)}
-                      className="mt-0.5 h-4 w-4 accent-[#f9531e]"
+                      className="mt-0.5 h-4 w-4 accent-[#ff4d1c]"
                     />
                     <span className={cx("leading-snug", item.done ? "text-faint line-through" : "text-mute")}>
                       {item.label}

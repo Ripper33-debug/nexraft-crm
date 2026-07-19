@@ -106,7 +106,7 @@ export function Card({ className, children }: { className?: string; children: Re
     <div
       onPointerMove={trackPointer}
       className={cx(
-        "nx-spot rounded-xl border border-line bg-gradient-to-br from-[#181512] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.3),0_8px_24px_-16px_rgba(0,0,0,0.6),inset_0_1px_0_0_rgba(255,255,255,0.03)] transition-[border-color,box-shadow] duration-300 hover:border-line-strong hover:shadow-[0_16px_40px_-14px_rgba(0,0,0,0.6),0_0_0_1px_rgba(249,83,30,0.1)]",
+        "nx-spot rounded-xl border border-line bg-gradient-to-br from-[#181512] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.3),0_8px_24px_-16px_rgba(0,0,0,0.6),inset_0_1px_0_0_rgba(255,255,255,0.03)] transition-[border-color,box-shadow] duration-300 hover:border-line-strong hover:shadow-[0_16px_40px_-14px_rgba(0,0,0,0.6),0_0_0_1px_rgba(255,77,28,0.1)]",
         className,
       )}
     >
@@ -197,7 +197,7 @@ export function SummaryCard({
       className={cx(
         "nx-spot group relative overflow-hidden rounded-xl border p-4 transition-[border-color,box-shadow,transform] duration-300 will-change-transform",
         accent
-          ? "border-signal/25 bg-gradient-to-br from-signal-soft/50 via-surface to-surface shadow-[0_8px_30px_-18px_rgba(249,83,30,0.6)] hover:shadow-[0_14px_36px_-16px_rgba(249,83,30,0.7)]"
+          ? "border-signal/25 bg-gradient-to-br from-signal-soft/50 via-surface to-surface shadow-[0_8px_30px_-18px_rgba(255,77,28,0.6)] hover:shadow-[0_14px_36px_-16px_rgba(255,77,28,0.7)]"
           : "border-line bg-gradient-to-br from-[#181512] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.3)] hover:border-line-strong hover:shadow-[0_12px_30px_-16px_rgba(0,0,0,0.7)]",
       )}
     >

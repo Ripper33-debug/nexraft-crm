@@ -654,7 +654,7 @@ export function CallMode({
           {activeResp ? (
             <div
               key={activeResp.id}
-              className="mt-3 rounded-xl border border-signal/30 bg-gradient-to-b from-signal-soft/40 to-surface p-3 shadow-[0_8px_30px_-18px_rgba(249,83,30,0.6)] duration-200 animate-in fade-in-0 slide-in-from-top-1"
+              className="mt-3 rounded-xl border border-signal/30 bg-gradient-to-b from-signal-soft/40 to-surface p-3 shadow-[0_8px_30px_-18px_rgba(255,77,28,0.6)] duration-200 animate-in fade-in-0 slide-in-from-top-1"
             >
               <div className="mb-2 flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-xs font-semibold text-signal">
