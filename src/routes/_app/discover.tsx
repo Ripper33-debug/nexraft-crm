@@ -52,6 +52,17 @@ const NICHE_TYPES = [
   "Aesthetics clinic",
 ];
 
+// One-tap combos aimed where the money is: industries that pay real budgets
+// for their web presence. Comma-separated types sweep together in one query.
+const HIGH_BUDGET_COMBOS = [
+  "Med spas, aesthetics clinic",
+  "Law firms",
+  "Dentists, orthodontists",
+  "Roofers, HVAC, plumbers",
+  "Real estate agents",
+  "Chiropractors, dermatologists",
+];
+
 function ScoreBadge({ score, band }: { score: number; band: OpportunityBand }) {
   const color = OPPORTUNITY_BAND_INFO[band].color;
   return (
@@ -87,6 +98,10 @@ function LeadCard({
               <Pill tone="ok">No website</Pill>
             ) : lead.website_dead === true ? (
               <Pill tone="warn">Site is down</Pill>
+            ) : lead.website_issues.length > 0 ? (
+              <Pill tone="warn">
+                Bad site · {lead.website_issues.length} issue{lead.website_issues.length === 1 ? "" : "s"}
+              </Pill>
             ) : lead.website_dead === false ? (
               <Pill tone="neutral">Site live</Pill>
             ) : (
@@ -105,7 +120,14 @@ function LeadCard({
             ))}
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs text-faint">{lead.phone || "No phone found"}</span>
+            <span className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-faint">
+              <span>{lead.phone || "No phone found"}</span>
+              {lead.email ? (
+                <span className="truncate text-emerald-400/90" title={lead.email}>
+                  ✉ {lead.email}
+                </span>
+              ) : null}
+            </span>
             {inCrm ? (
               <Pill tone="signal">{imported ? "Imported ✓" : "Already in CRM"}</Pill>
             ) : (
@@ -662,7 +684,7 @@ function DiscoverPage() {
                 <span className="mb-1 block text-xs font-medium text-mute">Business type</span>
                 <Input
                   value={businessType}
-                  placeholder="e.g. dentists"
+                  placeholder="e.g. dentists — or combos: roofers, hvac, plumbers"
                   onChange={(e) => setBusinessType(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && search()}
                 />
@@ -691,6 +713,30 @@ function DiscoverPage() {
                   {t}
                 </button>
               ))}
+            </div>
+
+            {/* High-budget hunts: one-tap combos for the industries that pay. */}
+            <div className="mt-3 border-t border-line/60 pt-3">
+              <div className="mb-1.5 flex items-center gap-1.5">
+                <span className="font-mono text-[10px] uppercase tracking-wider text-faint">
+                  Where the money is
+                </span>
+                <span className="text-[11px] text-faint">
+                  — industries with real web budgets; combos sweep together in one search
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {HIGH_BUDGET_COMBOS.map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => search(t)}
+                    disabled={loading}
+                    className="rounded-full border border-signal/30 bg-signal-soft px-2.5 py-1 text-xs text-signal hover:bg-signal-soft/70 disabled:opacity-50"
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Hard-to-reach niches the auto-sweep can't mine well — search by hand. */}

@@ -12,6 +12,8 @@ import {
   opportunityBand,
   discoveryScore,
   isBestFitIndustry,
+  isHighBudgetIndustry,
+  analyzeSiteHtml,
   canEditRecord,
   canAdministerRecord,
   pickLeastLoaded,
@@ -447,5 +449,91 @@ describe("duplicate detection", () => {
     const groups = groupDuplicates(rows, (r) => [companyNameKey(r.name)]);
     expect(groups[0]).toHaveLength(3);
     expect(groups[1]).toHaveLength(2);
+  });
+});
+
+describe("analyzeSiteHtml — website quality grading", () => {
+  it("flags DIY builders, missing viewport, and stale copyright", () => {
+    const html = `<html><head><link href="https://static.wixstatic.com/x.css"></head>
+      <body>&copy; 2019 Joe's Roofing</body></html>`;
+    const a = analyzeSiteHtml(html, { https: true });
+    expect(a.issues.join(" | ")).toContain("Wix");
+    expect(a.issues.join(" | ")).toContain("mobile");
+    expect(a.issues.join(" | ")).toContain("2019");
+  });
+
+  it("passes a clean modern site with no issues", () => {
+    const year = new Date().getFullYear();
+    const html = `<html><head><meta name="viewport" content="width=device-width"></head>
+      <body>© ${year} Fresh Co</body></html>`;
+    expect(analyzeSiteHtml(html, { https: true }).issues).toEqual([]);
+  });
+
+  it("uses the newest year of a copyright range", () => {
+    const year = new Date().getFullYear();
+    const html = `<meta name="viewport"> © 2008–${year} Old Timer LLC`;
+    expect(analyzeSiteHtml(html, { https: true }).issues).toEqual([]);
+  });
+
+  it("flags parked/placeholder pages and missing HTTPS", () => {
+    const a = analyzeSiteHtml(`<meta name="viewport"> This domain is parked`, { https: false });
+    expect(a.issues.some((i) => i.includes("Placeholder"))).toBe(true);
+    expect(a.issues.some((i) => i.includes("HTTPS"))).toBe(true);
+  });
+
+  it("extracts a mailto email and a tel phone, skipping junk addresses", () => {
+    const html = `<meta name="viewport">
+      <img src="hero@2x.png"> sentry@sentry.wixpress.com
+      <a href="mailto:Owner@JoesRoofing.com">Email us</a>
+      <a href="tel:(239) 555-0188">Call</a> © ${new Date().getFullYear()}`;
+    const a = analyzeSiteHtml(html, { https: true });
+    expect(a.email).toBe("owner@joesroofing.com");
+    expect(a.phone).toBe("(239) 555-0188");
+  });
+
+  it("ignores image filenames and tooling noise when no mailto exists", () => {
+    const html = `<meta name="viewport"> logo@2x.png trace@sentry.io info@realbusiness.com`;
+    expect(analyzeSiteHtml(html, { https: true }).email).toBe("info@realbusiness.com");
+  });
+});
+
+describe("discoveryScore — website quality + budget signals", () => {
+  const base = { rating: null, reviews: null, hasPhone: true };
+
+  it("a live-but-bad site scores above a clean site and below no site", () => {
+    const clean = discoveryScore({ ...base, hasWebsite: true, websiteDead: false });
+    const bad = discoveryScore({
+      ...base,
+      hasWebsite: true,
+      websiteDead: false,
+      websiteIssues: ["Built on Wix — DIY template site", "Not mobile-friendly — no viewport tag"],
+    });
+    const none = discoveryScore({ ...base, hasWebsite: false });
+    expect(bad.score).toBeGreaterThan(clean.score);
+    expect(none.score).toBeGreaterThan(bad.score);
+  });
+
+  it("surfaces the audited issues as callable reasons", () => {
+    const bad = discoveryScore({
+      ...base,
+      hasWebsite: true,
+      websiteDead: false,
+      websiteIssues: ["Copyright stuck in 2018 — site looks abandoned"],
+    });
+    expect(bad.reasons.some((r) => r.includes("2018"))).toBe(true);
+  });
+
+  it("high-budget industries outscore ordinary ones", () => {
+    const medspa = discoveryScore({ ...base, hasWebsite: false, industry: "Med Spa" });
+    const generic = discoveryScore({ ...base, hasWebsite: false, industry: "Thrift store" });
+    expect(medspa.score).toBeGreaterThan(generic.score);
+  });
+
+  it("isHighBudgetIndustry matches stems and multi-word phrases", () => {
+    expect(isHighBudgetIndustry("Med spa")).toBe(true);
+    expect(isHighBudgetIndustry("Roofing contractor")).toBe(true);
+    expect(isHighBudgetIndustry("Personal injury attorney")).toBe(true);
+    expect(isHighBudgetIndustry("Toy store")).toBe(false);
+    expect(isHighBudgetIndustry(null)).toBe(false);
   });
 });

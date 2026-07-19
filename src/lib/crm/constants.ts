@@ -195,6 +195,172 @@ export function isBestFitIndustry(industry: string | null | undefined): boolean 
   );
 }
 
+// Industries that pay real money for websites — elective/cash-pay medical,
+// legal, trades with big ticket jobs, property. A lead here isn't just a fit,
+// it's a fit with budget, so scoring gives these an extra bump on top of the
+// best-fit bonus and the Discover page surfaces them as one-tap presets.
+export const HIGH_BUDGET_INDUSTRIES: string[] = [
+  "med spa",
+  "medspa",
+  "aesthetic",
+  "botox",
+  "cosmetic",
+  "dermatol",
+  "surgeon",
+  "weight loss",
+  "iv therapy",
+  "law",
+  "legal",
+  "attorney",
+  "lawyer",
+  "injury",
+  "dentist",
+  "dental",
+  "orthodont",
+  "implant",
+  "chiropract",
+  "veterinary",
+  "optometr",
+  "roof",
+  "hvac",
+  "plumb",
+  "electrician",
+  "remodel",
+  "real estate",
+  "realtor",
+  "estate agent",
+];
+
+export function isHighBudgetIndustry(industry: string | null | undefined): boolean {
+  const s = (industry ?? "").toLowerCase().trim();
+  if (!s) return false;
+  const words = s.split(/[^a-z]+/).filter(Boolean);
+  return HIGH_BUDGET_INDUSTRIES.some((k) =>
+    k.includes(" ") ? s.includes(k) : words.some((w) => w.startsWith(k)),
+  );
+}
+
+// ---------- Website quality audit (pure HTML analysis) ----------
+// Given the homepage HTML of a prospect's site, find the problems a rep can
+// pitch against — and any contact info hiding in the page. Pure function so the
+// grading rules are unit-testable; the fetching lives server-side in data.ts.
+//
+// Every issue string is written to be said out loud on a sales call.
+export type SiteAnalysis = { issues: string[]; email: string | null; phone: string | null };
+
+const PARKED_MARKERS = [
+  "this domain is parked",
+  "domain is parked",
+  "buy this domain",
+  "this domain is for sale",
+  "hugedomains",
+  "sedoparking",
+  "parked free, courtesy of",
+  "under construction",
+  "coming soon",
+  "future home of",
+];
+
+// Fingerprints of DIY site builders. Seeing one means the business built (or
+// paid a nephew to build) a template site — the classic Nexraft upgrade pitch.
+const BUILDER_MARKERS: Array<[string, string]> = [
+  ["wixstatic.com", "Wix"],
+  ["wix.com", "Wix"],
+  ["parastorage.com", "Wix"],
+  ["godaddysites", "GoDaddy's builder"],
+  ["websitebuilder.godaddy", "GoDaddy's builder"],
+  ["secureserver.net", "GoDaddy's builder"],
+  ["weebly", "Weebly"],
+  ["jimdo", "Jimdo"],
+  ["site123", "Site123"],
+  ["webnode", "Webnode"],
+  ["strikingly", "Strikingly"],
+  ["blogspot", "Blogger"],
+  ["wordpress.com", "WordPress.com"],
+  ["squarespace", "Squarespace"],
+];
+
+// Emails that aren't really a way to reach the owner.
+const EMAIL_JUNK = [
+  "example.",
+  "sentry",
+  "wixpress",
+  "godaddy",
+  "no-reply",
+  "noreply",
+  "donotreply",
+  "@sentry",
+  "schema.org",
+  "yourdomain",
+  "email.com",
+  "domain.com",
+];
+
+export function analyzeSiteHtml(html: string, opts?: { https?: boolean }): SiteAnalysis {
+  const h = (html ?? "").slice(0, 200_000);
+  const lower = h.toLowerCase();
+  const issues: string[] = [];
+
+  // Parked / placeholder pages: technically "live", practically nothing there.
+  if (PARKED_MARKERS.some((m) => lower.includes(m))) {
+    issues.push("Placeholder page — no real site behind the domain");
+  }
+
+  // DIY builder fingerprint (first match wins; the list is ordered so asset
+  // domains beat generic ones).
+  const builder = BUILDER_MARKERS.find(([marker]) => lower.includes(marker));
+  if (builder) issues.push(`Built on ${builder[1]} — DIY template site`);
+
+  // No viewport meta = the page doesn't adapt to phones, where most local
+  // searches happen. The single most pitchable defect there is.
+  if (!/<meta[^>]+name=["']?viewport/i.test(h)) {
+    issues.push("Not mobile-friendly — no viewport tag");
+  }
+
+  // A copyright line stuck years in the past screams "nobody maintains this".
+  // Take the NEWEST year mentioned so ranges like © 2008–2021 read as 2021.
+  const yearMatches = [
+    ...h.matchAll(/(?:©|&copy;|&#169;|copyright)\s*(?:\d{4}\s*[-–]\s*)?((?:19|20)\d{2})/gi),
+  ].map((m) => parseInt(m[1], 10));
+  if (yearMatches.length > 0) {
+    const newest = Math.max(...yearMatches);
+    const current = new Date().getFullYear();
+    if (newest <= current - 2) issues.push(`Copyright stuck in ${newest} — site looks abandoned`);
+  }
+
+  // Caller tells us the https attempt failed and we fell back to plain http.
+  if (opts?.https === false) {
+    issues.push("No HTTPS — browsers show \u201cNot secure\u201d");
+  }
+
+  // ---- Contact extraction (same page, zero extra requests) ----
+  // Prefer an explicit mailto: link; otherwise the first plausible address in
+  // the page text that isn't tooling noise or an image filename.
+  let email: string | null = null;
+  const mailto = h.match(/mailto:([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i);
+  if (mailto) {
+    email = mailto[1];
+  } else {
+    const candidates = h.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
+    email =
+      candidates.find((e) => {
+        const l = e.toLowerCase();
+        if (l.length > 60) return false;
+        if (/\.(png|jpe?g|gif|webp|svg|css|js|woff2?)$/.test(l)) return false;
+        return !EMAIL_JUNK.some((j) => l.includes(j));
+      }) ?? null;
+  }
+  if (email) email = email.toLowerCase();
+
+  // Phone: only trust explicit tel: links — free-text number sniffing produces
+  // too much junk (zips, prices, years).
+  let phone: string | null = null;
+  const tel = h.match(/href=["']tel:([+0-9()\-.\s]{7,20})["']/i);
+  if (tel) phone = tel[1].trim();
+
+  return { issues, email, phone };
+}
+
 export type OpportunityBand = "hot" | "warm" | "cool";
 
 export type OpportunitySignals = {
@@ -311,6 +477,9 @@ export type DiscoverySignals = {
   // as strong a buyer signal as no site at all). false = probed and alive.
   // null/undefined = not probed, so scoring falls back to URL presence alone.
   websiteDead?: boolean | null;
+  // Pitchable defects found by analyzeSiteHtml (outdated, DIY builder, not
+  // mobile-friendly, ...). Only meaningful when the site was fetched and alive.
+  websiteIssues?: string[] | null;
 };
 
 export function discoveryScore(sig: DiscoverySignals): OpportunityScore {
@@ -326,6 +495,12 @@ export function discoveryScore(sig: DiscoverySignals): OpportunityScore {
   } else if (sig.websiteDead === true) {
     score += 28;
     reasons.push("Website is down — prime redesign target");
+  } else if (sig.websiteIssues && sig.websiteIssues.length > 0) {
+    // Alive but bad: every audited defect is a line the rep can open with.
+    // Caps just under the dead-site bonus — a broken-but-up site still beats a
+    // healthy one by a mile.
+    score += Math.min(26, 8 + sig.websiteIssues.length * 6);
+    reasons.push(...sig.websiteIssues.slice(0, 3));
   } else {
     reasons.push("Already has a website (redesign play)");
   }
@@ -334,6 +509,12 @@ export function discoveryScore(sig: DiscoverySignals): OpportunityScore {
   if (isBestFitIndustry(sig.industry)) {
     score += 15;
     reasons.push("In a best-fit industry");
+  }
+
+  // 2b) Budget: industries known to spend real money on their web presence.
+  if (isHighBudgetIndustry(sig.industry)) {
+    score += 10;
+    reasons.push("High-budget industry — real web spend");
   }
 
   // 3) Established & active: good rating with real review volume. Only applied

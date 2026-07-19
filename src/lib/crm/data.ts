@@ -22,6 +22,7 @@ import {
   phoneKey,
   emailKey,
   groupDuplicates,
+  analyzeSiteHtml,
 } from "./constants";
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
@@ -3423,6 +3424,9 @@ export type DiscoveredLead = {
   // true = listed website was probed and is down; false = probed and alive;
   // null = has no website, or the probe didn't run (time budget).
   website_dead: boolean | null;
+  // Pitchable defects the audit found on a live site (DIY builder, no mobile
+  // support, stale copyright, ...). Empty when un-audited or clean.
+  website_issues: string[];
 };
 
 function normName(s: string | null | undefined): string {
@@ -3534,6 +3538,73 @@ async function probeWebsitesBatch(
       urls.map(async (u) => {
         const status = await probeWebsite(u, perFetch);
         if (status) out.set(u, status);
+      }),
+    ),
+    new Promise((resolve) => setTimeout(resolve, deadlineMs)),
+  ]);
+  return out;
+}
+
+// ---------- Website quality audit (lead-gen quality, level 2) ----------
+// Where probeWebsite() asks "does it respond?", auditWebsite() asks "is it any
+// good?" — it fetches the homepage HTML and runs analyzeSiteHtml() over it to
+// spot the defects a rep can pitch against (DIY builder, not mobile-friendly,
+// ancient copyright, parked page, no HTTPS) and to harvest any email / phone
+// sitting in the page. One GET per site, hard per-fetch timeout, body capped.
+type SiteAudit = {
+  status: "live" | "dead";
+  issues: string[];
+  email: string | null;
+  phone: string | null;
+};
+
+async function auditWebsite(raw: string, timeoutMs = 5000): Promise<SiteAudit | null> {
+  const url = normalizeProbeUrl(raw);
+  if (!url) return null; // not a checkable URL — leave unknown
+  const dead: SiteAudit = { status: "dead", issues: [], email: null, phone: null };
+  const attempt = (u: string) =>
+    fetchWithTimeout(
+      u,
+      { method: "GET", redirect: "follow", headers: { "User-Agent": OSM_UA, Accept: "text/html,*/*" } },
+      timeoutMs,
+    );
+  let res: Response;
+  let https = true;
+  try {
+    res = await attempt(url);
+  } catch {
+    // https failed → one retry over plain http; a site alive only on http gets
+    // "No HTTPS" recorded as its first strike.
+    if (!url.startsWith("https://")) return dead;
+    try {
+      res = await attempt(url.replace(/^https:\/\//, "http://"));
+      https = false;
+    } catch {
+      return dead;
+    }
+  }
+  if (res.status === 404 || res.status === 410 || res.status >= 500) return dead;
+  let html = "";
+  try {
+    html = (await res.text()).slice(0, 200_000);
+  } catch {
+    // Alive but unreadable (encoding, stream cut) — still counts as live.
+  }
+  const analysis = analyzeSiteHtml(html, { https });
+  return { status: "live", issues: analysis.issues, email: analysis.email, phone: analysis.phone };
+}
+
+// Audit a batch with a hard overall deadline, same contract as
+// probeWebsitesBatch: whatever hasn't finished when the clock runs out is
+// simply left unknown rather than waited for.
+async function auditWebsitesBatch(urls: string[], deadlineMs: number): Promise<Map<string, SiteAudit>> {
+  const out = new Map<string, SiteAudit>();
+  const perFetch = Math.max(1500, deadlineMs - 300);
+  await Promise.race([
+    Promise.allSettled(
+      urls.map(async (u) => {
+        const audit = await auditWebsite(u, perFetch);
+        if (audit) out.set(u, audit);
       }),
     ),
     new Promise((resolve) => setTimeout(resolve, deadlineMs)),
@@ -3772,7 +3843,9 @@ function osmAddress(tags: Record<string, string>): string | null {
 export const discoverLeads = createServerFn({ method: "POST" })
   .validator(
     z.object({
-      businessType: z.string().min(1).max(80),
+      // Accepts a single type ("dentists") or a comma-separated combo
+      // ("roofers, hvac, plumbers") — combos sweep every type in one query.
+      businessType: z.string().min(1).max(160),
       area: z.string().max(120).optional().nullable(),
       // Auto-discovery asks for up to 40 candidates per sweep so it has enough to
       // filter down to the best-fit hot leads; the Overpass query itself returns up
@@ -3810,7 +3883,16 @@ export const discoverLeads = createServerFn({ method: "POST" })
     const box =
       data.radiusKm && data.radiusKm > 0 ? bboxAround(geo.lat, geo.lon, data.radiusKm) : geo;
 
-    const filters = osmFilters(data.businessType);
+    // Wider net: a comma-separated request ("roofers, hvac, plumbers") unions
+    // the OSM selectors of every listed type into one Overpass query — one round
+    // trip, one time budget, several niches swept at once. Capped at 4 types so
+    // heavy combos can't push the query past the mirror timeout.
+    const types = data.businessType
+      .split(/,|\/| \+ | and /i)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 4);
+    const filters = Array.from(new Set((types.length ? types : [data.businessType]).flatMap((t) => osmFilters(t))));
     // Overpass bbox order is (south,west,north,east).
     const bbox = `${box.s},${box.w},${box.n},${box.e}`;
     const clauses = filters
@@ -3824,7 +3906,7 @@ export const discoverLeads = createServerFn({ method: "POST" })
     // map service" the scanner reported). At 11s the mirror returns whatever it has
     // — or a clean timeout — inside our budget, so heavy combos fail fast instead of
     // hanging, and every combo that CAN finish returns its results.
-    const ql = `[out:json][timeout:11];\n(\n${clauses}\n);\nout center tags 60;`;
+    const ql = `[out:json][timeout:11];\n(\n${clauses}\n);\nout center tags 80;`;
 
     let elements: any[] = [];
     try {
@@ -3849,8 +3931,24 @@ export const discoverLeads = createServerFn({ method: "POST" })
     ).results ?? [];
     const existingNames = new Set(existing.map((c) => normName(c.name)));
     const existingPhones = new Set(existing.map((c) => normPhone(c.phone)).filter(Boolean));
+    // Third identity axis: website domain. Businesses often list slightly
+    // different names ("Joe's Roofing" vs "Joes Roofing LLC") but the same site.
+    const domainOf = (w: string | null | undefined): string => {
+      const t = (w ?? "").trim();
+      if (!t) return "";
+      try {
+        return new URL(/^https?:\/\//i.test(t) ? t : `https://${t}`).hostname
+          .replace(/^www\./, "")
+          .toLowerCase();
+      } catch {
+        return "";
+      }
+    };
+    const existingDomains = new Set(existing.map((c) => domainOf(c.website)).filter(Boolean));
 
     const seen = new Set<string>();
+    const seenPhones = new Set<string>();
+    const seenDomains = new Set<string>();
     const leads: DiscoveredLead[] = elements
       .map((el) => {
         const tags: Record<string, string> = el.tags ?? {};
@@ -3870,7 +3968,8 @@ export const discoverLeads = createServerFn({ method: "POST" })
         });
         const already =
           existingNames.has(normName(name)) ||
-          (normPhone(phone) ? existingPhones.has(normPhone(phone)) : false);
+          (normPhone(phone) ? existingPhones.has(normPhone(phone)) : false) ||
+          (domainOf(website) ? existingDomains.has(domainOf(website)) : false);
         return {
           place_id: `${el.type}/${el.id}`,
           name,
@@ -3887,6 +3986,7 @@ export const discoverLeads = createServerFn({ method: "POST" })
           reasons: scored.reasons,
           already_in_crm: already,
           website_dead: null as boolean | null,
+          website_issues: [] as string[],
         };
       })
       .filter((l) => {
@@ -3894,6 +3994,18 @@ export const discoverLeads = createServerFn({ method: "POST" })
         const key = normName(l.name);
         if (seen.has(key)) return false; // OSM can return node+way for the same place
         seen.add(key);
+        // Same phone or same website domain under a different name = same
+        // business; keep only the first (highest-scoring after sort) copy.
+        const ph = normPhone(l.phone);
+        if (ph) {
+          if (seenPhones.has(ph)) return false;
+          seenPhones.add(ph);
+        }
+        const dom = domainOf(l.website);
+        if (dom) {
+          if (seenDomains.has(dom)) return false;
+          seenDomains.add(dom);
+        }
         return true;
       })
       .sort((a, b) => b.score - a.score)
@@ -3905,17 +4017,23 @@ export const discoverLeads = createServerFn({ method: "POST" })
     // "website is down — prime redesign target" and re-scores it accordingly.
     const withSites = leads.filter((l) => l.website && !l.already_in_crm).slice(0, 10);
     if (withSites.length > 0) {
-      const statuses = await probeWebsitesBatch(
+      const audits = await auditWebsitesBatch(
         withSites.map((l) => l.website as string),
         6000,
       );
       for (const l of withSites) {
-        const status = statuses.get(l.website as string);
-        if (!status) continue;
-        l.website_dead = status === "dead";
+        const audit = audits.get(l.website as string);
+        if (!audit) continue;
+        l.website_dead = audit.status === "dead";
+        l.website_issues = audit.issues;
+        // Contact info harvested from the page fills gaps OSM left — an email
+        // turns an uncallable lead into a workable one.
+        if (!l.email && audit.email) l.email = audit.email;
+        if (!l.phone && audit.phone) l.phone = audit.phone;
         const rescored = discoveryScore({
           hasWebsite: true,
           websiteDead: l.website_dead,
+          websiteIssues: audit.issues,
           industry: l.industry,
           rating: null,
           reviews: null,
