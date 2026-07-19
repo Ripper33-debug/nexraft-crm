@@ -106,6 +106,10 @@ function LeadCard({
             <span className="truncate text-sm font-semibold text-bone">{lead.name}</span>
             {!lead.website ? (
               <Pill tone="ok">No website</Pill>
+            ) : lead.website_dead === true && lead.domain_expired === true ? (
+              <span className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-300">
+                Domain expired
+              </span>
             ) : lead.website_dead === true ? (
               <Pill tone="warn">Site is down</Pill>
             ) : lead.website_issues.length > 0 ? (

@@ -523,6 +523,10 @@ export type DiscoverySignals = {
   // as strong a buyer signal as no site at all). false = probed and alive.
   // null/undefined = not probed, so scoring falls back to URL presence alone.
   websiteDead?: boolean | null;
+  // true = the listed site is dead AND its domain no longer resolves in DNS at
+  // all — the domain expired or was dropped. The strongest "they need a new
+  // site" signal a dead site can carry: whatever they had is gone for good.
+  domainExpired?: boolean | null;
   // Pitchable defects found by analyzeSiteHtml (outdated, DIY builder, not
   // mobile-friendly, ...). Only meaningful when the site was fetched and alive.
   websiteIssues?: string[] | null;
@@ -544,6 +548,13 @@ export function discoveryScore(sig: DiscoverySignals): OpportunityScore {
   if (!sig.hasWebsite) {
     score += 32;
     reasons.push("No website yet — prime target");
+  } else if (sig.websiteDead === true && sig.domainExpired === true) {
+    // Domain gone from DNS entirely: they once paid for a site and the whole
+    // thing lapsed. Slots between "no site" (32) and "server down" (28) — the
+    // old site is unrecoverable, so this is effectively a no-site lead that has
+    // already proven it will pay for web work.
+    score += 30;
+    reasons.push("Domain expired — their old site is gone for good");
   } else if (sig.websiteDead === true) {
     score += 28;
     reasons.push("Website is down — prime redesign target");

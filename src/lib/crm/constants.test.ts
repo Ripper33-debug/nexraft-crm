@@ -619,3 +619,42 @@ describe("discoveryScore — social + proven-industry + review signals", () => {
     expect(busy.reasons.some((r) => r.includes("212 reviews"))).toBe(true);
   });
 });
+
+describe("discoveryScore — expired-domain signal", () => {
+  const base = { industry: null, rating: null, reviews: null, hasPhone: true };
+
+  it("scores an expired domain above a merely-down site, below no site at all", () => {
+    const noSite = discoveryScore({ ...base, hasWebsite: false });
+    const expired = discoveryScore({
+      ...base,
+      hasWebsite: true,
+      websiteDead: true,
+      domainExpired: true,
+    });
+    const justDown = discoveryScore({ ...base, hasWebsite: true, websiteDead: true });
+    expect(expired.score).toBeGreaterThan(justDown.score);
+    expect(noSite.score).toBeGreaterThan(expired.score);
+    expect(expired.reasons.some((r) => r.includes("Domain expired"))).toBe(true);
+  });
+
+  it("never fires on a live site, even if the flag is stale", () => {
+    const live = discoveryScore({
+      ...base,
+      hasWebsite: true,
+      websiteDead: false,
+      domainExpired: true,
+    });
+    expect(live.reasons.some((r) => r.includes("Domain expired"))).toBe(false);
+  });
+
+  it("still stacks the social boost on top (expired domain counts as dead)", () => {
+    const s = discoveryScore({
+      ...base,
+      hasWebsite: true,
+      websiteDead: true,
+      domainExpired: true,
+      socials: ["Facebook"],
+    });
+    expect(s.reasons.some((r) => r.includes("marketing-minded"))).toBe(true);
+  });
+});

@@ -30,6 +30,7 @@ import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
 import { isStripeConfigured, stripeFetch } from "./stripe.server";
 import { isPlacesConfigured, fetchPlaceRatings } from "./places.server";
+import { isYelpConfigured, fetchYelpRatings } from "./yelp.server";
 
 const WON_STAGE = "Launched";
 const LOST_STAGE = "Lost";
@@ -3427,6 +3428,9 @@ export type DiscoveredLead = {
   // true = listed website was probed and is down; false = probed and alive;
   // null = has no website, or the probe didn't run (time budget).
   website_dead: boolean | null;
+  // true = the dead site's domain no longer resolves in DNS at all (expired /
+  // dropped). Only ever true when website_dead is true; null = not checked.
+  domain_expired: boolean | null;
   // Pitchable defects the audit found on a live site (DIY builder, no mobile
   // support, stale copyright, ...). Empty when un-audited or clean.
   website_issues: string[];
@@ -3560,15 +3564,54 @@ async function probeWebsitesBatch(
 // sitting in the page. One GET per site, hard per-fetch timeout, body capped.
 type SiteAudit = {
   status: "live" | "dead";
+  // Only meaningful on dead sites: true = the hostname doesn't resolve in DNS
+  // at all, i.e. the domain expired or was dropped — a stronger signal than a
+  // server that's merely down, because whatever site existed is gone for good.
+  domainExpired: boolean;
   issues: string[];
   email: string | null;
   phone: string | null;
 };
 
+// Free tie-breaker for dead sites: a fetch can fail because a server is down
+// (recoverable — maybe they're mid-migration) or because the domain itself no
+// longer exists in DNS (they stopped paying for it). Costs one DNS query, no
+// API, no key. Dynamic import keeps node:dns out of the client bundle.
+async function domainGone(raw: string): Promise<boolean> {
+  const url = normalizeProbeUrl(raw);
+  if (!url) return false;
+  try {
+    const { lookup } = await import("node:dns/promises");
+    await lookup(new URL(url).hostname);
+    return false; // resolves — server-side problem, not an expired domain
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException | null)?.code ?? "";
+    // Only the "this name does not exist" family counts. Resolver hiccups
+    // (SERVFAIL, timeouts) prove nothing and must not inflate the signal.
+    return code === "ENOTFOUND" || code === "ENODATA";
+  }
+}
+
 async function auditWebsite(raw: string, timeoutMs = 5000): Promise<SiteAudit | null> {
   const url = normalizeProbeUrl(raw);
   if (!url) return null; // not a checkable URL — leave unknown
-  const dead: SiteAudit = { status: "dead", issues: [], email: null, phone: null };
+  // Two flavors of dead: the server answered with a clearly-broken status
+  // (domain still exists → not expired), or nothing answered at all (worth one
+  // DNS query to learn whether the domain itself is gone).
+  const deadResponding: SiteAudit = {
+    status: "dead",
+    domainExpired: false,
+    issues: [],
+    email: null,
+    phone: null,
+  };
+  const deadUnreachable = async (): Promise<SiteAudit> => ({
+    status: "dead",
+    domainExpired: await domainGone(raw),
+    issues: [],
+    email: null,
+    phone: null,
+  });
   const attempt = (u: string) =>
     fetchWithTimeout(
       u,
@@ -3582,15 +3625,15 @@ async function auditWebsite(raw: string, timeoutMs = 5000): Promise<SiteAudit | 
   } catch {
     // https failed → one retry over plain http; a site alive only on http gets
     // "No HTTPS" recorded as its first strike.
-    if (!url.startsWith("https://")) return dead;
+    if (!url.startsWith("https://")) return deadUnreachable();
     try {
       res = await attempt(url.replace(/^https:\/\//, "http://"));
       https = false;
     } catch {
-      return dead;
+      return deadUnreachable();
     }
   }
-  if (res.status === 404 || res.status === 410 || res.status >= 500) return dead;
+  if (res.status === 404 || res.status === 410 || res.status >= 500) return deadResponding;
   let html = "";
   try {
     html = (await res.text()).slice(0, 200_000);
@@ -3598,7 +3641,13 @@ async function auditWebsite(raw: string, timeoutMs = 5000): Promise<SiteAudit | 
     // Alive but unreadable (encoding, stream cut) — still counts as live.
   }
   const analysis = analyzeSiteHtml(html, { https });
-  return { status: "live", issues: analysis.issues, email: analysis.email, phone: analysis.phone };
+  return {
+    status: "live",
+    domainExpired: false,
+    issues: analysis.issues,
+    email: analysis.email,
+    phone: analysis.phone,
+  };
 }
 
 // Audit a batch with a hard overall deadline, same contract as
@@ -4048,6 +4097,7 @@ async function discoverLeadsCore(
           reasons: scored.reasons,
           already_in_crm: already,
           website_dead: null as boolean | null,
+          domain_expired: null as boolean | null,
           website_issues: [] as string[],
           socials: social.platforms,
           social_url: social.url,
@@ -4089,6 +4139,7 @@ async function discoverLeadsCore(
         const audit = audits.get(l.website as string);
         if (!audit) continue;
         l.website_dead = audit.status === "dead";
+        l.domain_expired = audit.status === "dead" ? audit.domainExpired : false;
         l.website_issues = audit.issues;
         // Contact info harvested from the page fills gaps OSM left — an email
         // turns an uncallable lead into a workable one.
@@ -4097,6 +4148,7 @@ async function discoverLeadsCore(
         const rescored = discoveryScore({
           hasWebsite: true,
           websiteDead: l.website_dead,
+          domainExpired: l.domain_expired,
           websiteIssues: audit.issues,
           industry: l.industry,
           rating: null,
@@ -4117,34 +4169,58 @@ async function discoverLeadsCore(
     // business is busy and making money" signal we can get — a 200-review roofer
     // with a bad site outranks a 3-review one every time. Best-effort under a
     // hard deadline, same as the audits; unmatched lookups just skip the signal.
+    const targets = leads.filter((l) => !l.already_in_crm).slice(0, 12);
+    const queryFor = (l: DiscoveredLead) => `${l.name}, ${l.city ?? area}`;
+    const rescoreWithReviews = (l: DiscoveredLead) => {
+      const rescored = discoveryScore({
+        hasWebsite: Boolean(l.website),
+        websiteDead: l.website_dead,
+        domainExpired: l.domain_expired,
+        websiteIssues: l.website_issues,
+        industry: l.industry,
+        rating: l.rating,
+        reviews: l.reviews,
+        hasPhone: Boolean(l.phone),
+        socials: l.socials,
+        provenIndustry: industryMatchesAny(l.industry, proven),
+      });
+      l.score = rescored.score;
+      l.band = rescored.band;
+      l.reasons = rescored.reasons;
+    };
+    let changed = false;
     if (isPlacesConfigured()) {
-      const targets = leads.filter((l) => !l.already_in_crm).slice(0, 12);
-      const queryFor = (l: DiscoveredLead) => `${l.name}, ${l.city ?? area}`;
       const ratings = await fetchPlaceRatings(targets.map(queryFor), 5000);
-      let changed = false;
       for (const l of targets) {
         const r = ratings.get(queryFor(l));
         if (!r) continue;
         l.rating = r.rating;
         l.reviews = r.reviews;
-        const rescored = discoveryScore({
-          hasWebsite: Boolean(l.website),
-          websiteDead: l.website_dead,
-          websiteIssues: l.website_issues,
-          industry: l.industry,
-          rating: l.rating,
-          reviews: l.reviews,
-          hasPhone: Boolean(l.phone),
-          socials: l.socials,
-          provenIndustry: industryMatchesAny(l.industry, proven),
-        });
-        l.score = rescored.score;
-        l.band = rescored.band;
-        l.reasons = rescored.reasons;
+        rescoreWithReviews(l);
         changed = true;
       }
-      if (changed) leads.sort((a, b) => b.score - a.score);
     }
+
+    // Yelp fallback (free tier, gated on YELP_API_KEY): covers whatever Google
+    // couldn't — key not set, daily quota burned, or individual lookups that
+    // timed out / missed. Same signal (rating + review count), same deadline
+    // contract, so the scoring path doesn't care which service answered.
+    const uncovered = targets.filter((l) => l.reviews === null || l.reviews === undefined);
+    if (isYelpConfigured() && uncovered.length > 0) {
+      const yelp = await fetchYelpRatings(
+        uncovered.map((l) => ({ key: l.place_id, term: l.name, location: l.city ?? area })),
+        4000,
+      );
+      for (const l of uncovered) {
+        const r = yelp.get(l.place_id);
+        if (!r) continue;
+        l.rating = r.rating;
+        l.reviews = r.reviews;
+        rescoreWithReviews(l);
+        changed = true;
+      }
+    }
+    if (changed) leads.sort((a, b) => b.score - a.score);
 
     return { ok: true as const, leads };
 }
