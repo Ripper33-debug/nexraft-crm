@@ -3,17 +3,17 @@ import { useEffect, useRef } from "react";
 /**
  * OrbStage — the whole Discover page, as a living scene.
  *
- * One molten "LEADS" orb burns in the middle. Every teammate floats around it
- * as a named orb on a slow orbit. When the radar lands a lead and assigns it,
- * the center fires a bright lead-orb across the void at that rep's orb — it
- * impacts with a flash ring, the rep's tally ticks up, and the lead's name
- * drifts off the impact point. Unassigned imports burst at the center instead.
+ * A molten "LEADS" star burns in the middle of a slow starfield, wrapped in a
+ * rotating flare ring. Every teammate rides the orbit ring around it as a
+ * rim-lit orb with their name and session tally. Energy motes stream along the
+ * tethers from the core out to each rep. When the radar lands a lead, the core
+ * fires a spark-trailing comet at the assigned rep — it detonates in a particle
+ * burst, the tally ticks up, and the lead's name drifts off the impact.
  *
- * While the scan is live everything burns brighter and orbits faster; switched
- * off, the scene cools down and idles.
+ * Live: everything burns hot and spins faster. Off: the system cools and idles.
  *
- * Same canvas hygiene as the Embers layer: client-only, static single frame
- * for prefers-reduced-motion, paused when the tab is hidden, DPR-capped,
+ * Canvas hygiene (same as the Embers layer): client-only, a static frame for
+ * prefers-reduced-motion, paused when the tab is hidden, DPR capped at 2,
  * ResizeObserver-sized to its parent, fully cleaned up on unmount.
  */
 
@@ -40,7 +40,6 @@ export function OrbStage({
   }, [live]);
 
   useEffect(() => {
-    // Queue any feed entries we haven't animated yet, newest last.
     for (const ev of feed) {
       if (ev.id > lastEventId.current) {
         eventQueue.current.push(ev);
@@ -79,6 +78,7 @@ export function OrbStage({
     resize();
     const ro = new ResizeObserver(() => {
       resize();
+      seedStars();
       if (reduced.matches) drawStatic();
     });
     if (canvas.parentElement) ro.observe(canvas.parentElement);
@@ -86,10 +86,11 @@ export function OrbStage({
     // ---- Scene state ----
     type Rep = {
       name: string;
-      angle: number; // position on the orbit
-      wobble: number; // personal bob phase
-      count: number; // leads landed on this orb this session
+      angle: number;
+      wobble: number;
+      count: number;
       flash: number; // 1 → 0 impact flash
+      spark: number; // phase of the little satellite spark circling the orb
       x: number;
       y: number;
       r: number;
@@ -100,21 +101,28 @@ export function OrbStage({
       wobble: Math.random() * Math.PI * 2,
       count: 0,
       flash: 0,
+      spark: Math.random() * Math.PI * 2,
       x: 0,
       y: 0,
       r: 30,
     }));
 
     type Shot = {
-      t: number; // 0..1 progress
+      t: number;
       speed: number;
       sx: number;
       sy: number;
-      curve: number; // sideways bow of the flight path
-      target: Rep | null; // null → unassigned, bursts at center
+      curve: number;
+      target: Rep | null;
       lead: string;
+      px: number; // last drawn position, for spark trails
+      py: number;
     };
     const shots: Shot[] = [];
+
+    // Free-flying spark particles: comet trails + impact bursts.
+    type Particle = { x: number; y: number; vx: number; vy: number; a: number; fade: number; r: number };
+    const particles: Particle[] = [];
 
     type Floater = { x: number; y: number; vy: number; a: number; text: string };
     const floaters: Floater[] = [];
@@ -122,33 +130,137 @@ export function OrbStage({
     type Ring = { x: number; y: number; r: number; max: number; a: number };
     const rings: Ring[] = [];
 
-    type Mote = { x: number; y: number; r: number; vx: number; vy: number; tw: number; tws: number; a: number };
-    const motes: Mote[] = Array.from({ length: 14 }, () => ({
-      x: Math.random() * (w || 800),
-      y: Math.random() * (h || 500),
-      r: 0.6 + Math.random() * 1.4,
-      vx: (Math.random() - 0.5) * 0.25,
-      vy: (Math.random() - 0.5) * 0.2,
-      tw: Math.random() * Math.PI * 2,
-      tws: 0.008 + Math.random() * 0.02,
-      a: 0.1 + Math.random() * 0.22,
-    }));
+    // Two-layer parallax starfield + a few warm nebula patches.
+    type Star = { x: number; y: number; r: number; v: number; tw: number; tws: number; a: number };
+    let starsFar: Star[] = [];
+    let starsNear: Star[] = [];
+    type Nebula = { x: number; y: number; r: number; a: number; drift: number };
+    let nebulas: Nebula[] = [];
 
-    let orbit = 0; // global orbit rotation
-    let breath = 0; // center orb breathing phase
+    function seedStars() {
+      const W = w || 800;
+      const H = h || 500;
+      const mk = (n: number, rMin: number, rMax: number, vBase: number, aMax: number): Star[] =>
+        Array.from({ length: n }, () => ({
+          x: Math.random() * W,
+          y: Math.random() * H,
+          r: rMin + Math.random() * (rMax - rMin),
+          v: vBase * (0.6 + Math.random() * 0.8),
+          tw: Math.random() * Math.PI * 2,
+          tws: 0.004 + Math.random() * 0.02,
+          a: 0.05 + Math.random() * aMax,
+        }));
+      starsFar = mk(70, 0.4, 1.0, 0.02, 0.2);
+      starsNear = mk(26, 0.9, 1.8, 0.06, 0.3);
+      nebulas = Array.from({ length: 4 }, (_, i) => ({
+        x: (0.15 + 0.7 * Math.random()) * W,
+        y: (0.1 + 0.8 * Math.random()) * H,
+        r: Math.max(W, H) * (0.22 + Math.random() * 0.18),
+        a: 0.05 + Math.random() * 0.04,
+        drift: (i % 2 === 0 ? 1 : -1) * (0.02 + Math.random() * 0.03),
+      }));
+    }
+    seedStars();
+
+    let orbit = 0;
+    let breath = 0;
+    let flare = 0; // rotation of the center flare ring
+    let flow = 0; // phase of the tether energy motes
     let nextIdleSpark = 0;
 
     const FONT = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif";
 
+    const orbitRx = () => Math.max(120, w * 0.36);
+    const orbitRy = () => Math.max(100, h * 0.34);
+
     function layout(now: number) {
       const cx = w / 2;
       const cy = h / 2;
-      const rx = Math.max(120, w * 0.36);
-      const ry = Math.max(100, h * 0.34);
+      const rx = orbitRx();
+      const ry = orbitRy();
       for (const r of repOrbs) {
         const a = r.angle + orbit;
         r.x = cx + Math.cos(a) * rx;
         r.y = cy + Math.sin(a) * ry + Math.sin(now * 0.0011 + r.wobble) * 6;
+      }
+    }
+
+    function drawBackdrop(dim: number) {
+      if (!ctx) return;
+      // Nebula haze
+      for (const n of nebulas) {
+        n.x += n.drift;
+        if (n.x < -n.r) n.x = w + n.r;
+        if (n.x > w + n.r) n.x = -n.r;
+        const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
+        g.addColorStop(0, `rgba(120, 45, 25, ${(n.a * dim).toFixed(3)})`);
+        g.addColorStop(0.6, `rgba(60, 22, 14, ${(n.a * 0.5 * dim).toFixed(3)})`);
+        g.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(n.x - n.r, n.y - n.r, n.r * 2, n.r * 2);
+      }
+      // Stars, far layer then near layer (parallax drift left).
+      for (const layer of [starsFar, starsNear]) {
+        for (const s of layer) {
+          s.x -= s.v;
+          s.tw += s.tws;
+          if (s.x < -2) {
+            s.x = w + 2;
+            s.y = Math.random() * h;
+          }
+          const alpha = s.a * (0.55 + 0.45 * Math.sin(s.tw)) * (0.7 + 0.3 * dim);
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255, 214, 170, ${alpha.toFixed(3)})`;
+          ctx.fill();
+        }
+      }
+    }
+
+    function drawOrbitRing(dim: number) {
+      if (!ctx) return;
+      const cx = w / 2;
+      const cy = h / 2;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(1, orbitRy() / orbitRx());
+      ctx.beginPath();
+      ctx.arc(0, 0, orbitRx(), 0, Math.PI * 2);
+      ctx.restore();
+      ctx.setLineDash([2, 7]);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = `rgba(249, 110, 60, ${(0.14 * dim).toFixed(3)})`;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function drawTethers(dim: number) {
+      if (!ctx) return;
+      const cx = w / 2;
+      const cy = h / 2;
+      for (const r of repOrbs) {
+        // Faint beam that brightens near whichever end the flow is at.
+        const grad = ctx.createLinearGradient(cx, cy, r.x, r.y);
+        grad.addColorStop(0, `rgba(249, 110, 60, ${(0.1 * dim + r.flash * 0.15).toFixed(3)})`);
+        grad.addColorStop(1, `rgba(249, 110, 60, ${(0.02 * dim + r.flash * 0.1).toFixed(3)})`);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(r.x, r.y);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // Energy motes streaming outward along the tether, staggered per rep.
+        const motesN = 3;
+        for (let k = 0; k < motesN; k++) {
+          const t = (flow + k / motesN + r.wobble * 0.15) % 1;
+          const mx = cx + (r.x - cx) * t;
+          const my = cy + (r.y - cy) * t;
+          const ma = Math.sin(Math.PI * t) * (0.35 * dim + r.flash * 0.3);
+          ctx.beginPath();
+          ctx.arc(mx, my, 1.4, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255, 180, 120, ${ma.toFixed(3)})`;
+          ctx.fill();
+        }
       }
     }
 
@@ -162,15 +274,30 @@ export function OrbStage({
 
       ctx.globalCompositeOperation = "lighter";
       // Outer corona
-      const halo = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 2.6);
-      halo.addColorStop(0, `rgba(249, 110, 60, ${(0.22 * dim).toFixed(3)})`);
-      halo.addColorStop(0.5, `rgba(200, 55, 30, ${(0.08 * dim).toFixed(3)})`);
+      const halo = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 2.8);
+      halo.addColorStop(0, `rgba(249, 110, 60, ${(0.24 * dim).toFixed(3)})`);
+      halo.addColorStop(0.5, `rgba(200, 55, 30, ${(0.09 * dim).toFixed(3)})`);
       halo.addColorStop(1, "rgba(0,0,0,0)");
       ctx.fillStyle = halo;
       ctx.beginPath();
-      ctx.arc(cx, cy, R * 2.6, 0, Math.PI * 2);
+      ctx.arc(cx, cy, R * 2.8, 0, Math.PI * 2);
       ctx.fill();
-      // Core
+
+      // Three slow-churning plasma cells inside the core, so the surface moves.
+      for (let i = 0; i < 3; i++) {
+        const pa = now * 0.00035 * (i % 2 === 0 ? 1 : -1) + (i * Math.PI * 2) / 3;
+        const px = cx + Math.cos(pa) * R * 0.35;
+        const py = cy + Math.sin(pa) * R * 0.35;
+        const pg = ctx.createRadialGradient(px, py, 0, px, py, R * 0.7);
+        pg.addColorStop(0, `rgba(255, 170, 100, ${(0.3 * dim).toFixed(3)})`);
+        pg.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = pg;
+        ctx.beginPath();
+        ctx.arc(px, py, R * 0.7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Core body
       const core = ctx.createRadialGradient(cx - R * 0.2, cy - R * 0.25, R * 0.1, cx, cy, R);
       core.addColorStop(0, `rgba(255, 190, 130, ${(0.95 * dim).toFixed(3)})`);
       core.addColorStop(0.45, `rgba(249, 110, 60, ${(0.75 * dim).toFixed(3)})`);
@@ -179,21 +306,40 @@ export function OrbStage({
       ctx.beginPath();
       ctx.arc(cx, cy, R, 0, Math.PI * 2);
       ctx.fill();
+
+      // Rotating flare ring: three bright arc segments circling the core.
+      const ringR = R * 1.35;
+      for (let i = 0; i < 3; i++) {
+        const a0 = flare + (i * Math.PI * 2) / 3;
+        ctx.beginPath();
+        ctx.arc(cx, cy, ringR, a0, a0 + Math.PI * 0.45);
+        ctx.strokeStyle = `rgba(255, 150, 80, ${(0.4 * dim).toFixed(3)})`;
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+      }
+      // Counter-rotating faint outer ring.
+      for (let i = 0; i < 2; i++) {
+        const a0 = -flare * 0.6 + i * Math.PI;
+        ctx.beginPath();
+        ctx.arc(cx, cy, ringR * 1.22, a0, a0 + Math.PI * 0.3);
+        ctx.strokeStyle = `rgba(249, 110, 60, ${(0.2 * dim).toFixed(3)})`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
       ctx.globalCompositeOperation = "source-over";
 
       // Label
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.font = `800 ${Math.round(R * 0.32)}px ${FONT}`;
+      ctx.font = `800 ${Math.round(R * 0.3)}px ${FONT}`;
       ctx.fillStyle = `rgba(20, 8, 4, ${(0.9 * dim).toFixed(3)})`;
       ctx.fillText("LEADS", cx, cy + 1.5);
-      ctx.fillStyle = `rgba(255, 236, 220, ${(0.95 * dim).toFixed(3)})`;
+      ctx.fillStyle = `rgba(255, 240, 226, ${(0.96 * dim).toFixed(3)})`;
       ctx.fillText("LEADS", cx, cy);
 
-      // Idle sparks so the core smolders even between finds.
       if (isLive && now > nextIdleSpark) {
         nextIdleSpark = now + 1400 + Math.random() * 2200;
-        rings.push({ x: cx, y: cy, r: R * 0.9, max: R * 2.2, a: 0.18 });
+        rings.push({ x: cx, y: cy, r: R * 0.9, max: R * 2.4, a: 0.18 });
       }
     }
 
@@ -202,39 +348,86 @@ export function OrbStage({
       const flash = rep.flash;
       const R = rep.r + flash * 8;
       ctx.globalCompositeOperation = "lighter";
-      const halo = ctx.createRadialGradient(rep.x, rep.y, R * 0.2, rep.x, rep.y, R * 2);
-      halo.addColorStop(0, `rgba(249, 110, 60, ${((0.16 + flash * 0.4) * dim).toFixed(3)})`);
+      const halo = ctx.createRadialGradient(rep.x, rep.y, R * 0.2, rep.x, rep.y, R * 2.1);
+      halo.addColorStop(0, `rgba(249, 110, 60, ${((0.15 + flash * 0.45) * dim).toFixed(3)})`);
       halo.addColorStop(1, "rgba(0,0,0,0)");
       ctx.fillStyle = halo;
       ctx.beginPath();
-      ctx.arc(rep.x, rep.y, R * 2, 0, Math.PI * 2);
+      ctx.arc(rep.x, rep.y, R * 2.1, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalCompositeOperation = "source-over";
 
-      const g = ctx.createRadialGradient(rep.x - R * 0.25, rep.y - R * 0.3, R * 0.1, rep.x, rep.y, R);
-      g.addColorStop(0, `rgba(70, 30, 18, ${(0.95 * dim).toFixed(3)})`);
-      g.addColorStop(1, `rgba(24, 10, 6, ${(0.95 * dim).toFixed(3)})`);
+      // Glassy dark body…
+      const g = ctx.createRadialGradient(rep.x - R * 0.3, rep.y - R * 0.35, R * 0.1, rep.x, rep.y, R);
+      g.addColorStop(0, `rgba(82, 36, 22, ${(0.96 * dim).toFixed(3)})`);
+      g.addColorStop(0.7, `rgba(30, 13, 8, ${(0.96 * dim).toFixed(3)})`);
+      g.addColorStop(1, `rgba(18, 8, 5, ${(0.96 * dim).toFixed(3)})`);
       ctx.fillStyle = g;
       ctx.beginPath();
       ctx.arc(rep.x, rep.y, R, 0, Math.PI * 2);
       ctx.fill();
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = `rgba(249, 110, 60, ${((0.35 + flash * 0.6) * dim).toFixed(3)})`;
+      // …with a hot rim light on the side facing the core.
+      const toCore = Math.atan2(h / 2 - rep.y, w / 2 - rep.x);
+      ctx.beginPath();
+      ctx.arc(rep.x, rep.y, R - 0.5, toCore - 1.15, toCore + 1.15);
+      ctx.strokeStyle = `rgba(255, 150, 85, ${((0.5 + flash * 0.5) * dim).toFixed(3)})`;
+      ctx.lineWidth = 1.6;
       ctx.stroke();
+      // Full faint outline.
+      ctx.beginPath();
+      ctx.arc(rep.x, rep.y, R, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(249, 110, 60, ${((0.22 + flash * 0.5) * dim).toFixed(3)})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Tiny satellite spark circling each orb.
+      rep.spark += 0.02 + flash * 0.05;
+      const sx = rep.x + Math.cos(rep.spark) * (R + 6);
+      const sy = rep.y + Math.sin(rep.spark) * (R + 6) * 0.55;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 190, 130, ${((0.5 + flash * 0.4) * dim).toFixed(3)})`;
+      ctx.fill();
 
       // Tally inside the orb.
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.font = `700 ${Math.round(R * 0.62)}px ${FONT}`;
+      ctx.font = `700 ${Math.round(R * 0.58)}px ${FONT}`;
       ctx.fillStyle = `rgba(255, 190, 130, ${((0.85 + flash * 0.15) * dim).toFixed(3)})`;
       ctx.fillText(String(rep.count), rep.x, rep.y + 1);
 
-      // Name under the orb.
-      ctx.font = `600 12px ${FONT}`;
-      ctx.fillStyle = `rgba(255, 226, 205, ${(0.85 * dim).toFixed(3)})`;
-      ctx.fillText(rep.name, rep.x, rep.y + R + 15);
+      // Name plate under the orb.
+      const label = rep.name.toUpperCase();
+      ctx.font = `700 11px ${FONT}`;
+      const tw2 = ctx.measureText(label).width;
+      const plateY = rep.y + R + 16;
+      ctx.fillStyle = `rgba(12, 5, 3, ${(0.55 * dim).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.roundRect(rep.x - tw2 / 2 - 8, plateY - 9, tw2 + 16, 18, 9);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(249, 110, 60, ${((0.2 + flash * 0.4) * dim).toFixed(3)})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = `rgba(255, 226, 205, ${(0.9 * dim).toFixed(3)})`;
+      ctx.fillText(label, rep.x, plateY + 0.5);
 
-      if (rep.flash > 0) rep.flash = Math.max(0, rep.flash - 0.03);
+      if (rep.flash > 0) rep.flash = Math.max(0, rep.flash - 0.025);
+    }
+
+    function burst(x: number, y: number, n: number, power: number) {
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const v = (0.5 + Math.random()) * power;
+        particles.push({
+          x,
+          y,
+          vx: Math.cos(a) * v,
+          vy: Math.sin(a) * v,
+          a: 0.9,
+          fade: 0.015 + Math.random() * 0.02,
+          r: 1 + Math.random() * 1.6,
+        });
+      }
     }
 
     function spawnShot(ev: OrbStageEvent) {
@@ -249,7 +442,10 @@ export function OrbStage({
         curve: (Math.random() - 0.5) * Math.min(w, h) * 0.5,
         target,
         lead: ev.lead,
+        px: w / 2,
+        py: h / 2,
       });
+      burst(w / 2, h / 2, 8, 1.2); // muzzle flash off the core
     }
 
     function stepShots(dim: number) {
@@ -260,48 +456,84 @@ export function OrbStage({
         const tx = s.target ? s.target.x : s.sx;
         const ty = s.target ? s.target.y : s.sy - 40;
         const t = Math.min(1, s.t);
-        // Ease + sideways bow so shots arc instead of tracing straight lines.
         const e = t * t * (3 - 2 * t);
         const px = s.sx + (tx - s.sx) * e + -(ty - s.sy) * 0.0016 * s.curve * Math.sin(Math.PI * t);
         const py = s.sy + (ty - s.sy) * e + (tx - s.sx) * 0.0016 * s.curve * Math.sin(Math.PI * t);
 
         if (t >= 1) {
           shots.splice(i, 1);
-          rings.push({ x: tx, y: ty, r: 6, max: 46, a: 0.5 });
+          rings.push({ x: tx, y: ty, r: 6, max: 52, a: 0.55 });
+          burst(tx, ty, 18, 1.8);
           if (s.target) {
             s.target.count += 1;
             s.target.flash = 1;
-            floaters.push({ x: tx, y: ty - s.target.r - 26, vy: -0.25, a: 1, text: s.lead });
+            floaters.push({ x: tx, y: ty - s.target.r - 30, vy: -0.25, a: 1, text: s.lead });
           } else {
             floaters.push({ x: tx, y: ty - 18, vy: -0.25, a: 1, text: `${s.lead} → pool` });
           }
           continue;
         }
 
+        // Spark trail: shed a particle at the comet's previous position.
+        particles.push({
+          x: s.px,
+          y: s.py,
+          vx: (Math.random() - 0.5) * 0.4,
+          vy: (Math.random() - 0.5) * 0.4,
+          a: 0.6,
+          fade: 0.03,
+          r: 0.8 + Math.random(),
+        });
+        s.px = px;
+        s.py = py;
+
         ctx.globalCompositeOperation = "lighter";
-        // Comet tail
-        const tail = ctx.createRadialGradient(px, py, 0, px, py, 16);
-        tail.addColorStop(0, `rgba(255, 200, 140, ${(0.8 * dim).toFixed(3)})`);
+        const tail = ctx.createRadialGradient(px, py, 0, px, py, 18);
+        tail.addColorStop(0, `rgba(255, 200, 140, ${(0.85 * dim).toFixed(3)})`);
         tail.addColorStop(0.4, `rgba(249, 110, 60, ${(0.35 * dim).toFixed(3)})`);
         tail.addColorStop(1, "rgba(0,0,0,0)");
         ctx.fillStyle = tail;
         ctx.beginPath();
-        ctx.arc(px, py, 16, 0, Math.PI * 2);
+        ctx.arc(px, py, 18, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalCompositeOperation = "source-over";
         ctx.beginPath();
         ctx.arc(px, py, 3.2, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255, 235, 215, ${(0.95 * dim).toFixed(3)})`;
+        ctx.fillStyle = `rgba(255, 238, 220, ${(0.95 * dim).toFixed(3)})`;
         ctx.fill();
       }
     }
 
+    function stepParticles(dim: number) {
+      if (!ctx) return;
+      ctx.globalCompositeOperation = "lighter";
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vx *= 0.98;
+        p.vy *= 0.98;
+        p.a -= p.fade;
+        if (p.a <= 0) {
+          particles.splice(i, 1);
+          continue;
+        }
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 175, 110, ${(p.a * dim).toFixed(3)})`;
+        ctx.fill();
+      }
+      ctx.globalCompositeOperation = "source-over";
+    }
+
     function drawStatic() {
-      // Reduced motion: one calm, motionless frame so the page isn't blank.
       if (!ctx) return;
       ctx.clearRect(0, 0, w, h);
       orbit = 0;
+      drawBackdrop(0.9);
+      drawOrbitRing(0.9);
       layout(0);
+      drawTethers(0.9);
       drawCenter(0, 0.9);
       for (const r of repOrbs) drawRep(r, 0.9);
     }
@@ -326,48 +558,23 @@ export function OrbStage({
       const dim = isLive ? 1 : 0.55;
       orbit += isLive ? 0.0012 : 0.0005;
       breath += isLive ? 0.03 : 0.015;
+      flare += isLive ? 0.008 : 0.003;
+      flow = (flow + (isLive ? 0.004 : 0.0015)) % 1;
 
-      // Motes
-      for (const m of motes) {
-        m.x += m.vx;
-        m.y += m.vy;
-        m.tw += m.tws;
-        if (m.x < -4) m.x = w + 4;
-        if (m.x > w + 4) m.x = -4;
-        if (m.y < -4) m.y = h + 4;
-        if (m.y > h + 4) m.y = -4;
-        const alpha = m.a * dim * (0.5 + 0.5 * Math.sin(m.tw));
-        ctx.beginPath();
-        ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255, 160, 90, ${alpha.toFixed(3)})`;
-        ctx.fill();
-      }
-
+      drawBackdrop(dim);
+      drawOrbitRing(dim);
       layout(now);
-
-      // Faint tether lines center → each rep, so the scene reads as one system.
-      const cx = w / 2;
-      const cy = h / 2;
-      for (const r of repOrbs) {
-        ctx.beginPath();
-        ctx.moveTo(cx, cy);
-        ctx.lineTo(r.x, r.y);
-        ctx.strokeStyle = `rgba(249, 110, 60, ${(0.05 * dim + r.flash * 0.12).toFixed(3)})`;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-
+      drawTethers(dim);
       drawCenter(now, dim);
       for (const r of repOrbs) drawRep(r, dim);
 
-      // Fire anything the radar just found.
       while (eventQueue.current.length > 0) {
         const ev = eventQueue.current.shift();
         if (ev) spawnShot(ev);
       }
       stepShots(dim);
+      stepParticles(dim);
 
-      // Impact / idle rings
       for (let i = rings.length - 1; i >= 0; i--) {
         const r = rings[i];
         r.r += 1.1;
@@ -383,7 +590,6 @@ export function OrbStage({
         ctx.stroke();
       }
 
-      // Drifting lead-name labels
       for (let i = floaters.length - 1; i >= 0; i--) {
         const f = floaters[i];
         f.y += f.vy;

@@ -39,6 +39,15 @@ function DiscoverPage() {
       <div className="relative h-[calc(100dvh-6.5rem)] min-h-[520px] overflow-hidden rounded-2xl border border-line bg-black shadow-2xl shadow-black/40">
         <OrbStage reps={users.map((u) => u.name)} live={live} feed={st.feed} />
 
+        {/* Vignette so the scene falls off into darkness at the edges */}
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 100%)",
+          }}
+        />
+
         {/* Status — top left */}
         <div className="pointer-events-none absolute left-5 top-5 select-none">
           <div className="flex items-center gap-2">
