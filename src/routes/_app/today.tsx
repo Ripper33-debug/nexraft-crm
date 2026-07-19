@@ -160,8 +160,29 @@ function TodayPage() {
       .sort((a, b) => b.score - a.score);
   }, [companies, hasEmail]);
 
+  // My assigned leads still in play — the heart of a rep's day. Owned by me and
+  // not yet closed out: fresh (never called), warm ("maybe"), or waiting on a
+  // callback after a no-answer. This is the company/call pipeline reps actually
+  // work; the deal- and task-based sections below never surface it, which is why
+  // an actively-working rep could see an empty "all caught up" day.
+  const myLeads = useMemo(() => {
+    const rank: Record<string, number> = { no_answer: 0, maybe: 1, "": 2 };
+    return (companies as Row[])
+      .filter((c) => {
+        if (!meId || c.owner_id !== meId) return false;
+        const o = (c.call_outcome as string | null) ?? "";
+        return o === "" || o === "maybe" || o === "no_answer";
+      })
+      .map((c) => ({ row: c, outcome: (c.call_outcome as string | null) ?? "" }))
+      .sort((a, b) => (rank[a.outcome] ?? 3) - (rank[b.outcome] ?? 3));
+  }, [companies, meId]);
+
   const nothing =
-    myFollowups.length === 0 && myStale.length === 0 && myRenewals.length === 0 && hotPool.length === 0;
+    myLeads.length === 0 &&
+    myFollowups.length === 0 &&
+    myStale.length === 0 &&
+    myRenewals.length === 0 &&
+    hotPool.length === 0;
 
   return (
     <div className="space-y-5">
@@ -170,7 +191,14 @@ function TodayPage() {
         subtitle="Everything with your name on it that needs a nudge today — follow-ups, deals going cold, renewals, and hot leads up for grabs."
       />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <SummaryCard
+          label="Leads to work"
+          value={String(myLeads.length)}
+          sub="assigned to you"
+          accent={myLeads.length > 0}
+          hint="Companies you own that still need a call or a nudge."
+        />
         <SummaryCard
           label="Follow-ups due"
           value={String(myFollowups.length)}
@@ -209,6 +237,35 @@ function TodayPage() {
           </div>
         </Card>
       ) : null}
+
+      <Section
+        title="Leads to work"
+        icon="📞"
+        count={myLeads.length}
+        emptyLine="No leads assigned to you right now — grab some from Opportunities or Discover."
+      >
+        {myLeads.map(({ row: c, outcome }) => {
+          const label =
+            outcome === "no_answer" ? "Call back" : outcome === "maybe" ? "Warm — follow up" : "New — call";
+          const tone: "warn" | "neutral" | "signal" =
+            outcome === "no_answer" ? "warn" : outcome === "maybe" ? "neutral" : "signal";
+          return (
+            <li key={c.id as string} className="px-4 py-2.5">
+              <Link to="/calls" className="flex items-center justify-between gap-3 hover:opacity-90">
+                <div className="min-w-0">
+                  <div className="truncate text-sm text-bone">{(c.name as string) || "Untitled"}</div>
+                  <div className="truncate text-xs text-faint">
+                    {(c.industry as string) || "—"}
+                    {c.city ? ` · ${c.city as string}` : ""}
+                    {c.phone ? ` · ${c.phone as string}` : " · no phone on file"}
+                  </div>
+                </div>
+                <Pill tone={tone}>{label}</Pill>
+              </Link>
+            </li>
+          );
+        })}
+      </Section>
 
       <Section
         title="Follow-ups due"
