@@ -124,10 +124,11 @@
   /* ---- Themeable app-shell surfaces (warm Dark is the default) ---- */
   color-scheme: dark;
   --nx-body-bg: #0b0a08;
-  /* Restrained warm glow — a whisper of orange depth, not an aurora. */
+  /* Ember Command atmosphere: one warm light source bleeding from the top-left
+   * plus a faint answering glow bottom-right. Depth without visual noise. */
   --nx-body-glow:
-    radial-gradient(1000px 560px at 84% -12%, rgba(249, 83, 30, 0.06), transparent 60%),
-    radial-gradient(900px 520px at -6% 4%, rgba(150, 90, 50, 0.03), transparent 60%);
+    radial-gradient(1100px 520px at 18% -8%, rgba(249, 83, 30, 0.075), transparent 62%),
+    radial-gradient(900px 700px at 100% 110%, rgba(249, 83, 30, 0.035), transparent 60%);
   /* Fine film grain — echoes the noise texture on nexraft.com's hero. */
   --nx-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
 }
@@ -199,4 +200,91 @@
 }
 .nx-rise {
   animation: nx-rise 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ---------------- Ember Command interaction layer ---------------- */
+
+/* Cursor-tracking spotlight: cards set --mx/--my from a pointermove handler and
+ * this overlay lights the glass right where the cursor is. Pure decoration —
+ * pointer-events: none, sits above content but is a near-transparent wash. */
+.nx-spot {
+  position: relative;
+}
+.nx-spot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.4s;
+  pointer-events: none;
+  z-index: 1;
+  background: radial-gradient(
+    340px circle at var(--mx, 50%) var(--my, 50%),
+    rgba(249, 83, 30, 0.09),
+    transparent 65%
+  );
+}
+.nx-spot:hover::after {
+  opacity: 1;
+}
+
+/* Glowing border that follows the cursor along the card edge. Rendered by a
+ * dedicated child element (the mask trick needs its own box). */
+.nx-edge {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  opacity: 0;
+  transition: opacity 0.4s;
+  pointer-events: none;
+  z-index: 2;
+  background: radial-gradient(
+    240px circle at var(--mx, 50%) var(--my, 50%),
+    rgba(249, 83, 30, 0.55),
+    transparent 70%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+.nx-spot:hover .nx-edge {
+  opacity: 1;
+}
+
+/* Hero KPI numeral: molten gradient with a soft ember glow. */
+.nx-molten {
+  background: linear-gradient(180deg, #fff2ea, var(--color-signal-top) 85%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 20px rgba(249, 83, 30, 0.22));
+}
+
+/* Live ticker tape: edge-faded, pauses on hover. */
+.nx-ticker {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+}
+.nx-tape {
+  display: inline-flex;
+  gap: 52px;
+  white-space: nowrap;
+  animation: nx-tape 38s linear infinite;
+  will-change: transform;
+}
+.nx-ticker:hover .nx-tape {
+  animation-play-state: paused;
+}
+@keyframes nx-tape {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+/* Everything decorative respects reduced-motion. */
+@media (prefers-reduced-motion: reduce) {
+  .nx-tape { animation: none; }
+  .nx-spot::after, .nx-edge { display: none; }
 }

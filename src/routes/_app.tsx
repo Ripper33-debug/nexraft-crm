@@ -9,6 +9,7 @@ import { Wordmark } from "../components/crm/brand";
 import { Toaster } from "../components/crm/toast";
 import { WelcomeTour } from "../components/crm/tour";
 import { AutoDiscovery } from "../components/crm/auto-discovery";
+import { Embers } from "../components/crm/embers";
 import { useLiveRefresh, subscribeSyncing, isBackgroundSyncing } from "../lib/crm/live";
 import { useKonamiCode, installConsoleEgg } from "../lib/crm/easter-eggs";
 
@@ -248,6 +249,7 @@ function AppLayout() {
 
   return (
     <div className="flex min-h-dvh bg-ink">
+      <Embers />
       <RouteProgress />
       <Toaster />
       <AutoDiscovery />

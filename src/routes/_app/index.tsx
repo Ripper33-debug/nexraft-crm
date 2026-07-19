@@ -83,6 +83,36 @@ function TrendCard({
   );
 }
 
+// Live ticker tape — an editorial, stock-ticker style strip of the latest team
+// activity. Content is duplicated once so the -50% translate loop is seamless;
+// the .nx-ticker mask fades the edges and hovering pauses the tape. Decorative
+// (aria-hidden) — the full activity feed below remains the accessible record.
+function LiveTicker({ feed }: { feed: FeedRow[] }) {
+  const items = feed.slice(0, 12);
+  if (items.length < 3) return null;
+  const tape = (keyPrefix: string) =>
+    items.map((e) => (
+      <span key={`${keyPrefix}-${e.id}`} className="inline-flex items-center gap-2 text-xs">
+        <span
+          className="h-1.5 w-1.5 rounded-full"
+          style={{ backgroundColor: feedDot(e.verb) }}
+        />
+        <span className="font-mono uppercase tracking-wider text-faint">
+          {relativeTime(e.created_at)}
+        </span>
+        <span className="text-mute">{e.summary}</span>
+      </span>
+    ));
+  return (
+    <div className="nx-ticker mt-4 border-y border-line/60 py-2" aria-hidden="true">
+      <div className="nx-tape">
+        {tape("a")}
+        {tape("b")}
+      </div>
+    </div>
+  );
+}
+
 // A time-of-day greeting. Computed after mount so SSR and client agree.
 function useGreeting(): string {
   const [greeting, setGreeting] = useState("Welcome back");
@@ -263,6 +293,8 @@ function Dashboard() {
           <p className="mt-1 text-sm text-mute">Here's how your team's pipeline is tracking.</p>
         </div>
       </div>
+
+      <LiveTicker feed={d.feed as FeedRow[]} />
 
       <TodayBoard
         companies={d.companies as Row[]}

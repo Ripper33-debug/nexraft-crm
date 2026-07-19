@@ -92,14 +92,25 @@ export function Button({
   );
 }
 
+// Shared pointer handler: feeds the cursor position into CSS vars so the
+// .nx-spot spotlight and .nx-edge border glow track the mouse (Ember Command).
+function trackPointer(e: React.PointerEvent<HTMLDivElement>) {
+  const el = e.currentTarget;
+  const r = el.getBoundingClientRect();
+  el.style.setProperty("--mx", `${e.clientX - r.left}px`);
+  el.style.setProperty("--my", `${e.clientY - r.top}px`);
+}
+
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
   return (
     <div
+      onPointerMove={trackPointer}
       className={cx(
-        "rounded-xl border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.3),0_8px_24px_-16px_rgba(0,0,0,0.6),inset_0_1px_0_0_rgba(255,255,255,0.03)]",
+        "nx-spot rounded-xl border border-line bg-gradient-to-br from-[#181512] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.3),0_8px_24px_-16px_rgba(0,0,0,0.6),inset_0_1px_0_0_rgba(255,255,255,0.03)] transition-[border-color,box-shadow] duration-300 hover:border-line-strong hover:shadow-[0_16px_40px_-14px_rgba(0,0,0,0.6),0_0_0_1px_rgba(249,83,30,0.1)]",
         className,
       )}
     >
+      <span className="nx-edge" aria-hidden="true" />
       {children}
     </div>
   );
@@ -166,15 +177,31 @@ export function SummaryCard({
   accent?: boolean;
   hint?: string;
 }) {
+  // Ember Command: KPI tiles tilt gently toward the cursor and light up where
+  // it points. Transform is driven inline so it never fights hover classes.
+  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    trackPointer(e);
+    const el = e.currentTarget;
+    const r = el.getBoundingClientRect();
+    const rx = ((e.clientY - r.top) / r.height - 0.5) * -3;
+    const ry = ((e.clientX - r.left) / r.width - 0.5) * 3;
+    el.style.transform = `perspective(900px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(-2px)`;
+  };
+  const onLeave = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.style.transform = "";
+  };
   return (
     <div
+      onPointerMove={onMove}
+      onPointerLeave={onLeave}
       className={cx(
-        "group relative overflow-hidden rounded-xl border p-4 transition-all duration-200 hover:-translate-y-0.5",
+        "nx-spot group relative overflow-hidden rounded-xl border p-4 transition-[border-color,box-shadow,transform] duration-300 will-change-transform",
         accent
           ? "border-signal/25 bg-gradient-to-br from-signal-soft/50 via-surface to-surface shadow-[0_8px_30px_-18px_rgba(249,83,30,0.6)] hover:shadow-[0_14px_36px_-16px_rgba(249,83,30,0.7)]"
-          : "border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.3)] hover:border-line-strong hover:shadow-[0_12px_30px_-16px_rgba(0,0,0,0.7)]",
+          : "border-line bg-gradient-to-br from-[#181512] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.3)] hover:border-line-strong hover:shadow-[0_12px_30px_-16px_rgba(0,0,0,0.7)]",
       )}
     >
+      <span className="nx-edge" aria-hidden="true" />
       {accent ? (
         <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-signal/20 blur-2xl" />
       ) : null}
@@ -185,7 +212,7 @@ export function SummaryCard({
       <div
         className={cx(
           "tnum font-display mt-2 text-[1.7rem] font-semibold leading-none tracking-tight",
-          accent ? "text-signal" : "text-bone",
+          accent ? "nx-molten" : "text-bone",
         )}
       >
         <CountUp value={value} />
