@@ -604,6 +604,9 @@ export const upsertDeal = createServerFn({ method: "POST" })
         .run();
       if (stageChanged) {
         await logStageChange(user, data.id, data.name, prev!.stage, data.stage);
+        // Won → spin up the onboarding project right away so nobody drops the
+        // new client between "signed" and someone opening the Projects board.
+        if (data.stage === WON_STAGE) await syncWonDealProjects();
       }
       return { id: data.id };
     }
@@ -697,6 +700,7 @@ export const setDealStage = createServerFn({ method: "POST" })
       .run();
     if (prev && prev.stage !== data.stage) {
       await logStageChange(user, data.id, prev.name, prev.stage, data.stage);
+      if (data.stage === WON_STAGE) await syncWonDealProjects();
     }
     return { ok: true };
   });
@@ -1194,6 +1198,9 @@ export const setCompanyCallOutcome = createServerFn({ method: "POST" })
             summary: `${user.name} signed ${name}${pkg ? ` on the ${pkg} package` : ""}`,
           });
         }
+        // Kick off onboarding immediately: the won deal gets its project +
+        // standard checklist without waiting for someone to open Projects.
+        await syncWonDealProjects();
       }
     } else if (data.outcome === "not_interested") {
       // A "no" drops the open deal to Lost (leave won deals untouched).
@@ -4880,6 +4887,7 @@ export const PROJECT_STATUSES = ["kickoff", "design", "build", "review", "launch
 
 export const DEFAULT_PROJECT_CHECKLIST = [
   "Kickoff call",
+  "Send deposit invoice",
   "Collect content & branding",
   "Design draft",
   "Client design approval",
@@ -4887,6 +4895,7 @@ export const DEFAULT_PROJECT_CHECKLIST = [
   "Internal QA",
   "Client review",
   "Connect domain & launch",
+  "Send final invoice",
 ] as const;
 
 export type ProjectChecklistItem = { label: string; done: boolean };
@@ -4908,13 +4917,12 @@ export type ProjectRow = {
   updated_at: string;
 };
 
-export const getProjects = createServerFn({ method: "GET" }).handler(async () => {
-  await requireUser();
-  await ensureExtraSchema();
-  // Self-healing sync: every won (Launched-stage) deal gets a project the first
-  // time anyone opens the board. Set-based + NOT EXISTS, so it's a no-op once
-  // created — and it catches every path a deal can be won through (call triage,
-  // pipeline drag, manual edit) without hooks in each one.
+// Every won (Launched-stage) deal gets an onboarding project with the standard
+// checklist. Set-based + NOT EXISTS, so it's a no-op once created. Called the
+// moment a deal is won (pipeline drag, deal edit, call triage "signed") so the
+// new client shows up on the Projects board instantly — and again as a
+// self-healing sweep whenever the board loads, catching any path we missed.
+async function syncWonDealProjects(): Promise<void> {
   const defaultChecklist = JSON.stringify(
     DEFAULT_PROJECT_CHECKLIST.map((label) => ({ label, done: false })),
   );
@@ -4933,6 +4941,12 @@ export const getProjects = createServerFn({ method: "GET" }).handler(async () =>
     )
     .bind(defaultChecklist)
     .run();
+}
+
+export const getProjects = createServerFn({ method: "GET" }).handler(async () => {
+  await requireUser();
+  await ensureExtraSchema();
+  await syncWonDealProjects();
 
   const { results } = await db()
     .prepare(

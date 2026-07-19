@@ -54,6 +54,74 @@ function activeDeal(deals: Row[]): Row | null {
   )[0];
 }
 
+// Industry-specific angles so the pitch lands in the customer's world, not
+// ours. Keyword-matched against the company's industry; generic fallback if
+// nothing hits. `pitch` is the cold-call hook, `ask` a discovery question that
+// shows we get their business.
+type IndustryAngle = { match: RegExp; pitch: string; ask: string };
+const INDUSTRY_ANGLES: IndustryAngle[] = [
+  {
+    match: /plumb|hvac|heating|air condition|electric/i,
+    pitch: `When a pipe bursts or the AC dies, people grab their phone and call whoever shows up first — we build sites that put you at the top of that search with a tap-to-call button front and center.`,
+    ask: `When someone has an emergency, how do they usually find you right now — Google, word of mouth, or something else?`,
+  },
+  {
+    match: /roof|construction|contractor|builder|renovat|remodel/i,
+    pitch: `For jobs this size, homeowners compare two or three companies online before ever calling — a sharp photo gallery of your best work is usually what tips the decision.`,
+    ask: `Do you have photos of recent jobs you're proud of? That's the heart of a site like this.`,
+  },
+  {
+    match: /landscap|lawn|garden|tree|pool|fenc|paving/i,
+    pitch: `Your work is visual — before-and-after photos sell it better than any ad. We build sites that show that off and turn lookers into quote requests.`,
+    ask: `What season brings you the most business — and do you get enough leads lined up before it starts?`,
+  },
+  {
+    match: /restaurant|cafe|coffee|bakery|pizza|food|catering|bar\b/i,
+    pitch: `Most people check the menu on their phone before choosing where to eat — if it's a blurry PDF or out of date, they pick somewhere else. We fix exactly that.`,
+    ask: `Where do your customers see your menu right now, and how easy is it for you to update it?`,
+  },
+  {
+    match: /dent|chiro|clinic|medical|therap|veterinar|optom/i,
+    pitch: `New patients pick a practice from a Google search and book with whoever makes it easiest — we build sites that look trustworthy and let people request an appointment in two taps.`,
+    ask: `How do new patients book with you today — do they have to call during office hours?`,
+  },
+  {
+    match: /salon|barber|spa|beauty|nail|tattoo/i,
+    pitch: `People book where booking is easy. A clean site with your work, prices, and an easy way to book keeps your chair full without you answering DMs all day.`,
+    ask: `How do most clients book right now — calls, Instagram DMs, walk-ins?`,
+  },
+  {
+    match: /gym|fitness|yoga|martial|dance|coach/i,
+    pitch: `Someone deciding to get in shape checks you out online first — class times, prices, what it feels like inside. A great site gets them through the door for that first visit.`,
+    ask: `What's the biggest thing that stops people from showing up for a first session?`,
+  },
+  {
+    match: /auto|mechanic|tire|towing|car wash|detail/i,
+    pitch: `When a car breaks down, people search, skim, and call — we make sure that first impression says "trustworthy" and the phone number is impossible to miss.`,
+    ask: `How much of your work comes from repeat customers versus new people finding you?`,
+  },
+  {
+    match: /clean|maid|janitor|pest|mov(?:ing|er)/i,
+    pitch: `Your customers are comparing quotes from their couch — a professional site with clear services and an instant quote form usually wins that race.`,
+    ask: `How do people ask you for quotes today, and how fast can you usually get back to them?`,
+  },
+  {
+    match: /real estate|realt|property|mortgage/i,
+    pitch: `In your world, your brand is the product — a polished personal site is what makes a seller pick you over the agent with the bus-bench ad.`,
+    ask: `Where do most of your listings and leads come from right now?`,
+  },
+  {
+    match: /law|attorney|legal|account|tax|insur|financ/i,
+    pitch: `Clients in your field hire on trust — a dated website quietly costs you cases to competitors who look more established online.`,
+    ask: `When a potential client looks you up before calling, what do you want them to come away thinking?`,
+  },
+];
+
+function industryAngle(industry: string | null): IndustryAngle | null {
+  if (!industry) return null;
+  return INDUSTRY_ANGLES.find((a) => a.match.test(industry)) ?? null;
+}
+
 // Builds the adaptive talking points from whatever we actually know about the
 // account — its stage, tags, source and history all steer the wording.
 function buildScript(opts: {
@@ -110,7 +178,12 @@ function buildScript(opts: {
     why.push({ kind: "say", text: `I wanted to check in personally and make sure everything's on track on our end.` });
     why.push({ kind: "tip", text: `Flagged at risk — lead with care, not a pitch.` });
   } else {
-    why.push({ kind: "say", text: `I came across ${companyName} and thought a sharper website could really help you stand out${industry ? ` in ${industry.toLowerCase()}` : ""}.` });
+    const angle = industryAngle(industry);
+    if (angle) {
+      why.push({ kind: "say", text: `I came across ${companyName} and wanted to reach out — ${angle.pitch}` });
+    } else {
+      why.push({ kind: "say", text: `I came across ${companyName} and thought a sharper website could really help you stand out${industry ? ` in ${industry.toLowerCase()}` : ""}.` });
+    }
     why.push({ kind: "tip", text: `Cold-ish — earn 30 seconds of curiosity before going further.` });
   }
   sections.push({ heading: "Why you're calling", lines: why });
@@ -125,6 +198,8 @@ function buildScript(opts: {
     ask.push({ kind: "ask", text: `What's working well, and what would you change if you could?` });
     ask.push({ kind: "ask", text: `Anything new coming up where we could help?` });
   } else {
+    const angle = industryAngle(industry);
+    if (angle) ask.push({ kind: "ask", text: angle.ask });
     ask.push({ kind: "ask", text: `What's prompting you to look at your website right now?` });
     ask.push({ kind: "ask", text: `What would a great outcome look like for you?` });
     ask.push({ kind: "ask", text: `Do you have a rough timeline or budget in mind?` });

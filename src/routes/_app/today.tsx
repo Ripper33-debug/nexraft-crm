@@ -177,6 +177,74 @@ function TodayPage() {
       .sort((a, b) => (rank[a.outcome] ?? 3) - (rank[b.outcome] ?? 3));
   }, [companies, meId]);
 
+  // The game plan: one numbered list that answers "what do I do first?" so
+  // nobody has to weigh up the sections below themselves. Priority order:
+  // overdue follow-ups → callbacks → fresh leads → warm maybes → cold deals.
+  type PlanItem = {
+    key: string;
+    title: string;
+    reason: string;
+    to: string;
+    params?: Record<string, string>;
+    chip: string;
+    tone: "danger" | "warn" | "signal" | "neutral";
+  };
+  const plan = useMemo<PlanItem[]>(() => {
+    const items: PlanItem[] = [];
+    for (const f of myFollowups.filter((x) => x.overdue)) {
+      items.push({
+        key: `fu-${f.row.id as string}`,
+        title: (f.row.subject as string) || "Untitled task",
+        reason: `You promised this ${Math.abs(daysBetween(f.due))}d ago — do it before anything else`,
+        to: "/activities",
+        chip: "Overdue",
+        tone: "danger",
+      });
+    }
+    for (const l of myLeads.filter((x) => x.outcome === "no_answer")) {
+      items.push({
+        key: `cb-${l.row.id as string}`,
+        title: l.row.name as string,
+        reason: "They didn't pick up last time — call again, second tries convert",
+        to: "/calls",
+        chip: "Call back",
+        tone: "warn",
+      });
+    }
+    for (const l of myLeads.filter((x) => x.outcome === "")) {
+      items.push({
+        key: `new-${l.row.id as string}`,
+        title: l.row.name as string,
+        reason: `Fresh lead${l.row.industry ? ` — ${(l.row.industry as string).toLowerCase()}` : ""} — never been called, first in wins`,
+        to: "/calls",
+        chip: "First call",
+        tone: "signal",
+      });
+    }
+    for (const l of myLeads.filter((x) => x.outcome === "maybe")) {
+      items.push({
+        key: `mb-${l.row.id as string}`,
+        title: l.row.name as string,
+        reason: "They said maybe — a friendly nudge is often all it takes",
+        to: "/calls",
+        chip: "Warm",
+        tone: "neutral",
+      });
+    }
+    for (const s of myStale) {
+      items.push({
+        key: `st-${s.row.id as string}`,
+        title: s.row.name as string,
+        reason: `Deal hasn't moved in ${s.days}d — check in before it goes cold`,
+        to: "/deals/$dealId",
+        params: { dealId: s.row.id as string },
+        chip: `${s.days}d quiet`,
+        tone: "warn",
+      });
+    }
+    return items.slice(0, 8);
+  }, [myFollowups, myLeads, myStale]);
+
   const nothing =
     myLeads.length === 0 &&
     myFollowups.length === 0 &&
@@ -225,6 +293,38 @@ function TodayPage() {
           hint="High-scoring leads nobody's claimed yet — grab them first."
         />
       </div>
+
+      {plan.length > 0 ? (
+        <Card className="overflow-hidden border-signal/25">
+          <div className="flex items-center justify-between border-b border-line bg-gradient-to-r from-signal-soft/30 to-transparent px-4 py-3">
+            <div className="flex items-center gap-2">
+              <span className="text-base">🎯</span>
+              <Eyebrow>Your game plan — work it top to bottom</Eyebrow>
+            </div>
+            <span className="text-[11px] text-faint">no guesswork, just dial</span>
+          </div>
+          <ol className="divide-y divide-line/60">
+            {plan.map((p, i) => (
+              <li key={p.key}>
+                <Link
+                  to={p.to}
+                  params={p.params}
+                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-surface-2/50"
+                >
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-surface-2 font-mono text-[11px] font-bold text-signal">
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-bone">{p.title}</div>
+                    <div className="truncate text-xs text-faint">{p.reason}</div>
+                  </div>
+                  <Pill tone={p.tone}>{p.chip}</Pill>
+                </Link>
+              </li>
+            ))}
+          </ol>
+        </Card>
+      ) : null}
 
       {nothing ? (
         <Card className="flex items-center gap-3 border-signal/25 bg-gradient-to-br from-signal-soft/40 via-surface to-surface p-5">
