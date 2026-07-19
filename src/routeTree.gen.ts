@@ -25,6 +25,7 @@ import { Route as AppPayrollRouteImport } from './routes/_app/payroll'
 import { Route as AppOpportunitiesRouteImport } from './routes/_app/opportunities'
 import { Route as AppHelpRouteImport } from './routes/_app/help'
 import { Route as AppFollowupsRouteImport } from './routes/_app/followups'
+import { Route as AppEmailsRouteImport } from './routes/_app/emails'
 import { Route as AppDiscoverRouteImport } from './routes/_app/discover'
 import { Route as AppContactsRouteImport } from './routes/_app/contacts'
 import { Route as AppCompaniesRouteImport } from './routes/_app/companies'
@@ -121,6 +122,11 @@ const AppFollowupsRoute = AppFollowupsRouteImport.update({
   path: '/followups',
   getParentRoute: () => AppRoute,
 } as any)
+const AppEmailsRoute = AppEmailsRouteImport.update({
+  id: '/emails',
+  path: '/emails',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppDiscoverRoute = AppDiscoverRouteImport.update({
   id: '/discover',
   path: '/discover',
@@ -214,6 +220,7 @@ export interface FileRoutesByFullPath {
   '/companies': typeof AppCompaniesRouteWithChildren
   '/contacts': typeof AppContactsRouteWithChildren
   '/discover': typeof AppDiscoverRoute
+  '/emails': typeof AppEmailsRoute
   '/followups': typeof AppFollowupsRoute
   '/help': typeof AppHelpRoute
   '/opportunities': typeof AppOpportunitiesRoute
@@ -246,6 +253,7 @@ export interface FileRoutesByTo {
   '/companies': typeof AppCompaniesRouteWithChildren
   '/contacts': typeof AppContactsRouteWithChildren
   '/discover': typeof AppDiscoverRoute
+  '/emails': typeof AppEmailsRoute
   '/followups': typeof AppFollowupsRoute
   '/help': typeof AppHelpRoute
   '/opportunities': typeof AppOpportunitiesRoute
@@ -281,6 +289,7 @@ export interface FileRoutesById {
   '/_app/companies': typeof AppCompaniesRouteWithChildren
   '/_app/contacts': typeof AppContactsRouteWithChildren
   '/_app/discover': typeof AppDiscoverRoute
+  '/_app/emails': typeof AppEmailsRoute
   '/_app/followups': typeof AppFollowupsRoute
   '/_app/help': typeof AppHelpRoute
   '/_app/opportunities': typeof AppOpportunitiesRoute
@@ -317,6 +326,7 @@ export interface FileRouteTypes {
     | '/companies'
     | '/contacts'
     | '/discover'
+    | '/emails'
     | '/followups'
     | '/help'
     | '/opportunities'
@@ -349,6 +359,7 @@ export interface FileRouteTypes {
     | '/companies'
     | '/contacts'
     | '/discover'
+    | '/emails'
     | '/followups'
     | '/help'
     | '/opportunities'
@@ -383,6 +394,7 @@ export interface FileRouteTypes {
     | '/_app/companies'
     | '/_app/contacts'
     | '/_app/discover'
+    | '/_app/emails'
     | '/_app/followups'
     | '/_app/help'
     | '/_app/opportunities'
@@ -535,6 +547,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFollowupsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/emails': {
+      id: '/_app/emails'
+      path: '/emails'
+      fullPath: '/emails'
+      preLoaderRoute: typeof AppEmailsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/discover': {
       id: '/_app/discover'
       path: '/discover'
@@ -681,6 +700,7 @@ interface AppRouteChildren {
   AppCompaniesRoute: typeof AppCompaniesRouteWithChildren
   AppContactsRoute: typeof AppContactsRouteWithChildren
   AppDiscoverRoute: typeof AppDiscoverRoute
+  AppEmailsRoute: typeof AppEmailsRoute
   AppFollowupsRoute: typeof AppFollowupsRoute
   AppHelpRoute: typeof AppHelpRoute
   AppOpportunitiesRoute: typeof AppOpportunitiesRoute
@@ -702,6 +722,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppCompaniesRoute: AppCompaniesRouteWithChildren,
   AppContactsRoute: AppContactsRouteWithChildren,
   AppDiscoverRoute: AppDiscoverRoute,
+  AppEmailsRoute: AppEmailsRoute,
   AppFollowupsRoute: AppFollowupsRoute,
   AppHelpRoute: AppHelpRoute,
   AppOpportunitiesRoute: AppOpportunitiesRoute,

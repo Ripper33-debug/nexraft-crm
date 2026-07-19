@@ -3406,6 +3406,67 @@ export const sendCrmEmail = createServerFn({ method: "POST" })
     return { ok: true as const, messageId: result.messageId, touches };
   });
 
+// Everything the Email tab needs in one round trip: every company with its best
+// contact email pre-joined (so picking a client auto-fills the To field), plus
+// the signed-in rep's recent sends for the "what have I sent" list. The rep's
+// own companies sort first — that's who they're most likely writing to.
+export type EmailTargetRow = {
+  id: string;
+  name: string;
+  industry: string | null;
+  city: string | null;
+  owner_id: string | null;
+  owner_name: string | null;
+  email_touches: number;
+  last_emailed_at: string | null;
+  contact_id: string | null;
+  contact_first_name: string | null;
+  contact_email: string | null;
+};
+
+export type SentEmailRow = {
+  id: string;
+  to_email: string;
+  subject: string | null;
+  created_at: string;
+  company_name: string | null;
+};
+
+export const getEmailWorkspace = createServerFn({ method: "GET" }).handler(async () => {
+  const user = await requireUser();
+  await ensureExtraSchema();
+  const { results: companies } = await db()
+    .prepare(
+      `SELECT c.id, c.name, c.industry, c.city, c.owner_id, u.name AS owner_name,
+              COALESCE(c.email_touches, 0)::int AS email_touches, c.last_emailed_at,
+              ct.id AS contact_id, ct.first_name AS contact_first_name, ct.email AS contact_email
+         FROM companies c
+         LEFT JOIN users u ON u.id = c.owner_id
+         LEFT JOIN LATERAL (
+           SELECT id, first_name, email FROM contacts
+            WHERE company_id = c.id AND archived_at IS NULL
+              AND email IS NOT NULL AND email <> ''
+            ORDER BY first_name LIMIT 1
+         ) ct ON TRUE
+        WHERE c.archived_at IS NULL
+        ORDER BY CASE WHEN c.owner_id = ? THEN 0 ELSE 1 END, c.name`,
+    )
+    .bind(user.id)
+    .all<EmailTargetRow>();
+  const { results: recent } = await db()
+    .prepare(
+      `SELECT se.id, se.to_email, se.subject, se.created_at, co.name AS company_name
+         FROM sent_emails se
+         LEFT JOIN companies co ON co.id = se.company_id
+        WHERE se.sender_id = ?
+        ORDER BY se.created_at DESC
+        LIMIT 25`,
+    )
+    .bind(user.id)
+    .all<SentEmailRow>();
+  return { companies: companies ?? [], recent: recent ?? [] };
+});
+
 // ==================== Lead discovery (Phase 3, OpenStreetMap) ====================
 // On-demand prospecting: a rep searches a city + business type, and we pull real
 // local businesses from OpenStreetMap — name, address, phone, and (crucially)

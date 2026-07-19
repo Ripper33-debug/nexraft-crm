@@ -27,7 +27,7 @@ function RouteProgress() {
           "h-full bg-signal transition-all duration-300 ease-out " +
           (show ? "w-2/3 opacity-100" : "w-full opacity-0")
         }
-        style={{ boxShadow: "0 0 8px rgba(249,83,30,0.6)" }}
+        style={{ boxShadow: "0 0 8px rgba(255,77,28,0.6)" }}
       />
     </div>
   );
@@ -111,6 +111,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/", label: "Dashboard", icon: "M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" },
       { to: "/calls", label: "Calls", icon: "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" },
       { to: "/followups", label: "Follow-ups", icon: "M4 4h16v12H5.17L4 17.17V4zm4 4h8M8 11h5", badgeKey: "followups" },
+      { to: "/emails", label: "Email", icon: "M4 5h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1zm0 2l8 6 8-6" },
       { to: "/pipeline", label: "Pipeline", icon: "M3 6h18M6 12h12M10 18h4" },
       { to: "/opportunities", label: "Opportunities", icon: "M12 3l2.09 4.26L19 8.27l-3.5 3.36.83 4.87L12 14.5l-4.33 2 .83-4.87L5 8.27l4.91-1.01z" },
       { to: "/discover", label: "Discover", icon: "M11 19a8 8 0 100-16 8 8 0 000 16zM21 21l-4.35-4.35" },
@@ -160,12 +161,12 @@ function NavLink({
       className={
         "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150 md:py-2 " +
         (active
-          ? "bg-gradient-to-r from-signal-soft to-signal-soft/30 text-signal shadow-[inset_0_0_0_1px_rgba(249,83,30,0.18)]"
+          ? "bg-gradient-to-r from-signal-soft to-signal-soft/30 text-signal shadow-[inset_0_0_0_1px_rgba(255,77,28,0.18)]"
           : "text-mute hover:bg-surface-2 hover:text-bone")
       }
     >
       {active ? (
-        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-signal shadow-[0_0_8px_rgba(249,83,30,0.7)]" />
+        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-signal shadow-[0_0_8px_rgba(255,77,28,0.7)]" />
       ) : null}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d={item.icon} />
