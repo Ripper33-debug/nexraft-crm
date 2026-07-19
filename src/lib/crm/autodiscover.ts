@@ -26,6 +26,11 @@ export type AutoDiscoverStatus = {
   lastError: string | null;
   lastRunAt: number | null;
   paused: boolean; // hit the session cap
+  // Rolling feed of the most recent auto-imports, newest last. `rep` is the
+  // name of the rep the lead was auto-assigned to (null = landed in the open
+  // pool). The orb stage on /discover watches this to fire lead-orbs from the
+  // center at the right rep.
+  feed: { id: number; lead: string; rep: string | null }[];
 };
 
 // The scan works one state at a time: it sweeps every industry across the whole
@@ -97,7 +102,11 @@ const DEFAULT_STATUS: AutoDiscoverStatus = {
   lastError: null,
   lastRunAt: null,
   paused: false,
+  feed: [],
 };
+
+const FEED_MAX = 8;
+let feedSeq = 0;
 
 let config: AutoDiscoverConfig = DEFAULT_CONFIG;
 let status: AutoDiscoverStatus = DEFAULT_STATUS;
@@ -246,9 +255,14 @@ export async function runAutoDiscovery(
             });
             if (imp.ok && !imp.duplicate) {
               importedNow++;
+              feedSeq++;
               patchStatus({
                 imported: status.imported + 1,
                 assigned: status.assigned + (imp.assignedTo ? 1 : 0),
+                feed: [
+                  ...status.feed.slice(-(FEED_MAX - 1)),
+                  { id: feedSeq, lead: l.name, rep: imp.assignedTo ?? null },
+                ],
               });
             }
           } catch {
