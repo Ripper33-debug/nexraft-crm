@@ -16,6 +16,7 @@ import { NotesThread } from "../../components/crm/notes";
 import { CallMode } from "../../components/crm/call-mode";
 import { RecordAccessButton } from "../../components/crm/record-access";
 import { ArchivedPanel } from "../../components/crm/archived";
+import { DuplicatesPanel } from "../../components/crm/duplicates";
 import { ImportCsvButton } from "../../components/crm/csv-import";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
 import { relativeTime, canEditRecord } from "../../lib/crm/constants";
@@ -254,6 +255,7 @@ function ContactsPage() {
         ) : null}
       </Card>
 
+      <DuplicatesPanel entity="contact" onMerged={() => router.invalidate()} />
       <ArchivedPanel entity="contact" onRestored={() => router.invalidate()} />
 
       <ContactModal

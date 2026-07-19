@@ -32,7 +32,7 @@ export function ImportCsvButton({
 }: {
   label: string;
   fields: ImportField[];
-  onImport: (rows: Record<string, string>[]) => Promise<{ added: number }>;
+  onImport: (rows: Record<string, string>[]) => Promise<{ added: number; skipped?: number }>;
   onDone: () => void;
   sampleHint?: string;
 }) {
@@ -89,7 +89,10 @@ export function ImportCsvButton({
     setBusy(true);
     try {
       const res = await onImport(rows);
-      toast(`Imported ${res.added} ${res.added === 1 ? "record" : "records"}`);
+      const dupeNote = res.skipped
+        ? ` (${res.skipped} duplicate${res.skipped === 1 ? "" : "s"} skipped)`
+        : "";
+      toast(`Imported ${res.added} ${res.added === 1 ? "record" : "records"}${dupeNote}`);
       setOpen(false);
       reset();
       onDone();

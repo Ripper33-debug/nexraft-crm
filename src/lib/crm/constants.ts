@@ -606,3 +606,63 @@ export function pickLeastLoaded(reps: AssigneeLoad[]): AssigneeLoad | null {
   const lightest = reps.filter((r) => r.open_deals === min);
   return lightest[Math.floor(Math.random() * lightest.length)];
 }
+
+// ---------------- duplicate detection ----------------
+// Pure helpers behind the "Duplicates" cleanup panels. The server loads the
+// active records and these group them by normalized identity keys; the UI then
+// offers a merge for each group. Kept here (not data.ts) so they're testable.
+
+// Company identity: letters+digits of the name ("Joe's Pizza" == "Joes Pizza Inc"
+// is NOT collapsed — suffixes count — but case/punctuation/spacing differences are).
+export function companyNameKey(name: string | null | undefined): string {
+  return (name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// Phone identity: digits only, ignoring a leading US country code so
+// "+1 (555) 123-4567" matches "555-123-4567".
+export function phoneKey(phone: string | null | undefined): string {
+  const digits = (phone ?? "").replace(/\D/g, "");
+  return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+}
+
+// Contact identity: email is the strongest signal; fall back to phone.
+export function emailKey(email: string | null | undefined): string {
+  return (email ?? "").trim().toLowerCase();
+}
+
+export type DupeRecord = { id: string };
+
+// Group records by one or more identity keys. A record can join at most one
+// group (first key that matches wins) so merge suggestions never overlap.
+// Returns only groups with 2+ members, largest first.
+export function groupDuplicates<T extends DupeRecord>(
+  records: T[],
+  keysOf: (r: T) => string[],
+): T[][] {
+  const byKey = new Map<string, T[]>();
+  const placed = new Set<string>();
+  for (const r of records) {
+    for (const key of keysOf(r)) {
+      if (!key) continue;
+      if (placed.has(r.id)) break;
+      const bucket = byKey.get(key);
+      if (bucket) {
+        bucket.push(r);
+        placed.add(r.id);
+      } else {
+        byKey.set(key, [r]);
+      }
+    }
+  }
+  const groups: T[][] = [];
+  const seen = new Set<string>();
+  for (const bucket of byKey.values()) {
+    if (bucket.length < 2) continue;
+    const fresh = bucket.filter((r) => !seen.has(r.id));
+    if (fresh.length < 2) continue;
+    for (const r of fresh) seen.add(r.id);
+    groups.push(fresh);
+  }
+  groups.sort((a, b) => b.length - a.length);
+  return groups;
+}

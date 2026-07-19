@@ -53,6 +53,34 @@ describe("archive functions enforce record-level permissions", () => {
   }
 });
 
+describe("merge functions enforce record-level permissions on BOTH records", () => {
+  for (const name of ["mergeCompanies", "mergeContacts"]) {
+    it(`${name} calls assertCanEdit twice (keep + merge)`, () => {
+      const body = fnBody(name);
+      const count = body.split("assertCanEdit(").length - 1;
+      expect(count).toBeGreaterThanOrEqual(2);
+    });
+    it(`${name} archives the merged record instead of deleting it`, () => {
+      expect(fnBody(name)).toContain("SET archived_at");
+    });
+  }
+});
+
+describe("imports keep their dedupe guards", () => {
+  it("importCompanies skips existing companies by name/phone key", () => {
+    const body = fnBody("importCompanies");
+    expect(body).toContain("companyNameKey(");
+    expect(body).toContain("phoneKey(");
+    expect(body).toContain("skipped");
+  });
+  it("importContacts skips existing contacts by email/phone key", () => {
+    const body = fnBody("importContacts");
+    expect(body).toContain("emailKey(");
+    expect(body).toContain("phoneKey(");
+    expect(body).toContain("skipped");
+  });
+});
+
 describe("role demotion clears the demoted user's sessions", () => {
   it("adminUpdateRole deletes sessions on demotion", () => {
     expect(fnBody("adminUpdateRole")).toContain("DELETE FROM sessions");

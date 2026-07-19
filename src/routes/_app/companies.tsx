@@ -15,6 +15,7 @@ import { NotesThread } from "../../components/crm/notes";
 import { CallMode } from "../../components/crm/call-mode";
 import { RecordAccessButton } from "../../components/crm/record-access";
 import { ArchivedPanel } from "../../components/crm/archived";
+import { DuplicatesPanel } from "../../components/crm/duplicates";
 import { ImportCsvButton } from "../../components/crm/csv-import";
 import { LEAD_SOURCES, COMPANY_TAGS, tagColor, parseTags, serializeTags, canEditRecord } from "../../lib/crm/constants";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
@@ -361,6 +362,7 @@ function CompaniesPage() {
         ) : null}
       </Card>
 
+      <DuplicatesPanel entity="company" onMerged={() => router.invalidate()} />
       <ArchivedPanel entity="company" onRestored={() => router.invalidate()} />
 
       <CompanyModal

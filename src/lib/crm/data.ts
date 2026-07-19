@@ -18,6 +18,10 @@ import {
   ESTIMATE_LOW_MONTHLY,
   pickLeastLoaded,
   type AssigneeLoad,
+  companyNameKey,
+  phoneKey,
+  emailKey,
+  groupDuplicates,
 } from "./constants";
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
@@ -1476,10 +1480,26 @@ export const importCompanies = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = await requireUser();
     await ensureExtraSchema();
+    // Dedupe guard: skip rows matching an existing active company by
+    // normalized name or phone (and dedupe within the batch itself).
+    const { results: existing } = await db()
+      .prepare(`SELECT name, phone FROM companies WHERE archived_at IS NULL`)
+      .all<{ name: string; phone: string | null }>();
+    const seenNames = new Set((existing ?? []).map((c) => companyNameKey(c.name)));
+    const seenPhones = new Set((existing ?? []).map((c) => phoneKey(c.phone)).filter(Boolean));
     let added = 0;
+    let skipped = 0;
     for (const r of data.rows) {
       const name = r.name.trim();
       if (!name) continue;
+      const nameKey = companyNameKey(name);
+      const phKey = phoneKey(r.phone);
+      if (seenNames.has(nameKey) || (phKey && seenPhones.has(phKey))) {
+        skipped++;
+        continue;
+      }
+      seenNames.add(nameKey);
+      if (phKey) seenPhones.add(phKey);
       await db()
         .prepare(
           `INSERT INTO companies (id, name, industry, website, phone, city, source, owner_id)
@@ -1506,7 +1526,7 @@ export const importCompanies = createServerFn({ method: "POST" })
         summary: `${user.name} imported ${added} compan${added === 1 ? "y" : "ies"} from CSV`,
       });
     }
-    return { added };
+    return { added, skipped };
   });
 
 export const importContacts = createServerFn({ method: "POST" })
@@ -1520,10 +1540,26 @@ export const importContacts = createServerFn({ method: "POST" })
       .all<{ id: string; name: string }>();
     const byName = new Map<string, string>();
     for (const c of cos ?? []) byName.set(c.name.trim().toLowerCase(), c.id);
+    // Dedupe guard: skip rows matching an existing active contact by email
+    // or phone (and dedupe within the batch itself).
+    const { results: existing } = await db()
+      .prepare(`SELECT email, phone FROM contacts WHERE archived_at IS NULL`)
+      .all<{ email: string | null; phone: string | null }>();
+    const seenEmails = new Set((existing ?? []).map((c) => emailKey(c.email)).filter(Boolean));
+    const seenPhones = new Set((existing ?? []).map((c) => phoneKey(c.phone)).filter(Boolean));
     let added = 0;
+    let skipped = 0;
     for (const r of data.rows) {
       const first = r.first_name.trim();
       if (!first) continue;
+      const emKey = emailKey(r.email);
+      const phKey = phoneKey(r.phone);
+      if ((emKey && seenEmails.has(emKey)) || (phKey && seenPhones.has(phKey))) {
+        skipped++;
+        continue;
+      }
+      if (emKey) seenEmails.add(emKey);
+      if (phKey) seenPhones.add(phKey);
       const companyId = r.company_name ? byName.get(r.company_name.trim().toLowerCase()) ?? null : null;
       await db()
         .prepare(
@@ -1551,7 +1587,226 @@ export const importContacts = createServerFn({ method: "POST" })
         summary: `${user.name} imported ${added} contact${added === 1 ? "" : "s"} from CSV`,
       });
     }
-    return { added };
+    return { added, skipped };
+  });
+
+// ---------- Duplicate cleanup & merge ----------
+// The duplicates panel: group active companies by normalized name/phone and
+// active contacts by email/phone, then let the user merge each group down to
+// one record. Visible to everyone (matches the open-book visibility policy);
+// merging itself is permission-checked per record.
+
+export const getDuplicateGroups = createServerFn({ method: "GET" }).handler(async () => {
+  await requireUser();
+  await ensureExtraSchema();
+  const { results: companies } = await db()
+    .prepare(
+      `SELECT id, name, phone, city, owner_id, created_at
+         FROM companies WHERE archived_at IS NULL ORDER BY created_at ASC`,
+    )
+    .all<{
+      id: string;
+      name: string;
+      phone: string | null;
+      city: string | null;
+      owner_id: string | null;
+      created_at: string;
+    }>();
+  const { results: contacts } = await db()
+    .prepare(
+      `SELECT id, first_name, last_name, email, phone, company_id, owner_id, created_at
+         FROM contacts WHERE archived_at IS NULL ORDER BY created_at ASC`,
+    )
+    .all<{
+      id: string;
+      first_name: string;
+      last_name: string | null;
+      email: string | null;
+      phone: string | null;
+      company_id: string | null;
+      owner_id: string | null;
+      created_at: string;
+    }>();
+  // Companies match on normalized name, or on phone when both have one.
+  const companyGroups = groupDuplicates(companies ?? [], (c) => [
+    companyNameKey(c.name),
+    phoneKey(c.phone),
+  ]);
+  // Contacts match on email first, then phone.
+  const contactGroups = groupDuplicates(contacts ?? [], (c) => [
+    emailKey(c.email),
+    phoneKey(c.phone),
+  ]);
+  return { companyGroups, contactGroups };
+});
+
+// Merge `merge_id` into `keep_id`: repoint every reference, fill any blank
+// fields on the keeper from the loser, then archive the loser. Soft-delete
+// means a bad merge is recoverable from the archive.
+export const mergeCompanies = createServerFn({ method: "POST" })
+  .validator(z.object({ keep_id: z.string().min(1), merge_id: z.string().min(1) }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    if (data.keep_id === data.merge_id) throw new Error("Cannot merge a record into itself");
+    // Must be allowed to edit BOTH records (owner, co-editor, or admin).
+    await assertCanEdit(user, "companies", data.keep_id);
+    await assertCanEdit(user, "companies", data.merge_id);
+    const keep = await db()
+      .prepare(`SELECT * FROM companies WHERE id = ? AND archived_at IS NULL`)
+      .bind(data.keep_id)
+      .first<CompanyRow & { email_touches: number | null; last_emailed_at: string | null }>();
+    const lose = await db()
+      .prepare(`SELECT * FROM companies WHERE id = ? AND archived_at IS NULL`)
+      .bind(data.merge_id)
+      .first<CompanyRow & { email_touches: number | null; last_emailed_at: string | null }>();
+    if (!keep || !lose) throw new Error("Company not found (already merged or archived?)");
+    // Repoint children.
+    await db()
+      .prepare(`UPDATE contacts SET company_id = ? WHERE company_id = ?`)
+      .bind(keep.id, lose.id)
+      .run();
+    await db()
+      .prepare(`UPDATE deals SET company_id = ? WHERE company_id = ?`)
+      .bind(keep.id, lose.id)
+      .run();
+    await db()
+      .prepare(`UPDATE sent_emails SET company_id = ? WHERE company_id = ?`)
+      .bind(keep.id, lose.id)
+      .run();
+    await db()
+      .prepare(`UPDATE notes SET entity_id = ? WHERE entity_type = 'company' AND entity_id = ?`)
+      .bind(keep.id, lose.id)
+      .run();
+    // The loser's cached AI brief no longer matches anything; drop it.
+    await db().prepare(`DELETE FROM ai_briefs WHERE company_id = ?`).bind(lose.id).run();
+    // Fill blanks on the keeper from the loser; union tags; keep the higher
+    // email-touch count and the more recent emailed-at.
+    const tagUnion = [
+      ...new Set(
+        [...(keep.tags ?? "").split(","), ...(lose.tags ?? "").split(",")]
+          .map((t) => t.trim())
+          .filter(Boolean),
+      ),
+    ].join(",");
+    const mergedNotes =
+      keep.notes && lose.notes ? `${keep.notes}\n---\n${lose.notes}` : keep.notes || lose.notes;
+    await db()
+      .prepare(
+        `UPDATE companies SET
+           industry = COALESCE(industry, ?),
+           website = COALESCE(website, ?),
+           phone = COALESCE(phone, ?),
+           city = COALESCE(city, ?),
+           source = COALESCE(source, ?),
+           call_outcome = COALESCE(call_outcome, ?),
+           notes = ?,
+           tags = ?,
+           email_touches = GREATEST(COALESCE(email_touches, 0), ?),
+           last_emailed_at = NULLIF(GREATEST(COALESCE(last_emailed_at, ''), COALESCE(?, '')), '')
+         WHERE id = ?`,
+      )
+      .bind(
+        lose.industry,
+        lose.website,
+        lose.phone,
+        lose.city,
+        lose.source,
+        lose.call_outcome ?? null,
+        mergedNotes ?? null,
+        tagUnion || null,
+        lose.email_touches ?? 0,
+        lose.last_emailed_at ?? "",
+        keep.id,
+      )
+      .run();
+    // Archive the loser (blocks re-discovery and keeps it recoverable).
+    await db()
+      .prepare(
+        `UPDATE companies SET archived_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') WHERE id = ?`,
+      )
+      .bind(lose.id)
+      .run();
+    await logEvent({
+      actorId: user.id,
+      verb: "merged",
+      entityType: "company",
+      entityId: keep.id,
+      summary: `${user.name} merged duplicate company "${lose.name}" into "${keep.name}"`,
+    });
+    return { ok: true };
+  });
+
+export const mergeContacts = createServerFn({ method: "POST" })
+  .validator(z.object({ keep_id: z.string().min(1), merge_id: z.string().min(1) }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    if (data.keep_id === data.merge_id) throw new Error("Cannot merge a record into itself");
+    await assertCanEdit(user, "contacts", data.keep_id);
+    await assertCanEdit(user, "contacts", data.merge_id);
+    const keep = await db()
+      .prepare(`SELECT * FROM contacts WHERE id = ? AND archived_at IS NULL`)
+      .bind(data.keep_id)
+      .first<ContactRow>();
+    const lose = await db()
+      .prepare(`SELECT * FROM contacts WHERE id = ? AND archived_at IS NULL`)
+      .bind(data.merge_id)
+      .first<ContactRow>();
+    if (!keep || !lose) throw new Error("Contact not found (already merged or archived?)");
+    await db()
+      .prepare(`UPDATE deals SET contact_id = ? WHERE contact_id = ?`)
+      .bind(keep.id, lose.id)
+      .run();
+    await db()
+      .prepare(`UPDATE activities SET contact_id = ? WHERE contact_id = ?`)
+      .bind(keep.id, lose.id)
+      .run();
+    await db()
+      .prepare(`UPDATE sent_emails SET contact_id = ? WHERE contact_id = ?`)
+      .bind(keep.id, lose.id)
+      .run();
+    await db()
+      .prepare(`UPDATE notes SET entity_id = ? WHERE entity_type = 'contact' AND entity_id = ?`)
+      .bind(keep.id, lose.id)
+      .run();
+    const mergedNotes =
+      keep.notes && lose.notes ? `${keep.notes}\n---\n${lose.notes}` : keep.notes || lose.notes;
+    await db()
+      .prepare(
+        `UPDATE contacts SET
+           last_name = COALESCE(last_name, ?),
+           email = COALESCE(email, ?),
+           phone = COALESCE(phone, ?),
+           title = COALESCE(title, ?),
+           company_id = COALESCE(company_id, ?),
+           notes = ?
+         WHERE id = ?`,
+      )
+      .bind(
+        lose.last_name,
+        lose.email,
+        lose.phone,
+        lose.title,
+        lose.company_id,
+        mergedNotes ?? null,
+        keep.id,
+      )
+      .run();
+    await db()
+      .prepare(
+        `UPDATE contacts SET archived_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') WHERE id = ?`,
+      )
+      .bind(lose.id)
+      .run();
+    await logEvent({
+      actorId: user.id,
+      verb: "merged",
+      entityType: "contact",
+      entityId: keep.id,
+      summary: `${user.name} merged duplicate contact "${[lose.first_name, lose.last_name].filter(Boolean).join(" ")}" into "${[keep.first_name, keep.last_name].filter(Boolean).join(" ")}"`,
+    });
+    return { ok: true };
   });
 
 // ---------- Activities ----------

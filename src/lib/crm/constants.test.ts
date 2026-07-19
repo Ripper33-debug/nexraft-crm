@@ -15,6 +15,10 @@ import {
   canEditRecord,
   canAdministerRecord,
   pickLeastLoaded,
+  companyNameKey,
+  phoneKey,
+  emailKey,
+  groupDuplicates,
   parseSharedIds,
   parseTags,
   serializeTags,
@@ -367,5 +371,66 @@ describe("business constants stay sane", () => {
 
   it("hot threshold is above warm threshold", () => {
     expect(OPPORTUNITY_HOT_MIN).toBeGreaterThan(OPPORTUNITY_WARM_MIN);
+  });
+});
+
+// Duplicate detection: the keys must collapse cosmetic differences without
+// collapsing genuinely different records, and grouping must never suggest
+// overlapping merges.
+describe("duplicate detection", () => {
+  it("companyNameKey ignores case, punctuation, and spacing", () => {
+    expect(companyNameKey("Joe's Pizza")).toBe(companyNameKey("JOES PIZZA"));
+    expect(companyNameKey("A-1 Plumbing ")).toBe(companyNameKey("a1 plumbing"));
+    expect(companyNameKey("Joe's Pizza")).not.toBe(companyNameKey("Joe's Pizza Inc"));
+    expect(companyNameKey(null)).toBe("");
+  });
+
+  it("phoneKey strips formatting and a leading US country code", () => {
+    expect(phoneKey("+1 (555) 123-4567")).toBe("5551234567");
+    expect(phoneKey("555.123.4567")).toBe("5551234567");
+    expect(phoneKey("12345")).toBe("12345"); // short numbers untouched
+    expect(phoneKey(null)).toBe("");
+  });
+
+  it("emailKey lowercases and trims", () => {
+    expect(emailKey(" Bob@Example.COM ")).toBe("bob@example.com");
+    expect(emailKey(null)).toBe("");
+  });
+
+  it("groups records sharing a key and ignores singles and blanks", () => {
+    const rows = [
+      { id: "a", name: "Joe's Pizza" },
+      { id: "b", name: "Joes Pizza" },
+      { id: "c", name: "Unique Co" },
+      { id: "d", name: "" },
+      { id: "e", name: "" },
+    ];
+    const groups = groupDuplicates(rows, (r) => [companyNameKey(r.name)]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].map((r) => r.id).sort()).toEqual(["a", "b"]);
+  });
+
+  it("a record never appears in two groups even when multiple keys match", () => {
+    const rows = [
+      { id: "a", email: "x@x.com", phone: "555-123-4567" },
+      { id: "b", email: "x@x.com", phone: "999-999-9999" },
+      { id: "c", email: "y@y.com", phone: "(555) 123-4567" },
+    ];
+    const groups = groupDuplicates(rows, (r) => [emailKey(r.email), phoneKey(r.phone)]);
+    const all = groups.flat().map((r) => r.id);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it("largest group is listed first", () => {
+    const rows = [
+      { id: "a", name: "X" },
+      { id: "b", name: "x" },
+      { id: "c", name: "X!" },
+      { id: "d", name: "Y" },
+      { id: "e", name: "y" },
+    ];
+    const groups = groupDuplicates(rows, (r) => [companyNameKey(r.name)]);
+    expect(groups[0]).toHaveLength(3);
+    expect(groups[1]).toHaveLength(2);
   });
 });
