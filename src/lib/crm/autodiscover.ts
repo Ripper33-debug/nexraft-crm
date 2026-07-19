@@ -13,7 +13,12 @@
 
 import { useSyncExternalStore } from "react";
 
-import { discoverLeads, importDiscoveredLead, type DiscoveredLead } from "./data";
+import {
+  discoverLeads,
+  importDiscoveredLead,
+  getConversionInsights,
+  type DiscoveredLead,
+} from "./data";
 
 export type AutoDiscoverConfig = { on: boolean; area: string };
 export type AutoDiscoverStatus = {
@@ -90,6 +95,56 @@ const TYPE_DELAY_MS = 30_000; // pause between industry searches
 const PER_TYPE_MAX = 6; // most imports taken from a single industry search
 
 const STORAGE_KEY = "nx_autodiscover";
+const CURSOR_KEY = "nx_autodiscover_cursor";
+
+// The scan's bookmark: which state it was sweeping and how far through the
+// industry rotation it was. Saved after every search so closing the CRM and
+// coming back resumes exactly where it left off instead of restarting from the
+// picked state and re-covering old ground.
+type ScanCursor = { state: string; ti: number };
+
+function loadCursor(): ScanCursor | null {
+  try {
+    if (typeof window === "undefined") return null;
+    const raw = window.localStorage.getItem(CURSOR_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ScanCursor>;
+    if (typeof parsed.state !== "string" || typeof parsed.ti !== "number") return null;
+    return { state: parsed.state, ti: parsed.ti };
+  } catch {
+    return null;
+  }
+}
+
+function saveCursor(cursor: ScanCursor) {
+  try {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(CURSOR_KEY, JSON.stringify(cursor));
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+// Learn from the pipeline: industries that have actually produced wins or
+// "interested" calls get a second pass in every state's rotation, so the radar
+// spends more of its time hunting what has historically turned into money.
+// Falls back to the plain rotation if insights aren't available.
+async function buildRotation(): Promise<string[]> {
+  try {
+    const { insights } = await getConversionInsights();
+    const score = new Map<string, number>();
+    for (const i of insights) {
+      score.set(i.industry.toLowerCase(), i.won * 3 + i.interested);
+    }
+    const winners = AUTO_TYPES.filter((t) => (score.get(t.toLowerCase()) ?? 0) > 0)
+      .sort((a, b) => (score.get(b.toLowerCase()) ?? 0) - (score.get(a.toLowerCase()) ?? 0))
+      .slice(0, 3);
+    return winners.length > 0 ? [...AUTO_TYPES, ...winners] : [...AUTO_TYPES];
+  } catch {
+    return [...AUTO_TYPES];
+  }
+}
 
 const DEFAULT_CONFIG: AutoDiscoverConfig = { on: false, area: "" };
 const DEFAULT_STATUS: AutoDiscoverStatus = {
@@ -194,8 +249,13 @@ export async function runAutoDiscovery(
   onImported: () => void,
 ) {
   patchStatus({ ...DEFAULT_STATUS, running: true });
-  let ti = 0;
+  // Weight the industry rotation by what's actually converted (wins/interest
+  // double up), then pick up from the saved bookmark if there is one.
+  const rotation = await buildRotation();
+  const cursor = loadCursor();
+  let ti = cursor ? ((cursor.ti % rotation.length) + rotation.length) % rotation.length : 0;
   let ai = 0; // which state in the tour we're sweeping
+  let resumedFrom = cursor?.state ?? null;
   while (!isCancelled()) {
     const start = getArea().trim();
     if (!start) {
@@ -211,10 +271,17 @@ export async function runAutoDiscovery(
     // the user picked — so it starts there (e.g. Florida) and moves on state by
     // state from that point.
     const tour = buildStateTour(start);
+    // First pass only: jump to the bookmarked state so the sweep resumes where
+    // it left off last session rather than restarting from the picked state.
+    if (resumedFrom) {
+      const idx = tour.findIndex((s) => s.label.toLowerCase() === resumedFrom?.toLowerCase());
+      if (idx >= 0) ai = idx;
+      resumedFrom = null;
+    }
     const state = tour[ai % tour.length];
 
-    const type = AUTO_TYPES[ti % AUTO_TYPES.length];
-    const progress = (ti % AUTO_TYPES.length) / AUTO_TYPES.length;
+    const type = rotation[ti % rotation.length];
+    const progress = (ti % rotation.length) / rotation.length;
     ti++;
     patchStatus({ currentType: type, currentArea: state.label, progress, lastRunAt: Date.now() });
 
@@ -278,9 +345,12 @@ export async function runAutoDiscovery(
     // Sweep EVERY industry across the whole state first (dentists, plumbers,
     // roofers, …) so a state is fully mined before we move on. Once every industry
     // has been swept for this state, hop to the next state in the tour.
-    if (ti % AUTO_TYPES.length === 0) {
+    if (ti % rotation.length === 0) {
       ai++;
     }
+    // Bookmark AFTER the advance so a resume lands on the next unsearched
+    // state+industry, not back at the start of ground we've already covered.
+    saveCursor({ state: tour[ai % tour.length].label, ti: ti % rotation.length });
 
     if (isCancelled()) break;
     await sleep(TYPE_DELAY_MS);

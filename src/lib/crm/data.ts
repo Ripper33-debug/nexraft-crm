@@ -4231,6 +4231,7 @@ async function discoverLeadsCore(
 // radar in their browser.
 const AUTO_ASSIGN_EXCLUDE_EMAIL = "barry@nexraft.com";
 const AUTO_ASSIGN_EXCLUDE_NAME_LIKE = "%michael%";
+const AUTO_ASSIGN_EXCLUDE_NAME_LIKE_2 = "barry castelli%";
 
 // Share of radar-discovered leads that get auto-assigned to a rep; the rest stay
 // in the claimable pool. 1.0 = every find is handed to a rep (nothing pooled).
@@ -4248,9 +4249,10 @@ async function loadAutoAssignees(): Promise<AssigneeLoad[]> {
          LEFT JOIN deals d ON d.owner_id = u.id AND d.archived_at IS NULL
         WHERE lower(u.email) <> ?
           AND lower(u.name) NOT LIKE ?
+          AND lower(u.name) NOT LIKE ?
         GROUP BY u.id, u.name`,
     )
-    .bind(AUTO_ASSIGN_EXCLUDE_EMAIL, AUTO_ASSIGN_EXCLUDE_NAME_LIKE)
+    .bind(AUTO_ASSIGN_EXCLUDE_EMAIL, AUTO_ASSIGN_EXCLUDE_NAME_LIKE, AUTO_ASSIGN_EXCLUDE_NAME_LIKE_2)
     .all<AssigneeLoad>();
   return results ?? [];
 }
@@ -4265,11 +4267,12 @@ async function pickAutoAssignee(): Promise<{ id: string; name: string } | null> 
          LEFT JOIN deals d ON d.owner_id = u.id AND d.archived_at IS NULL
         WHERE lower(u.email) <> ?
           AND lower(u.name) NOT LIKE ?
+          AND lower(u.name) NOT LIKE ?
         GROUP BY u.id, u.name
         ORDER BY open_deals ASC, random()
         LIMIT 1`,
     )
-    .bind(AUTO_ASSIGN_EXCLUDE_EMAIL, AUTO_ASSIGN_EXCLUDE_NAME_LIKE)
+    .bind(AUTO_ASSIGN_EXCLUDE_EMAIL, AUTO_ASSIGN_EXCLUDE_NAME_LIKE, AUTO_ASSIGN_EXCLUDE_NAME_LIKE_2)
     .first<{ id: string; name: string; open_deals: number }>();
   return row ? { id: row.id, name: row.name } : null;
 }
@@ -4673,22 +4676,139 @@ async function runSweepOnce(sweep: SweepRow): Promise<{ imported: number; assign
   return { imported, assigned };
 }
 
+// ---------- Stale-lead recycling ----------
+// Radar-assigned leads shouldn't rot on someone's list. Nightly (piggybacking
+// on the sweep cron):
+//   1. NUDGE — an auto-assigned discovered lead that's had ZERO activity for
+//      2+ days gets an open follow-up Task on its rep's plate ("going cold").
+//   2. RECYCLE — if it's STILL never been called after 7+ days, the lead goes
+//      back to the open pool (owner cleared on company + deals) so someone
+//      else can grab it, and the nudge task is closed out.
+const NUDGE_AFTER_MS = 2 * 24 * 3600_000;
+const RECYCLE_AFTER_MS = 7 * 24 * 3600_000;
+const RECYCLE_BATCH = 25;
+const AUTO_NUDGE_MARK = "auto-nudge";
+
+async function recycleStaleLeads(): Promise<{ nudged: number; recycled: number }> {
+  const now = Date.now();
+  const nudgeCutoff = new Date(now - NUDGE_AFTER_MS).toISOString();
+  const recycleCutoff = new Date(now - RECYCLE_AFTER_MS).toISOString();
+
+  // 1) Nudge: assigned, discovered, never touched (no activity on its deal at
+  // all — which also means we haven't nudged it yet), 2+ days old.
+  const { results: toNudge } = await db()
+    .prepare(
+      `SELECT c.id, c.name, c.owner_id, d.id AS deal_id
+         FROM companies c
+         JOIN deals d ON d.company_id = c.id AND d.archived_at IS NULL
+        WHERE c.archived_at IS NULL
+          AND c.source = 'Discovered'
+          AND c.owner_id IS NOT NULL
+          AND c.call_outcome IS NULL
+          AND c.created_at < ?
+          AND NOT EXISTS (SELECT 1 FROM activities a WHERE a.deal_id = d.id)
+        ORDER BY c.created_at ASC
+        LIMIT ${RECYCLE_BATCH}`,
+    )
+    .bind(nudgeCutoff)
+    .all<{ id: string; name: string; owner_id: string; deal_id: string }>();
+  let nudged = 0;
+  for (const c of toNudge ?? []) {
+    await db()
+      .prepare(
+        `INSERT INTO activities (id, type, subject, deal_id, contact_id, owner_id, status, due_date, notes)
+         VALUES (?, 'Task', ?, ?, NULL, ?, 'open', ?, ?)`,
+      )
+      .bind(
+        uid(),
+        `Call ${c.name} — radar lead going cold`,
+        c.deal_id,
+        c.owner_id,
+        new Date(now).toISOString().slice(0, 10),
+        AUTO_NUDGE_MARK,
+      )
+      .run();
+    nudged++;
+  }
+
+  // 2) Recycle: assigned, discovered, STILL never called after 7+ days (the
+  // nudge task doesn't count as being worked — only a Call does).
+  const { results: toRecycle } = await db()
+    .prepare(
+      `SELECT c.id, c.name
+         FROM companies c
+        WHERE c.archived_at IS NULL
+          AND c.source = 'Discovered'
+          AND c.owner_id IS NOT NULL
+          AND c.call_outcome IS NULL
+          AND c.created_at < ?
+          AND NOT EXISTS (
+                SELECT 1 FROM activities a
+                  JOIN deals d ON a.deal_id = d.id
+                 WHERE d.company_id = c.id AND a.type = 'Call'
+              )
+        ORDER BY c.created_at ASC
+        LIMIT ${RECYCLE_BATCH}`,
+    )
+    .bind(recycleCutoff)
+    .all<{ id: string; name: string }>();
+  let recycled = 0;
+  for (const c of toRecycle ?? []) {
+    await db().prepare(`UPDATE companies SET owner_id = NULL WHERE id = ?`).bind(c.id).run();
+    await db()
+      .prepare(
+        `UPDATE deals SET owner_id = NULL WHERE company_id = ? AND archived_at IS NULL`,
+      )
+      .bind(c.id)
+      .run();
+    await db()
+      .prepare(
+        `UPDATE activities SET status = 'done', completed_at = ?
+          WHERE notes = ? AND status = 'open'
+            AND deal_id IN (SELECT id FROM deals WHERE company_id = ?)`,
+      )
+      .bind(new Date(now).toISOString(), AUTO_NUDGE_MARK, c.id)
+      .run();
+    recycled++;
+  }
+  if (recycled > 0) {
+    await logEvent({
+      actorId: null,
+      verb: "radar",
+      entityType: "company",
+      summary: `Recycled ${recycled} untouched radar lead${recycled === 1 ? "" : "s"} back to the pool`,
+    });
+  }
+  return { nudged, recycled };
+}
+
 // Entry point for the Vercel cron (/api/cron/sweep): run the enabled sweep
 // that's waited longest, skipping any that already ran in the last 20 hours —
 // which doubles as abuse protection if the endpoint is hit repeatedly.
 // createServerOnlyFn keeps this export out of the client bundle (it throws if a
 // client ever calls it; only the cron route does).
 export const runDueSweeps = createServerOnlyFn(
-  async (): Promise<{ ran: number; imported: number }> => {
+  async (): Promise<{ ran: number; imported: number; nudged: number; recycled: number }> => {
     await ensureExtraSchema();
+    // Housekeeping first, every cron hit: nudge cold radar leads, recycle
+    // abandoned ones back to the pool. Never let it block the sweep itself.
+    let nudged = 0;
+    let recycled = 0;
+    try {
+      const r = await recycleStaleLeads();
+      nudged = r.nudged;
+      recycled = r.recycled;
+    } catch {
+      /* housekeeping is best-effort */
+    }
     const sweeps = (await loadSweeps()).filter((s) => s.enabled);
     const cutoff = Date.now() - 20 * 3600_000;
     const due = sweeps
       .filter((s) => !s.last_run_at || new Date(s.last_run_at).getTime() < cutoff)
       .sort((a, b) => (a.last_run_at ?? "").localeCompare(b.last_run_at ?? ""));
-    if (due.length === 0) return { ran: 0, imported: 0 };
+    if (due.length === 0) return { ran: 0, imported: 0, nudged, recycled };
     const res = await runSweepOnce(due[0]);
-    return { ran: 1, imported: res.imported };
+    return { ran: 1, imported: res.imported, nudged, recycled };
   },
 );
 
