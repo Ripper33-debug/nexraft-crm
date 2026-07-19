@@ -103,6 +103,7 @@ export const Route = createFileRoute("/_app/pipeline")({
 function PipelinePage() {
   const { deals, companies, contacts, users } = Route.useLoaderData();
   const { user: me } = Route.useRouteContext();
+  const isAdmin = me?.role === "admin";
   const { focus, new: newParam } = Route.useSearch();
   const router = useRouter();
   const navigate = Route.useNavigate();
@@ -280,9 +281,11 @@ function PipelinePage() {
                 Table
               </button>
             </div>
-            <Button variant="outline" onClick={() => exportDeals(allDeals)}>
-              Export CSV
-            </Button>
+            {isAdmin ? (
+              <Button variant="outline" onClick={() => exportDeals(allDeals)}>
+                Export CSV
+              </Button>
+            ) : null}
             <Button onClick={startAdd}>+ New deal</Button>
           </div>
         }

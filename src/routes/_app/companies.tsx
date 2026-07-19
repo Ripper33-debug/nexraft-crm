@@ -69,6 +69,7 @@ export const Route = createFileRoute("/_app/companies")({
 function CompaniesPage() {
   const { companies, users, deals } = Route.useLoaderData();
   const { user: me } = Route.useRouteContext();
+  const isAdmin = me?.role === "admin";
   const { focus, new: newParam } = Route.useSearch();
   const router = useRouter();
   const navigate = Route.useNavigate();
@@ -158,9 +159,11 @@ function CompaniesPage() {
               onImport={(rows) => importCompanies({ data: { rows: rows as { name: string }[] } })}
               onDone={() => router.invalidate()}
             />
-            <Button variant="outline" onClick={() => exportCompanies(companies as Row[])}>
-              Export CSV
-            </Button>
+            {isAdmin ? (
+              <Button variant="outline" onClick={() => exportCompanies(companies as Row[])}>
+                Export CSV
+              </Button>
+            ) : null}
             <Button
               onClick={() => {
                 setEditing(null);

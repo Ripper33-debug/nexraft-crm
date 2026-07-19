@@ -590,3 +590,19 @@ export function canAdministerRecord(user: Actor, ownerId: string | null | undefi
   if (!ownerId) return true;
   return ownerId === user.id;
 }
+
+// ---------------- lead auto-assign balancing ----------------
+
+// A rep eligible for auto-assignment plus their current open-deal load.
+export type AssigneeLoad = { id: string; name: string; open_deals: number };
+
+// In-memory least-loaded pick with random tie-break — mirrors the SQL
+// `ORDER BY open_deals ASC, random() LIMIT 1` the per-lead balancer uses.
+// Callers batch-assigning should bump the winner's `open_deals` after each
+// pick so a large batch spreads evenly across the team.
+export function pickLeastLoaded(reps: AssigneeLoad[]): AssigneeLoad | null {
+  if (reps.length === 0) return null;
+  const min = Math.min(...reps.map((r) => r.open_deals));
+  const lightest = reps.filter((r) => r.open_deals === min);
+  return lightest[Math.floor(Math.random() * lightest.length)];
+}

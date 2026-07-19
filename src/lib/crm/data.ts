@@ -16,6 +16,8 @@ import {
   estimateDealValue,
   PRICING_PACKAGES,
   ESTIMATE_LOW_MONTHLY,
+  pickLeastLoaded,
+  type AssigneeLoad,
 } from "./constants";
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
@@ -343,8 +345,10 @@ export const archiveCompany = createServerFn({ method: "POST" })
 export const restoreCompany = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.string() }))
   .handler(async ({ data }) => {
-    await requireUser();
+    const user = await requireUser();
     await ensureExtraSchema();
+    // Same permission rule as archiving: owner, co-editor, or admin only.
+    await assertCanEdit(user, "companies", data.id);
     // Read the archive timestamp first so we only un-archive the deals that
     // were cascade-archived *with* this company (same stamp) — deals archived
     // separately earlier keep their own timestamp and stay archived.
@@ -483,8 +487,10 @@ export const archiveContact = createServerFn({ method: "POST" })
 export const restoreContact = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.string() }))
   .handler(async ({ data }) => {
-    await requireUser();
+    const user = await requireUser();
     await ensureExtraSchema();
+    // Same permission rule as archiving: owner, co-editor, or admin only.
+    await assertCanEdit(user, "contacts", data.id);
     await db().prepare("UPDATE contacts SET archived_at=NULL WHERE id=?").bind(data.id).run();
     return { ok: true };
   });
@@ -699,8 +705,10 @@ export const archiveDeal = createServerFn({ method: "POST" })
 export const restoreDeal = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.string() }))
   .handler(async ({ data }) => {
-    await requireUser();
+    const user = await requireUser();
     await ensureExtraSchema();
+    // Same permission rule as archiving: owner, co-editor, or admin only.
+    await assertCanEdit(user, "deals", data.id);
     await db().prepare("UPDATE deals SET archived_at=NULL WHERE id=?").bind(data.id).run();
     return { ok: true };
   });
@@ -844,12 +852,17 @@ export const redistributePool = createServerFn({ method: "POST" }).handler(async
   let junked = 0;
   const now = new Date().toISOString();
 
+  // Load every eligible rep's live deal count ONCE, then balance the batch in
+  // memory (incrementing the picked rep's count per assignment). Same even
+  // spread as re-querying per lead, without the N+1 query storm that used to
+  // hammer the pooler on big cleanups.
+  const reps = await loadAutoAssignees();
+
   for (const c of pool) {
     if (normPhone(c.phone).length > 0) {
-      // Has a phone → hand to the least-loaded eligible rep. pickAutoAssignee
-      // re-reads live load each call, so looping self-balances the batch evenly.
-      const rep = await pickAutoAssignee();
+      const rep = pickLeastLoaded(reps);
       if (!rep) continue; // nobody eligible — leave it in the pool
+      rep.open_deals++;
       await db().prepare("UPDATE companies SET owner_id = ? WHERE id = ?").bind(rep.id, c.id).run();
       await db()
         .prepare(
@@ -2138,6 +2151,12 @@ export const adminUpdateRole = createServerFn({ method: "POST" })
       }
     }
     await db().prepare("UPDATE users SET role = ? WHERE id = ?").bind(data.role, data.id).run();
+    if (data.role === "member") {
+      // Defense in depth on demotion: kill the user's sessions so they re-login
+      // as a member. (Role is also re-read per request, so admin powers already
+      // end immediately — this just clears any lingering signed-in tabs.)
+      await db().prepare("DELETE FROM sessions WHERE user_id = ?").bind(data.id).run();
+    }
     return { ok: true as const };
   });
 
@@ -2470,8 +2489,10 @@ export type ExportBundle = {
 
 // Flat, fully-denormalized rows (names resolved, no internal ids) so the export
 // opens cleanly in Excel / imports into Monday without any lookups.
+// Admin only: this is the entire book of business in one download, so it must
+// never be available to a rep account.
 export const getExportBundle = createServerFn({ method: "GET" }).handler(async (): Promise<ExportBundle> => {
-  await requireUser();
+  await requireAdmin();
   await ensureExtraSchema();
   const database = db();
 
@@ -3409,6 +3430,25 @@ const AUTO_ASSIGN_EXCLUDE_NAME_LIKE = "%michael%";
 // Share of radar-discovered leads that get auto-assigned to a rep; the rest stay
 // in the claimable pool. 1.0 = every find is handed to a rep (nothing pooled).
 const AUTO_ASSIGN_RATE = 1.0;
+
+// Batch flavor of the balancer: load every eligible rep with their live open-deal
+// count in ONE query, so callers assigning many leads can balance in memory
+// (bump `open_deals` after each pick, via pickLeastLoaded from constants.ts)
+// instead of re-querying per lead.
+async function loadAutoAssignees(): Promise<AssigneeLoad[]> {
+  const { results } = await db()
+    .prepare(
+      `SELECT u.id, u.name, COUNT(d.id)::int AS open_deals
+         FROM users u
+         LEFT JOIN deals d ON d.owner_id = u.id AND d.archived_at IS NULL
+        WHERE lower(u.email) <> ?
+          AND lower(u.name) NOT LIKE ?
+        GROUP BY u.id, u.name`,
+    )
+    .bind(AUTO_ASSIGN_EXCLUDE_EMAIL, AUTO_ASSIGN_EXCLUDE_NAME_LIKE)
+    .all<AssigneeLoad>();
+  return results ?? [];
+}
 
 // Pick the eligible rep with the lightest open pipeline (self-balancing round
 // robin), breaking ties at random. Returns null if nobody's eligible.

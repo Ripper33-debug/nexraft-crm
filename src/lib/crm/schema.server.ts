@@ -126,6 +126,19 @@ export function ensureExtraSchema(): Promise<void> {
          created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
          updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
        )`,
+      // Query-path indexes for the columns the app filters on constantly.
+      // All IF NOT EXISTS, all safe on existing data (plain b-tree indexes
+      // never conflict with live rows the way unique constraints could).
+      `CREATE INDEX IF NOT EXISTS idx_companies_owner ON companies(owner_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_companies_archived ON companies(archived_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_companies_call_outcome ON companies(call_outcome)`,
+      `CREATE INDEX IF NOT EXISTS idx_contacts_owner ON contacts(owner_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts(company_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_contacts_email_lower ON contacts(lower(email))`,
+      `CREATE INDEX IF NOT EXISTS idx_deals_company ON deals(company_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_deals_archived ON deals(archived_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_activities_deal ON activities(deal_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_activities_contact ON activities(contact_id)`,
       // One-time backfill: every active company should sit in the pipeline. Any
       // company that has no active deal yet gets a $0 "To Call" deal so nothing
       // slips through. Set-based + guarded by NOT EXISTS, so it's a no-op after

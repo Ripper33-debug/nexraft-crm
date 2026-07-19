@@ -52,6 +52,8 @@ function isOverdue(due: unknown): boolean {
 
 function ActivitiesPage() {
   const { activities, deals, contacts, users } = Route.useLoaderData();
+  const { user: me } = Route.useRouteContext();
+  const isAdmin = me?.role === "admin";
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
@@ -80,9 +82,11 @@ function ActivitiesPage() {
               <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} className="accent-signal" />
               Show completed
             </label>
-            <Button variant="outline" onClick={() => exportActivities(activities as Row[])}>
-              Export CSV
-            </Button>
+            {isAdmin ? (
+              <Button variant="outline" onClick={() => exportActivities(activities as Row[])}>
+                Export CSV
+              </Button>
+            ) : null}
             <Button
               onClick={() => {
                 setEditing(null);

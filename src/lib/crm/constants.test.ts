@@ -14,6 +14,7 @@ import {
   isBestFitIndustry,
   canEditRecord,
   canAdministerRecord,
+  pickLeastLoaded,
   parseSharedIds,
   parseTags,
   serializeTags,
@@ -281,6 +282,49 @@ describe("canEditRecord / canAdministerRecord", () => {
     expect(canAdministerRecord(admin, "u-owner")).toBe(true);
     expect(canAdministerRecord(owner, "u-owner")).toBe(true);
     expect(canAdministerRecord(other, "u-owner")).toBe(false);
+  });
+});
+
+describe("pickLeastLoaded", () => {
+  it("returns null when nobody is eligible", () => {
+    expect(pickLeastLoaded([])).toBe(null);
+  });
+
+  it("always picks the lightest-loaded rep", () => {
+    const reps = [
+      { id: "a", name: "A", open_deals: 5 },
+      { id: "b", name: "B", open_deals: 2 },
+      { id: "c", name: "C", open_deals: 9 },
+    ];
+    expect(pickLeastLoaded(reps)?.id).toBe("b");
+  });
+
+  it("breaks ties among the lightest only", () => {
+    const reps = [
+      { id: "a", name: "A", open_deals: 1 },
+      { id: "b", name: "B", open_deals: 1 },
+      { id: "c", name: "C", open_deals: 7 },
+    ];
+    for (let i = 0; i < 25; i++) {
+      const picked = pickLeastLoaded(reps);
+      expect(["a", "b"]).toContain(picked?.id);
+    }
+  });
+
+  it("spreads a batch evenly when callers bump the winner's load", () => {
+    const reps = [
+      { id: "a", name: "A", open_deals: 0 },
+      { id: "b", name: "B", open_deals: 0 },
+      { id: "c", name: "C", open_deals: 0 },
+    ];
+    // Simulate redistributePool assigning 30 leads.
+    for (let i = 0; i < 30; i++) {
+      const rep = pickLeastLoaded(reps);
+      expect(rep).not.toBe(null);
+      rep!.open_deals++;
+    }
+    // Perfectly even split: 10 each.
+    expect(reps.map((r) => r.open_deals)).toEqual([10, 10, 10]);
   });
 });
 

@@ -68,6 +68,7 @@ export const Route = createFileRoute("/_app/contacts")({
 function ContactsPage() {
   const { contacts, companies, users, deals } = Route.useLoaderData();
   const { user: me } = Route.useRouteContext();
+  const isAdmin = me?.role === "admin";
   const { focus, new: newParam } = Route.useSearch();
   const router = useRouter();
   const navigate = Route.useNavigate();
@@ -138,9 +139,11 @@ function ContactsPage() {
               onImport={(rows) => importContacts({ data: { rows: rows as { first_name: string }[] } })}
               onDone={() => router.invalidate()}
             />
-            <Button variant="outline" onClick={() => exportContacts(contacts as Row[])}>
-              Export CSV
-            </Button>
+            {isAdmin ? (
+              <Button variant="outline" onClick={() => exportContacts(contacts as Row[])}>
+                Export CSV
+              </Button>
+            ) : null}
             <Button
               onClick={() => {
                 setEditing(null);

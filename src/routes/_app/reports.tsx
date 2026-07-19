@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouteContext } from "@tanstack/react-router";
 import { useState } from "react";
 
 const RANGES = [
@@ -41,6 +41,10 @@ function ReportsPage() {
   const { range } = Route.useSearch();
   const navigate = Route.useNavigate();
   const [exporting, setExporting] = useState(false);
+  // Full-database export is admin-only (server enforces it too) — hide the
+  // button entirely for reps so it's not a dead control.
+  const { user } = useRouteContext({ from: "/_app" }) as { user?: { role?: string } };
+  const isAdmin = user?.role === "admin";
 
   const rangeSub = RANGES.find((r) => r.value === range)?.label ?? "All time";
 
@@ -89,9 +93,11 @@ function ReportsPage() {
                 </button>
               ))}
             </div>
-            <Button variant="outline" onClick={exportAll} disabled={exporting}>
-              {exporting ? "Preparing…" : "Export all (CSV)"}
-            </Button>
+            {isAdmin ? (
+              <Button variant="outline" onClick={exportAll} disabled={exporting}>
+                {exporting ? "Preparing…" : "Export all (CSV)"}
+              </Button>
+            ) : null}
           </div>
         }
       />
@@ -169,22 +175,24 @@ function ReportsPage() {
         </Card>
       </div>
 
-      {/* Export panel */}
-      <Card className="mt-4 p-4">
-        <Eyebrow className="mb-3">Export your data</Eyebrow>
-        <p className="mb-3 text-sm text-mute">
-          Download clean, denormalized CSVs — names resolved, no internal IDs — ready to import into
-          Monday CRM or open in Excel.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={exportAll} disabled={exporting}>
-            {exporting ? "Preparing…" : "Export all (CSV)"}
-          </Button>
-        </div>
-        <p className="mt-3 text-xs text-faint">
-          Companies, contacts, deals and activities each download as a separate CSV.
-        </p>
-      </Card>
+      {/* Export panel — admin only (the server enforces this too) */}
+      {isAdmin ? (
+        <Card className="mt-4 p-4">
+          <Eyebrow className="mb-3">Export your data</Eyebrow>
+          <p className="mb-3 text-sm text-mute">
+            Download clean, denormalized CSVs — names resolved, no internal IDs — ready to import into
+            Monday CRM or open in Excel.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={exportAll} disabled={exporting}>
+              {exporting ? "Preparing…" : "Export all (CSV)"}
+            </Button>
+          </div>
+          <p className="mt-3 text-xs text-faint">
+            Companies, contacts, deals and activities each download as a separate CSV.
+          </p>
+        </Card>
+      ) : null}
 
       {/* Per-rep performance */}
       <Card className="mt-4 overflow-hidden">
