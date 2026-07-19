@@ -23,6 +23,7 @@ import { toast } from "../../components/crm/toast";
 import { OPPORTUNITY_BAND_INFO, type OpportunityBand } from "../../lib/crm/constants";
 import { useAutoConfig, useAutoStatus, setConfig } from "../../lib/crm/autodiscover";
 import { RadarScope } from "../../components/crm/radar";
+import { OrbField } from "../../components/crm/orbfield";
 import { USStatePicker, stateAbbrFromArea, type USState } from "../../components/crm/state-picker";
 
 export const Route = createFileRoute("/_app/discover")({
@@ -401,9 +402,12 @@ function ScannerHero({ area }: { area: string }) {
   const live = config.on && !st.paused;
 
   return (
-    <Card className="overflow-hidden p-0">
+    <Card className="relative overflow-hidden p-0">
+      {/* Living background: molten orbs + motes, sonar rings while scanning,
+          and a bright burst every time the radar lands a lead. */}
+      <OrbField live={live} pulse={st.imported} />
       {/* Top bar: the one button. */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 bg-gradient-to-r from-signal-soft/40 to-transparent px-4 py-3 sm:px-5">
+      <div className="relative flex flex-wrap items-center justify-between gap-3 border-b border-line/60 bg-gradient-to-r from-signal-soft/40 to-transparent px-4 py-3 sm:px-5">
         <div className="flex items-center gap-2.5">
           <span
             className={
@@ -450,7 +454,7 @@ function ScannerHero({ area }: { area: string }) {
       </div>
 
       {/* Body: radar + live stream side by side. */}
-      <div className="grid grid-cols-1 gap-5 p-4 sm:px-5 md:grid-cols-[260px_1fr] md:items-start">
+      <div className="relative grid grid-cols-1 gap-5 p-4 sm:px-5 md:grid-cols-[260px_1fr] md:items-start">
         <div className="justify-self-center">
           <RadarScope
             on={config.on}
@@ -470,7 +474,7 @@ function ScannerHero({ area }: { area: string }) {
       </div>
 
       {/* Region picker: US states + Canadian provinces. */}
-      <div className="border-t border-line/60 px-4 py-3 sm:px-5">
+      <div className="relative border-t border-line/60 px-4 py-3 sm:px-5">
         <div className="mb-2 flex items-center gap-2">
           <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">
             Target region
