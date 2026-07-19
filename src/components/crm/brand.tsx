@@ -3,9 +3,9 @@
 // wordmark whose trailing period is the signature red-orange dot — no tile, no
 // underline. The compact monogram carries the same bone "N" + orange dot.
 
-const TILE = "#171512"; // warm near-black tile (matches --color-surface)
+const TILE = "#0e0e13"; // cool near-black tile (matches --color-surface)
 const ACCENT = "#ff4d1c"; // Nexraft red-orange (the "." dot)
-const BONE = "#ece7dd"; // cream wordmark
+const BONE = "#e9e5db"; // cream wordmark
 
 // Square monogram tile (sidebar, favicon, mobile bar): bone "N" over the warm
 // near-black tile with the signature orange dot in the corner.
@@ -53,8 +53,8 @@ export function Wordmark({ small }: { small?: boolean }) {
     <div className="flex items-center gap-2.5">
       <LogoMark size={small ? 28 : 32} radius={small ? 7 : 8} />
       <div className="leading-tight">
-        <div className="font-display text-sm font-semibold tracking-tight text-bone">
-          Nexraft<span className="text-signal"> CRM</span>
+        <div className="font-display text-sm font-extrabold uppercase tracking-[0.08em] text-bone">
+          Nexraft<span className="text-signal">_._</span>
         </div>
         {!small ? (
           <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">Sales OS</div>

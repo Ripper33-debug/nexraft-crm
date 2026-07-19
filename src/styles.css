@@ -202,6 +202,47 @@
   animation: nx-rise 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Top-lit gradient sheen for display headings — lifted straight from
+ * nexraft.com's .text-sheen so page titles carry the same premium depth. */
+.text-sheen {
+  background-image: linear-gradient(
+    180deg,
+    var(--color-bone) 0%,
+    color-mix(in srgb, var(--color-bone) 64%, var(--color-ink)) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Section seam (site's .section-seam): a hairline that a signal-orange sweep
+ * wipes across once when the page mounts. Pure decoration. */
+.nx-seam {
+  position: relative;
+  height: 2px;
+  overflow: hidden;
+  background: var(--color-line);
+}
+.nx-seam::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--color-signal), transparent);
+  transform: translateX(-100%);
+  animation: nx-seam-sweep 1.15s cubic-bezier(0.16, 1, 0.3, 1) 0.15s forwards;
+}
+@keyframes nx-seam-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nx-seam::after {
+    display: none;
+  }
+}
+
 /* ---------------- Ember Command interaction layer ---------------- */
 
 /* Cursor-tracking spotlight: cards set --mx/--my from a pointermove handler and
