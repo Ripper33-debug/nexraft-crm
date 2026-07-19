@@ -96,9 +96,16 @@ function CompanyDetail() {
             <DetailRow label="Owner"><OwnerChip name={c.owner_name as string} /></DetailRow>
             <DetailRow label="Website">
               {website ? (
-                <a href={website.startsWith("http") ? website : `https://${website}`} target="_blank" rel="noreferrer" className="text-signal hover:underline">
-                  {website}
-                </a>
+                <span className="inline-flex items-center gap-2">
+                  <a href={website.startsWith("http") ? website : `https://${website}`} target="_blank" rel="noreferrer" className="text-signal hover:underline">
+                    {website}
+                  </a>
+                  {c.website_status === "dead" ? (
+                    <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] font-medium text-red-400">Site down</span>
+                  ) : c.website_status === "live" ? (
+                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-400">Live</span>
+                  ) : null}
+                </span>
               ) : <span className="text-faint">—</span>}
             </DetailRow>
             <DetailRow label="Phone">{(c.phone as string) || <span className="text-faint">—</span>}</DetailRow>

@@ -262,6 +262,8 @@ function feedDot(verb: string): string {
   if (verb === "note_added") return "#2dd4bf";
   if (verb === "stage_changed") return "#38bdf8";
   if (verb === "completed") return "#a855f7";
+  if (verb === "invoiced") return "#f59e0b";
+  if (verb === "flagged") return "#fb7185";
   return "#8a978f";
 }
 

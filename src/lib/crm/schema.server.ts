@@ -136,6 +136,44 @@ export function ensureExtraSchema(): Promise<void> {
          created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
          updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
        )`,
+      // Projects (first ERP piece): a signed deal becomes a build project — one
+      // row per website being built, with a JSON checklist walking the delivery
+      // from kickoff to launch. owner_id + shared_with so the standard record
+      // ACL (assertCanEdit) applies. Soft-deleted via archived_at like the rest.
+      `CREATE TABLE IF NOT EXISTS projects (
+         id TEXT PRIMARY KEY,
+         company_id TEXT NOT NULL,
+         deal_id TEXT,
+         name TEXT NOT NULL,
+         owner_id TEXT,
+         shared_with TEXT,
+         status TEXT NOT NULL DEFAULT 'kickoff',
+         checklist TEXT,
+         launch_date TEXT,
+         notes TEXT,
+         archived_at TEXT,
+         created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+         updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_projects_company ON projects(company_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)`,
+      // Stripe invoices raised from the CRM (billing phase). Mirrors what was
+      // created in Stripe so the app can list/refresh without extra API calls.
+      `CREATE TABLE IF NOT EXISTS invoices (
+         id TEXT PRIMARY KEY,
+         company_id TEXT NOT NULL,
+         deal_id TEXT,
+         stripe_invoice_id TEXT,
+         description TEXT,
+         amount NUMERIC NOT NULL DEFAULT 0,
+         status TEXT NOT NULL DEFAULT 'open',
+         hosted_url TEXT,
+         created_by TEXT,
+         created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+         updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_invoices_company ON invoices(company_id)`,
       // Query-path indexes for the columns the app filters on constantly.
       // All IF NOT EXISTS, all safe on existing data (plain b-tree indexes
       // never conflict with live rows the way unique constraints could).

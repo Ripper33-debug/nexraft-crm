@@ -108,6 +108,31 @@ describe("follow-up cadence schedules the next nudge", () => {
   });
 });
 
+describe("project mutations enforce record-level permissions", () => {
+  for (const name of ["updateProject", "archiveProject"]) {
+    it(`${name} calls assertCanEdit`, () => {
+      expect(fnBody(name)).toContain("assertCanEdit(");
+    });
+  }
+  it("archiveProject soft-archives instead of deleting", () => {
+    expect(fnBody("archiveProject")).toContain("SET archived_at");
+  });
+  it("getProjects requires a signed-in user", () => {
+    expect(fnBody("getProjects")).toContain("requireUser(");
+  });
+});
+
+describe("billing is admin-only and config-gated", () => {
+  for (const name of ["getBillingOverview", "createStripeInvoice", "refreshInvoiceStatus"]) {
+    it(`${name} calls requireAdmin`, () => {
+      expect(fnBody(name)).toContain("requireAdmin(");
+    });
+  }
+  it("createStripeInvoice bails cleanly when Stripe isn't configured", () => {
+    expect(fnBody("createStripeInvoice")).toContain("isStripeConfigured(");
+  });
+});
+
 describe("role demotion clears the demoted user's sessions", () => {
   it("adminUpdateRole deletes sessions on demotion", () => {
     expect(fnBody("adminUpdateRole")).toContain("DELETE FROM sessions");

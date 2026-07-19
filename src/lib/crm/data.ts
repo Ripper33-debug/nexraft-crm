@@ -25,6 +25,7 @@ import {
 } from "./constants";
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
+import { isStripeConfigured, stripeFetch } from "./stripe.server";
 
 const WON_STAGE = "Launched";
 const LOST_STAGE = "Lost";
@@ -34,7 +35,7 @@ const TO_CALL_STAGE = "To Call";
 const OPEN_LIST = OPEN_STAGES.map((s) => `'${s}'`).join(",");
 
 // Whitelisted entity tables that carry owner_id + shared_with access columns.
-const ACCESS_TABLES = { company: "companies", contact: "contacts", deal: "deals" } as const;
+const ACCESS_TABLES = { company: "companies", contact: "contacts", deal: "deals", project: "projects" } as const;
 type AccessEntity = keyof typeof ACCESS_TABLES;
 
 // Load a record's current owner + share list and throw FORBIDDEN if `user` may
@@ -724,7 +725,12 @@ export const restoreDeal = createServerFn({ method: "POST" })
   });
 
 // ---------- Record access: hand off ownership / share edit rights ----------
-const ENTITY_LABEL: Record<AccessEntity, string> = { company: "company", contact: "contact", deal: "deal" };
+const ENTITY_LABEL: Record<AccessEntity, string> = {
+  company: "company",
+  contact: "contact",
+  deal: "deal",
+  project: "project",
+};
 
 // A tiny label for feed lines — best effort, never blocks the mutation.
 async function accessRecordName(table: (typeof ACCESS_TABLES)[AccessEntity], id: string): Promise<string> {
@@ -4179,4 +4185,337 @@ export const dismissDiscoveredLead = createServerFn({ method: "POST" })
       summary: `${me.name} dismissed ${c.name} from the discovery pool`,
     });
     return { ok: true as const };
+  });
+
+// ==================== Projects (ERP phase 1) ====================
+// When a deal is won, the sale becomes a BUILD — and the projects board is where
+// that build lives: a delivery checklist from kickoff to launch, a status lane,
+// and a launch date. Projects are auto-created from won deals (set-based, same
+// pattern as the To Call backfill) so nothing signed can slip through uncreated.
+
+export const PROJECT_STATUSES = ["kickoff", "design", "build", "review", "launched"] as const;
+
+export const DEFAULT_PROJECT_CHECKLIST = [
+  "Kickoff call",
+  "Collect content & branding",
+  "Design draft",
+  "Client design approval",
+  "Build site",
+  "Internal QA",
+  "Client review",
+  "Connect domain & launch",
+] as const;
+
+export type ProjectChecklistItem = { label: string; done: boolean };
+
+export type ProjectRow = {
+  id: string;
+  company_id: string;
+  deal_id: string | null;
+  name: string;
+  owner_id: string | null;
+  shared_with: string | null;
+  owner_name: string | null;
+  company_name: string | null;
+  status: string;
+  checklist: string | null;
+  launch_date: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export const getProjects = createServerFn({ method: "GET" }).handler(async () => {
+  await requireUser();
+  await ensureExtraSchema();
+  // Self-healing sync: every won (Launched-stage) deal gets a project the first
+  // time anyone opens the board. Set-based + NOT EXISTS, so it's a no-op once
+  // created — and it catches every path a deal can be won through (call triage,
+  // pipeline drag, manual edit) without hooks in each one.
+  const defaultChecklist = JSON.stringify(
+    DEFAULT_PROJECT_CHECKLIST.map((label) => ({ label, done: false })),
+  );
+  await db()
+    .prepare(
+      `INSERT INTO projects (id, company_id, deal_id, name, owner_id, status, checklist)
+       SELECT gen_random_uuid()::text, d.company_id, d.id,
+              COALESCE(c.name, d.name) || ' — Website build', d.owner_id, 'kickoff', ?
+         FROM deals d
+         LEFT JOIN companies c ON c.id = d.company_id
+        WHERE d.stage = '${WON_STAGE}' AND d.archived_at IS NULL
+          AND d.company_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM projects p WHERE p.deal_id = d.id
+          )`,
+    )
+    .bind(defaultChecklist)
+    .run();
+
+  const { results } = await db()
+    .prepare(
+      `SELECT p.*, u.name AS owner_name, c.name AS company_name
+         FROM projects p
+         LEFT JOIN users u ON u.id = p.owner_id
+         LEFT JOIN companies c ON c.id = p.company_id
+        WHERE p.archived_at IS NULL
+        ORDER BY (p.status = 'launched'), p.updated_at DESC`,
+    )
+    .all<ProjectRow>();
+  return results ?? [];
+});
+
+export const updateProject = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      id: z.string(),
+      status: z.enum(PROJECT_STATUSES).optional(),
+      checklist: z.string().optional(), // JSON [{label, done}]
+      launch_date: z.string().optional().nullable(),
+      notes: z.string().optional().nullable(),
+      name: z.string().min(1).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    await assertCanEdit(user, "projects", data.id);
+
+    // Validate the checklist actually parses to the expected shape before it's
+    // stored — a malformed blob would break every later render of the board.
+    let checklist: string | undefined;
+    if (data.checklist !== undefined) {
+      try {
+        const parsed = JSON.parse(data.checklist) as ProjectChecklistItem[];
+        if (!Array.isArray(parsed)) throw new Error("bad");
+        checklist = JSON.stringify(
+          parsed
+            .filter((i) => i && typeof i.label === "string")
+            .map((i) => ({ label: i.label.slice(0, 200), done: Boolean(i.done) }))
+            .slice(0, 40),
+        );
+      } catch {
+        return { ok: false as const, error: "Bad checklist payload." };
+      }
+    }
+
+    const existing = await db()
+      .prepare(`SELECT name, status FROM projects WHERE id = ? AND archived_at IS NULL`)
+      .bind(data.id)
+      .first<{ name: string; status: string }>();
+    if (!existing) return { ok: false as const, error: "Project not found." };
+
+    await db()
+      .prepare(
+        `UPDATE projects SET
+           status = COALESCE(?, status),
+           checklist = COALESCE(?, checklist),
+           launch_date = COALESCE(?, launch_date),
+           notes = COALESCE(?, notes),
+           name = COALESCE(?, name),
+           updated_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+         WHERE id = ?`,
+      )
+      .bind(
+        data.status ?? null,
+        checklist ?? null,
+        data.launch_date ?? null,
+        data.notes ?? null,
+        data.name ?? null,
+        data.id,
+      )
+      .run();
+
+    if (data.status && data.status !== existing.status) {
+      await logEvent({
+        actorId: user.id,
+        verb: data.status === "launched" ? "completed" : "stage_changed",
+        entityType: "project",
+        entityId: data.id,
+        summary:
+          data.status === "launched"
+            ? `${user.name} launched ${existing.name} 🎉`
+            : `${user.name} moved ${existing.name} to ${data.status}`,
+        meta: { from: existing.status, to: data.status },
+      });
+    }
+    return { ok: true as const };
+  });
+
+export const archiveProject = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string() }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    await assertCanEdit(user, "projects", data.id);
+    const row = await db()
+      .prepare(`SELECT name FROM projects WHERE id = ?`)
+      .bind(data.id)
+      .first<{ name: string }>();
+    await db()
+      .prepare(
+        `UPDATE projects SET archived_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') WHERE id = ?`,
+      )
+      .bind(data.id)
+      .run();
+    await logEvent({
+      actorId: user.id,
+      verb: "archived",
+      entityType: "project",
+      entityId: data.id,
+      summary: `${user.name} archived project ${row?.name ?? ""}`.trim(),
+    });
+    return { ok: true as const };
+  });
+
+// ==================== Billing (Stripe) ====================
+// Admin-only invoicing straight from the CRM. Config-gated on STRIPE_SECRET_KEY
+// (set it in Vercel env) — until then the billing page shows setup steps and
+// these functions return clean "not configured" results. Flow per invoice:
+// find-or-create the Stripe customer by email → invoice item → invoice
+// (send_invoice, 14 days) → finalize → store the hosted payment URL locally.
+
+export type InvoiceRow = {
+  id: string;
+  company_id: string;
+  deal_id: string | null;
+  stripe_invoice_id: string | null;
+  description: string | null;
+  amount: number;
+  status: string;
+  hosted_url: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  company_name: string | null;
+  creator_name: string | null;
+};
+
+export const getBillingOverview = createServerFn({ method: "GET" }).handler(async () => {
+  await requireAdmin();
+  await ensureExtraSchema();
+  const { results } = await db()
+    .prepare(
+      `SELECT i.*, c.name AS company_name, u.name AS creator_name
+         FROM invoices i
+         LEFT JOIN companies c ON c.id = i.company_id
+         LEFT JOIN users u ON u.id = i.created_by
+        ORDER BY i.created_at DESC
+        LIMIT 200`,
+    )
+    .all<InvoiceRow>();
+  return { configured: isStripeConfigured(), invoices: results ?? [] };
+});
+
+export const createStripeInvoice = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      company_id: z.string(),
+      deal_id: z.string().optional().nullable(),
+      email: z.string().email(),
+      amount: z.number().positive().max(1000000),
+      description: z.string().min(1).max(500),
+      days_until_due: z.number().int().min(1).max(90).default(14),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = await requireAdmin();
+    await ensureExtraSchema();
+    if (!isStripeConfigured()) {
+      return { ok: false as const, error: "Stripe isn't configured yet — add STRIPE_SECRET_KEY in Vercel." };
+    }
+    const company = await db()
+      .prepare(`SELECT name FROM companies WHERE id = ?`)
+      .bind(data.company_id)
+      .first<{ name: string }>();
+    if (!company) return { ok: false as const, error: "Company not found." };
+
+    // 1) Find or create the customer by email.
+    type CustomerList = { data: Array<{ id: string }> };
+    const found = await stripeFetch<CustomerList>("/customers", { email: data.email, limit: 1 }, "GET");
+    if (!found.ok) return { ok: false as const, error: found.error };
+    let customerId = found.data.data?.[0]?.id;
+    if (!customerId) {
+      const created = await stripeFetch<{ id: string }>("/customers", {
+        email: data.email,
+        name: company.name,
+      });
+      if (!created.ok) return { ok: false as const, error: created.error };
+      customerId = created.data.id;
+    }
+
+    // 2) Draft the invoice, 3) attach the line item, 4) finalize to get the
+    // hosted payment page. (Item is attached via the invoice id so it can never
+    // land on some other draft.)
+    const inv = await stripeFetch<{ id: string }>("/invoices", {
+      customer: customerId,
+      collection_method: "send_invoice",
+      days_until_due: data.days_until_due,
+      description: data.description,
+    });
+    if (!inv.ok) return { ok: false as const, error: inv.error };
+    const item = await stripeFetch<{ id: string }>("/invoiceitems", {
+      customer: customerId,
+      invoice: inv.data.id,
+      amount: Math.round(data.amount * 100),
+      currency: "usd",
+      description: data.description,
+    });
+    if (!item.ok) return { ok: false as const, error: item.error };
+    const fin = await stripeFetch<{ id: string; status: string; hosted_invoice_url: string | null }>(
+      `/invoices/${inv.data.id}/finalize`,
+      { auto_advance: true },
+    );
+    if (!fin.ok) return { ok: false as const, error: fin.error };
+
+    const localId = uid();
+    await db()
+      .prepare(
+        `INSERT INTO invoices (id, company_id, deal_id, stripe_invoice_id, description, amount, status, hosted_url, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        localId,
+        data.company_id,
+        data.deal_id ?? null,
+        fin.data.id,
+        data.description,
+        data.amount,
+        fin.data.status || "open",
+        fin.data.hosted_invoice_url ?? null,
+        user.id,
+      )
+      .run();
+    await logEvent({
+      actorId: user.id,
+      verb: "invoiced",
+      entityType: "company",
+      entityId: data.company_id,
+      summary: `${user.name} invoiced ${company.name} $${data.amount.toLocaleString()} — ${data.description}`,
+    });
+    return { ok: true as const, id: localId, url: fin.data.hosted_invoice_url ?? null };
+  });
+
+export const refreshInvoiceStatus = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string() }))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    await ensureExtraSchema();
+    const row = await db()
+      .prepare(`SELECT stripe_invoice_id FROM invoices WHERE id = ?`)
+      .bind(data.id)
+      .first<{ stripe_invoice_id: string | null }>();
+    if (!row?.stripe_invoice_id) return { ok: false as const, error: "No Stripe invoice attached." };
+    const res = await stripeFetch<{ status: string; hosted_invoice_url: string | null }>(
+      `/invoices/${row.stripe_invoice_id}`,
+    );
+    if (!res.ok) return { ok: false as const, error: res.error };
+    await db()
+      .prepare(
+        `UPDATE invoices SET status = ?, hosted_url = COALESCE(?, hosted_url),
+           updated_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+         WHERE id = ?`,
+      )
+      .bind(res.data.status || "open", res.data.hosted_invoice_url ?? null, data.id)
+      .run();
+    return { ok: true as const, status: res.data.status };
   });

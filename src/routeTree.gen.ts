@@ -19,6 +19,7 @@ import { Route as AppTodayRouteImport } from './routes/_app/today'
 import { Route as AppTeamRouteImport } from './routes/_app/team'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
+import { Route as AppProjectsRouteImport } from './routes/_app/projects'
 import { Route as AppPipelineRouteImport } from './routes/_app/pipeline'
 import { Route as AppPayrollRouteImport } from './routes/_app/payroll'
 import { Route as AppOpportunitiesRouteImport } from './routes/_app/opportunities'
@@ -28,6 +29,7 @@ import { Route as AppDiscoverRouteImport } from './routes/_app/discover'
 import { Route as AppContactsRouteImport } from './routes/_app/contacts'
 import { Route as AppCompaniesRouteImport } from './routes/_app/companies'
 import { Route as AppCallsRouteImport } from './routes/_app/calls'
+import { Route as AppBillingRouteImport } from './routes/_app/billing'
 import { Route as AppActivitiesRouteImport } from './routes/_app/activities'
 import { Route as ApiGmailDisconnectRouteImport } from './routes/api/gmail/disconnect'
 import { Route as ApiGmailConnectRouteImport } from './routes/api/gmail/connect'
@@ -88,6 +90,11 @@ const AppReportsRoute = AppReportsRouteImport.update({
   path: '/reports',
   getParentRoute: () => AppRoute,
 } as any)
+const AppProjectsRoute = AppProjectsRouteImport.update({
+  id: '/projects',
+  path: '/projects',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppPipelineRoute = AppPipelineRouteImport.update({
   id: '/pipeline',
   path: '/pipeline',
@@ -131,6 +138,11 @@ const AppCompaniesRoute = AppCompaniesRouteImport.update({
 const AppCallsRoute = AppCallsRouteImport.update({
   id: '/calls',
   path: '/calls',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBillingRoute = AppBillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
   getParentRoute: () => AppRoute,
 } as any)
 const AppActivitiesRoute = AppActivitiesRouteImport.update({
@@ -191,6 +203,7 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/activities': typeof AppActivitiesRoute
+  '/billing': typeof AppBillingRoute
   '/calls': typeof AppCallsRoute
   '/companies': typeof AppCompaniesRouteWithChildren
   '/contacts': typeof AppContactsRouteWithChildren
@@ -200,6 +213,7 @@ export interface FileRoutesByFullPath {
   '/opportunities': typeof AppOpportunitiesRoute
   '/payroll': typeof AppPayrollRoute
   '/pipeline': typeof AppPipelineRoute
+  '/projects': typeof AppProjectsRoute
   '/reports': typeof AppReportsRoute
   '/settings': typeof AppSettingsRoute
   '/team': typeof AppTeamRoute
@@ -220,6 +234,7 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/activities': typeof AppActivitiesRoute
+  '/billing': typeof AppBillingRoute
   '/calls': typeof AppCallsRoute
   '/companies': typeof AppCompaniesRouteWithChildren
   '/contacts': typeof AppContactsRouteWithChildren
@@ -229,6 +244,7 @@ export interface FileRoutesByTo {
   '/opportunities': typeof AppOpportunitiesRoute
   '/payroll': typeof AppPayrollRoute
   '/pipeline': typeof AppPipelineRoute
+  '/projects': typeof AppProjectsRoute
   '/reports': typeof AppReportsRoute
   '/settings': typeof AppSettingsRoute
   '/team': typeof AppTeamRoute
@@ -252,6 +268,7 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_app/activities': typeof AppActivitiesRoute
+  '/_app/billing': typeof AppBillingRoute
   '/_app/calls': typeof AppCallsRoute
   '/_app/companies': typeof AppCompaniesRouteWithChildren
   '/_app/contacts': typeof AppContactsRouteWithChildren
@@ -261,6 +278,7 @@ export interface FileRoutesById {
   '/_app/opportunities': typeof AppOpportunitiesRoute
   '/_app/payroll': typeof AppPayrollRoute
   '/_app/pipeline': typeof AppPipelineRoute
+  '/_app/projects': typeof AppProjectsRoute
   '/_app/reports': typeof AppReportsRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/team': typeof AppTeamRoute
@@ -285,6 +303,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/sitemap.xml'
     | '/activities'
+    | '/billing'
     | '/calls'
     | '/companies'
     | '/contacts'
@@ -294,6 +313,7 @@ export interface FileRouteTypes {
     | '/opportunities'
     | '/payroll'
     | '/pipeline'
+    | '/projects'
     | '/reports'
     | '/settings'
     | '/team'
@@ -314,6 +334,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/sitemap.xml'
     | '/activities'
+    | '/billing'
     | '/calls'
     | '/companies'
     | '/contacts'
@@ -323,6 +344,7 @@ export interface FileRouteTypes {
     | '/opportunities'
     | '/payroll'
     | '/pipeline'
+    | '/projects'
     | '/reports'
     | '/settings'
     | '/team'
@@ -345,6 +367,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/sitemap.xml'
     | '/_app/activities'
+    | '/_app/billing'
     | '/_app/calls'
     | '/_app/companies'
     | '/_app/contacts'
@@ -354,6 +377,7 @@ export interface FileRouteTypes {
     | '/_app/opportunities'
     | '/_app/payroll'
     | '/_app/pipeline'
+    | '/_app/projects'
     | '/_app/reports'
     | '/_app/settings'
     | '/_app/team'
@@ -456,6 +480,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppReportsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/projects': {
+      id: '/_app/projects'
+      path: '/projects'
+      fullPath: '/projects'
+      preLoaderRoute: typeof AppProjectsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/pipeline': {
       id: '/_app/pipeline'
       path: '/pipeline'
@@ -517,6 +548,13 @@ declare module '@tanstack/react-router' {
       path: '/calls'
       fullPath: '/calls'
       preLoaderRoute: typeof AppCallsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/billing': {
+      id: '/_app/billing'
+      path: '/billing'
+      fullPath: '/billing'
+      preLoaderRoute: typeof AppBillingRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/activities': {
@@ -618,6 +656,7 @@ const AppContactsRouteWithChildren = AppContactsRoute._addFileChildren(
 
 interface AppRouteChildren {
   AppActivitiesRoute: typeof AppActivitiesRoute
+  AppBillingRoute: typeof AppBillingRoute
   AppCallsRoute: typeof AppCallsRoute
   AppCompaniesRoute: typeof AppCompaniesRouteWithChildren
   AppContactsRoute: typeof AppContactsRouteWithChildren
@@ -627,6 +666,7 @@ interface AppRouteChildren {
   AppOpportunitiesRoute: typeof AppOpportunitiesRoute
   AppPayrollRoute: typeof AppPayrollRoute
   AppPipelineRoute: typeof AppPipelineRoute
+  AppProjectsRoute: typeof AppProjectsRoute
   AppReportsRoute: typeof AppReportsRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppTeamRoute: typeof AppTeamRoute
@@ -637,6 +677,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppActivitiesRoute: AppActivitiesRoute,
+  AppBillingRoute: AppBillingRoute,
   AppCallsRoute: AppCallsRoute,
   AppCompaniesRoute: AppCompaniesRouteWithChildren,
   AppContactsRoute: AppContactsRouteWithChildren,
@@ -646,6 +687,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppOpportunitiesRoute: AppOpportunitiesRoute,
   AppPayrollRoute: AppPayrollRoute,
   AppPipelineRoute: AppPipelineRoute,
+  AppProjectsRoute: AppProjectsRoute,
   AppReportsRoute: AppReportsRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppTeamRoute: AppTeamRoute,
