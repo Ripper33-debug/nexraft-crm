@@ -240,6 +240,52 @@ export function isHighBudgetIndustry(industry: string | null | undefined): boole
   );
 }
 
+// ---------- Social presence (pure OSM-tag analysis) ----------
+// A business that keeps a Facebook or Instagram page but has no real website is
+// the easiest sell there is: they're already marketing-minded — they just poured
+// the effort into a platform they don't own. Pure so the parsing is testable;
+// the tags come straight off the OpenStreetMap element in data.ts.
+export type SocialPresence = { platforms: string[]; url: string | null };
+
+const SOCIAL_TAG_MAP: { tags: string[]; label: string; base: string }[] = [
+  { tags: ["contact:facebook", "facebook"], label: "Facebook", base: "https://www.facebook.com/" },
+  { tags: ["contact:instagram", "instagram"], label: "Instagram", base: "https://www.instagram.com/" },
+];
+
+export function parseSocials(tags: Record<string, string>): SocialPresence {
+  const platforms: string[] = [];
+  let url: string | null = null;
+  for (const def of SOCIAL_TAG_MAP) {
+    const raw = def.tags.map((t) => (tags[t] ?? "").trim()).find(Boolean);
+    if (!raw) continue;
+    platforms.push(def.label);
+    if (!url) {
+      // OSM stores either a full URL or a bare handle/page name.
+      url = /^https?:\/\//i.test(raw) ? raw : def.base + raw.replace(/^@/, "");
+    }
+  }
+  return { platforms, url };
+}
+
+// ---------- "What converts for you" industry matching ----------
+// Fuzzy-match a discovered lead's industry label against the list of industries
+// Nexraft has actually converted before (won deals / interested call outcomes).
+// Labels vary ("Dental clinic" vs "Dentist office"), so a match is: equal after
+// normalising, or one contains the other. Tiny fragments are ignored so "spa"
+// can't accidentally claim "spare parts".
+export function industryMatchesAny(
+  industry: string | null | undefined,
+  list: string[] | null | undefined,
+): boolean {
+  const s = (industry ?? "").toLowerCase().trim();
+  if (!s || !list || list.length === 0) return false;
+  return list.some((raw) => {
+    const k = (raw ?? "").toLowerCase().trim();
+    if (k.length < 4 || s.length < 4) return k === s;
+    return k === s || s.includes(k) || k.includes(s);
+  });
+}
+
 // ---------- Website quality audit (pure HTML analysis) ----------
 // Given the homepage HTML of a prospect's site, find the problems a rep can
 // pitch against — and any contact info hiding in the page. Pure function so the
@@ -480,6 +526,12 @@ export type DiscoverySignals = {
   // Pitchable defects found by analyzeSiteHtml (outdated, DIY builder, not
   // mobile-friendly, ...). Only meaningful when the site was fetched and alive.
   websiteIssues?: string[] | null;
+  // Social platforms the business maintains (from OSM tags) — e.g. ["Facebook"].
+  // Marketing-minded but siteless is the easiest pitch we have.
+  socials?: string[] | null;
+  // true = this lead's industry matches one Nexraft has already converted
+  // (won a deal or got an "interested" on the phone). Evidence beats hunches.
+  provenIndustry?: boolean;
 };
 
 export function discoveryScore(sig: DiscoverySignals): OpportunityScore {
@@ -505,6 +557,19 @@ export function discoveryScore(sig: DiscoverySignals): OpportunityScore {
     reasons.push("Already has a website (redesign play)");
   }
 
+  // 1b) Marketing-minded but siteless: they keep a Facebook/Instagram page yet
+  //     have no (working) website. They already believe in being found online —
+  //     the easiest close in the deck. Only fires when the site signal says
+  //     there's nothing real behind the business (no site, or a dead one).
+  if (
+    sig.socials &&
+    sig.socials.length > 0 &&
+    (!sig.hasWebsite || sig.websiteDead === true)
+  ) {
+    score += 12;
+    reasons.push(`On ${sig.socials.join(" & ")} but no real website — already marketing-minded`);
+  }
+
   // 2) Best-fit industry.
   if (isBestFitIndustry(sig.industry)) {
     score += 15;
@@ -515,6 +580,13 @@ export function discoveryScore(sig: DiscoverySignals): OpportunityScore {
   if (isHighBudgetIndustry(sig.industry)) {
     score += 10;
     reasons.push("High-budget industry — real web spend");
+  }
+
+  // 2c) Proven for Nexraft specifically: this industry has already produced a
+  //     won deal or an interested call for the team. Track record > theory.
+  if (sig.provenIndustry) {
+    score += 8;
+    reasons.push("Industry that's converted for Nexraft before");
   }
 
   // 3) Established & active: good rating with real review volume. Only applied

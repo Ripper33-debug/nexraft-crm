@@ -174,6 +174,23 @@ export function ensureExtraSchema(): Promise<void> {
          updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
        )`,
       `CREATE INDEX IF NOT EXISTS idx_invoices_company ON invoices(company_id)`,
+      // Daily auto sweeps (lead gen): admin-saved searches (area + business
+      // types) that a Vercel cron runs every morning server-side — so fresh
+      // leads land in the pool even when nobody has the CRM open in a browser.
+      // next_type_idx rotates through the sweep's types run over run so a short
+      // cron window still covers every niche across the week.
+      `CREATE TABLE IF NOT EXISTS auto_sweeps (
+         id TEXT PRIMARY KEY,
+         area TEXT NOT NULL,
+         types TEXT NOT NULL,
+         enabled BOOLEAN NOT NULL DEFAULT true,
+         next_type_idx INTEGER NOT NULL DEFAULT 0,
+         last_run_at TEXT,
+         last_imported INTEGER NOT NULL DEFAULT 0,
+         total_imported INTEGER NOT NULL DEFAULT 0,
+         created_by TEXT,
+         created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+       )`,
       // Query-path indexes for the columns the app filters on constantly.
       // All IF NOT EXISTS, all safe on existing data (plain b-tree indexes
       // never conflict with live rows the way unique constraints could).

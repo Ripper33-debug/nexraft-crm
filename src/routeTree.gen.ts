@@ -34,6 +34,7 @@ import { Route as AppActivitiesRouteImport } from './routes/_app/activities'
 import { Route as ApiGmailDisconnectRouteImport } from './routes/api/gmail/disconnect'
 import { Route as ApiGmailConnectRouteImport } from './routes/api/gmail/connect'
 import { Route as ApiGmailCallbackRouteImport } from './routes/api/gmail/callback'
+import { Route as ApiCronSweepRouteImport } from './routes/api/cron/sweep'
 import { Route as ApiAuthSignupRouteImport } from './routes/api/auth/signup'
 import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
@@ -165,6 +166,11 @@ const ApiGmailCallbackRoute = ApiGmailCallbackRouteImport.update({
   path: '/api/gmail/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCronSweepRoute = ApiCronSweepRouteImport.update({
+  id: '/api/cron/sweep',
+  path: '/api/cron/sweep',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSignupRoute = ApiAuthSignupRouteImport.update({
   id: '/api/auth/signup',
   path: '/api/auth/signup',
@@ -224,6 +230,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
+  '/api/cron/sweep': typeof ApiCronSweepRoute
   '/api/gmail/callback': typeof ApiGmailCallbackRoute
   '/api/gmail/connect': typeof ApiGmailConnectRoute
   '/api/gmail/disconnect': typeof ApiGmailDisconnectRoute
@@ -256,6 +263,7 @@ export interface FileRoutesByTo {
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
+  '/api/cron/sweep': typeof ApiCronSweepRoute
   '/api/gmail/callback': typeof ApiGmailCallbackRoute
   '/api/gmail/connect': typeof ApiGmailConnectRoute
   '/api/gmail/disconnect': typeof ApiGmailDisconnectRoute
@@ -290,6 +298,7 @@ export interface FileRoutesById {
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/signup': typeof ApiAuthSignupRoute
+  '/api/cron/sweep': typeof ApiCronSweepRoute
   '/api/gmail/callback': typeof ApiGmailCallbackRoute
   '/api/gmail/connect': typeof ApiGmailConnectRoute
   '/api/gmail/disconnect': typeof ApiGmailDisconnectRoute
@@ -324,6 +333,7 @@ export interface FileRouteTypes {
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/signup'
+    | '/api/cron/sweep'
     | '/api/gmail/callback'
     | '/api/gmail/connect'
     | '/api/gmail/disconnect'
@@ -356,6 +366,7 @@ export interface FileRouteTypes {
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/signup'
+    | '/api/cron/sweep'
     | '/api/gmail/callback'
     | '/api/gmail/connect'
     | '/api/gmail/disconnect'
@@ -389,6 +400,7 @@ export interface FileRouteTypes {
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/signup'
+    | '/api/cron/sweep'
     | '/api/gmail/callback'
     | '/api/gmail/connect'
     | '/api/gmail/disconnect'
@@ -403,6 +415,7 @@ export interface RootRouteChildren {
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
   ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
   ApiAuthSignupRoute: typeof ApiAuthSignupRoute
+  ApiCronSweepRoute: typeof ApiCronSweepRoute
   ApiGmailCallbackRoute: typeof ApiGmailCallbackRoute
   ApiGmailConnectRoute: typeof ApiGmailConnectRoute
   ApiGmailDisconnectRoute: typeof ApiGmailDisconnectRoute
@@ -585,6 +598,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGmailCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/cron/sweep': {
+      id: '/api/cron/sweep'
+      path: '/api/cron/sweep'
+      fullPath: '/api/cron/sweep'
+      preLoaderRoute: typeof ApiCronSweepRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/signup': {
       id: '/api/auth/signup'
       path: '/api/auth/signup'
@@ -707,6 +727,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthLoginRoute: ApiAuthLoginRoute,
   ApiAuthLogoutRoute: ApiAuthLogoutRoute,
   ApiAuthSignupRoute: ApiAuthSignupRoute,
+  ApiCronSweepRoute: ApiCronSweepRoute,
   ApiGmailCallbackRoute: ApiGmailCallbackRoute,
   ApiGmailConnectRoute: ApiGmailConnectRoute,
   ApiGmailDisconnectRoute: ApiGmailDisconnectRoute,

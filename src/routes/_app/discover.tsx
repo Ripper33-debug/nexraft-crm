@@ -8,8 +8,15 @@ import {
   claimCompany,
   dismissDiscoveredLead,
   redistributePool,
+  getConversionInsights,
+  getSweeps,
+  saveSweep,
+  deleteSweep,
+  runSweepNow,
   type DiscoveredLead,
   type PoolLead,
+  type ConversionInsight,
+  type SweepRow,
 } from "../../lib/crm/data";
 import { Button, Card, EmptyState, Input, PageHeader, Pill } from "../../components/crm/ui";
 import { toast } from "../../components/crm/toast";
@@ -20,7 +27,10 @@ import { USStatePicker, stateAbbrFromArea, type USState } from "../../components
 
 export const Route = createFileRoute("/_app/discover")({
   component: DiscoverPage,
-  loader: async () => ({ pool: (await getDiscoveredPool()).leads }),
+  loader: async () => {
+    const [pool, ins] = await Promise.all([getDiscoveredPool(), getConversionInsights()]);
+    return { pool: pool.leads, insights: ins.insights };
+  },
 });
 
 // Quick-pick business types that fill the search box in one tap.
@@ -107,6 +117,28 @@ function LeadCard({
             ) : (
               <Pill tone="neutral">Has site</Pill>
             )}
+            {lead.reviews !== null && lead.reviews > 0 ? (
+              <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+                ★ {lead.rating !== null ? lead.rating.toFixed(1) + " · " : ""}
+                {lead.reviews} review{lead.reviews === 1 ? "" : "s"}
+              </span>
+            ) : null}
+            {lead.socials.length > 0 ? (
+              lead.social_url ? (
+                <a
+                  href={lead.social_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-300 hover:bg-sky-500/20"
+                >
+                  {lead.socials.join(" · ")} ↗
+                </a>
+              ) : (
+                <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-300">
+                  {lead.socials.join(" · ")}
+                </span>
+              )
+            ) : null}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-mute">
             {lead.industry ? <span>{lead.industry}</span> : null}
@@ -461,9 +493,237 @@ function ScannerHero({ area }: { area: string }) {
   );
 }
 
+// ==================== "What converts for you" ====================
+// The team's actual track record, industry by industry — imported companies,
+// interested calls, won deals. Discovery scoring already tilts toward these
+// industries automatically; this panel makes the pattern visible so reps aim
+// their manual searches where Nexraft historically closes.
+function WinsPanel({ insights }: { insights: ConversionInsight[] }) {
+  if (insights.length === 0) return null;
+  return (
+    <Card className="p-4">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <h2 className="text-sm font-semibold text-bone">What converts for you</h2>
+        <span className="text-xs text-mute">
+          — industries where Nexraft has already closed or heard “interested”. New finds in these
+          get an automatic score boost.
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {insights.map((row) => (
+          <div
+            key={row.industry}
+            className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2"
+          >
+            <div className="truncate text-xs font-semibold text-bone" title={row.industry}>
+              {row.industry}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-mute">
+              {row.won > 0 ? (
+                <span className="font-medium text-emerald-400">
+                  {row.won} won
+                </span>
+              ) : null}
+              {row.interested > 0 ? (
+                <span className="text-amber-300/90">{row.interested} interested</span>
+              ) : null}
+              <span className="text-faint">of {row.companies} tried</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+// ==================== Daily auto sweeps (admin) ====================
+// Server-side sibling of the in-browser radar: saved searches that Vercel's
+// cron runs every morning, so fresh leads are waiting in the pool before anyone
+// opens the CRM. Admin-only — reps just see the results land.
+const DEFAULT_SWEEP_TYPES = "Roofers, Plumbers, HVAC, Dentists, Med spas, Law firms";
+
+function SweepsCard() {
+  const [sweeps, setSweeps] = useState<SweepRow[] | null>(null);
+  const [area, setArea] = useState("");
+  const [typesText, setTypesText] = useState(DEFAULT_SWEEP_TYPES);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+
+  async function reload() {
+    try {
+      const res = await getSweeps();
+      setSweeps(res.sweeps);
+    } catch {
+      setSweeps([]);
+    }
+  }
+  useEffect(() => {
+    void reload();
+  }, []);
+
+  const parseTypes = (s: string) =>
+    s
+      .split(/,|\/|\n/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .slice(0, 12);
+
+  async function addSweep() {
+    const types = parseTypes(typesText);
+    if (!area.trim()) {
+      toast("Give the sweep an area — a city or a whole state.", "info");
+      return;
+    }
+    if (types.length === 0) {
+      toast("List at least one business type to sweep.", "info");
+      return;
+    }
+    setAdding(true);
+    try {
+      const res = await saveSweep({ data: { area: area.trim(), types, enabled: true } });
+      if (res.ok) {
+        toast("Sweep saved — it runs every morning from here on.", "success");
+        setArea("");
+        await reload();
+      }
+    } catch {
+      toast("Couldn't save that sweep.", "error");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function toggleSweep(s: SweepRow) {
+    setBusyId(s.id);
+    try {
+      await saveSweep({ data: { id: s.id, area: s.area, types: s.types, enabled: !s.enabled } });
+      await reload();
+    } catch {
+      toast("Couldn't update that sweep.", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function removeSweep(s: SweepRow) {
+    if (!confirm(`Delete the ${s.area} sweep?`)) return;
+    setBusyId(s.id);
+    try {
+      await deleteSweep({ data: { id: s.id } });
+      await reload();
+    } catch {
+      toast("Couldn't delete that sweep.", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runNow(s: SweepRow) {
+    setBusyId(s.id);
+    toast(`Sweeping ${s.area} now — give it up to a minute…`, "info");
+    try {
+      const res = await runSweepNow({ data: { id: s.id } });
+      if (res.ok) {
+        toast(
+          res.imported > 0
+            ? `Sweep done — ${res.imported} new lead${res.imported === 1 ? "" : "s"} in the pool.`
+            : "Sweep done — nothing new this pass; it rotates to fresh niches next run.",
+          "success",
+        );
+      } else {
+        toast(res.error ?? "Couldn't run that sweep.", "error");
+      }
+      await reload();
+    } catch {
+      toast("Something went wrong running the sweep.", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const fmtWhen = (iso: string | null) => {
+    if (!iso) return "never run";
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? "—" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+
+  return (
+    <Card className="p-4">
+      <div className="mb-3">
+        <h2 className="text-sm font-semibold text-bone">Overnight auto sweeps</h2>
+        <p className="mt-0.5 text-xs text-mute">
+          These run on the server every morning — no browser needed. Each sweep rotates through its
+          business types day by day and drops the hottest no-website finds straight into the pool
+          above, auto-assigned to reps.
+        </p>
+      </div>
+
+      {sweeps === null ? (
+        <div className="py-2 text-xs text-faint">Loading sweeps…</div>
+      ) : sweeps.length > 0 ? (
+        <div className="mb-3 space-y-2">
+          {sweeps.map((s) => (
+            <div
+              key={s.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line/60 bg-sunk/40 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold text-bone">{s.area}</span>
+                  {s.enabled ? <Pill tone="signal">Nightly</Pill> : <Pill tone="neutral">Paused</Pill>}
+                </div>
+                <div className="mt-0.5 truncate text-[11px] text-mute" title={s.types.join(", ")}>
+                  {s.types.join(" · ")}
+                </div>
+                <div className="mt-0.5 text-[11px] text-faint">
+                  Last run {fmtWhen(s.last_run_at)} · {s.last_imported} last time ·{" "}
+                  {s.total_imported} total found
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => runNow(s)}>
+                  {busyId === s.id ? "Working…" : "Run now"}
+                </Button>
+                <Button size="sm" variant="ghost" disabled={busyId === s.id} onClick={() => toggleSweep(s)}>
+                  {s.enabled ? "Pause" : "Resume"}
+                </Button>
+                <Button size="sm" variant="ghost" disabled={busyId === s.id} onClick={() => removeSweep(s)}>
+                  Delete
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mb-3 rounded-lg border border-dashed border-line/60 px-3 py-2.5 text-xs text-mute">
+          No sweeps yet — add one below and fresh leads will be waiting every morning.
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 border-t border-line/60 pt-3 sm:grid-cols-[1fr_2fr_auto] sm:items-end">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-mute">Area</span>
+          <Input
+            value={area}
+            placeholder="e.g. Fort Myers, FL — or Florida, USA"
+            onChange={(e) => setArea(e.target.value)}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-mute">Business types (comma-separated)</span>
+          <Input value={typesText} onChange={(e) => setTypesText(e.target.value)} />
+        </label>
+        <Button onClick={addSweep} disabled={adding}>
+          {adding ? "Saving…" : "Add sweep"}
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 function DiscoverPage() {
   const router = useRouter();
-  const { pool } = Route.useLoaderData();
+  const { pool, insights } = Route.useLoaderData();
   const savedArea = useAutoConfig().area;
   const [poolBusyId, setPoolBusyId] = useState<string | null>(null);
   const [removed, setRemoved] = useState<Set<string>>(new Set());
@@ -621,6 +881,8 @@ function DiscoverPage() {
       />
 
       <ScannerHero area={area} />
+
+      <WinsPanel insights={insights} />
 
       <Card className="p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -796,6 +1058,8 @@ function DiscoverPage() {
           </div>
         ) : null}
       </Card>
+
+      {isAdmin ? <SweepsCard /> : null}
     </div>
   );
 }

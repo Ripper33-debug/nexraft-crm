@@ -14,6 +14,8 @@ import {
   isBestFitIndustry,
   isHighBudgetIndustry,
   analyzeSiteHtml,
+  parseSocials,
+  industryMatchesAny,
   canEditRecord,
   canAdministerRecord,
   pickLeastLoaded,
@@ -535,5 +537,85 @@ describe("discoveryScore — website quality + budget signals", () => {
     expect(isHighBudgetIndustry("Personal injury attorney")).toBe(true);
     expect(isHighBudgetIndustry("Toy store")).toBe(false);
     expect(isHighBudgetIndustry(null)).toBe(false);
+  });
+});
+
+describe("parseSocials — social presence from OSM tags", () => {
+  it("reads full URLs from contact:* tags", () => {
+    const s = parseSocials({ "contact:facebook": "https://www.facebook.com/joesroofing" });
+    expect(s.platforms).toEqual(["Facebook"]);
+    expect(s.url).toBe("https://www.facebook.com/joesroofing");
+  });
+
+  it("builds a URL from a bare handle and collects both platforms", () => {
+    const s = parseSocials({ facebook: "joesroofing", instagram: "@joes.roofing" });
+    expect(s.platforms).toEqual(["Facebook", "Instagram"]);
+    expect(s.url).toBe("https://www.facebook.com/joesroofing");
+  });
+
+  it("returns empty when there are no social tags", () => {
+    const s = parseSocials({ name: "Joe's Roofing", phone: "+1 239 555 0188" });
+    expect(s.platforms).toEqual([]);
+    expect(s.url).toBeNull();
+  });
+});
+
+describe("industryMatchesAny — proven-industry fuzzy matching", () => {
+  const proven = ["dental clinic", "roofing contractor", "med spa"];
+  it("matches exact and containment both ways", () => {
+    expect(industryMatchesAny("Dental clinic", proven)).toBe(true);
+    expect(industryMatchesAny("Dental clinic & implants", proven)).toBe(true);
+    expect(industryMatchesAny("Roofing", proven)).toBe(true); // "roofing contractor" contains it
+  });
+  it("ignores tiny fragments and misses cleanly", () => {
+    expect(industryMatchesAny("spa", proven)).toBe(false); // too short to trust
+    expect(industryMatchesAny("Bakery", proven)).toBe(false);
+    expect(industryMatchesAny(null, proven)).toBe(false);
+    expect(industryMatchesAny("Dental clinic", [])).toBe(false);
+  });
+});
+
+describe("discoveryScore — social + proven-industry + review signals", () => {
+  const base = { industry: null, rating: null, reviews: null, hasPhone: true };
+
+  it("boosts socials-but-no-site and says why", () => {
+    const plain = discoveryScore({ ...base, hasWebsite: false });
+    const social = discoveryScore({ ...base, hasWebsite: false, socials: ["Facebook"] });
+    expect(social.score).toBeGreaterThan(plain.score);
+    expect(social.reasons.some((r) => r.includes("marketing-minded"))).toBe(true);
+  });
+
+  it("does NOT fire the social boost when the site is alive and healthy", () => {
+    const healthy = discoveryScore({
+      ...base,
+      hasWebsite: true,
+      websiteDead: false,
+      socials: ["Instagram"],
+    });
+    expect(healthy.reasons.some((r) => r.includes("marketing-minded"))).toBe(false);
+  });
+
+  it("fires the social boost on a dead site", () => {
+    const dead = discoveryScore({
+      ...base,
+      hasWebsite: true,
+      websiteDead: true,
+      socials: ["Facebook", "Instagram"],
+    });
+    expect(dead.reasons.some((r) => r.includes("Facebook & Instagram"))).toBe(true);
+  });
+
+  it("tilts toward industries that have converted for Nexraft", () => {
+    const proven = discoveryScore({ ...base, hasWebsite: false, provenIndustry: true });
+    const unproven = discoveryScore({ ...base, hasWebsite: false });
+    expect(proven.score).toBeGreaterThan(unproven.score);
+    expect(proven.reasons.some((r) => r.includes("converted for Nexraft"))).toBe(true);
+  });
+
+  it("well-reviewed busy businesses outrank ghost listings", () => {
+    const busy = discoveryScore({ ...base, hasWebsite: false, rating: 4.8, reviews: 212 });
+    const ghost = discoveryScore({ ...base, hasWebsite: false, rating: 0, reviews: 0 });
+    expect(busy.score).toBeGreaterThan(ghost.score);
+    expect(busy.reasons.some((r) => r.includes("212 reviews"))).toBe(true);
   });
 });

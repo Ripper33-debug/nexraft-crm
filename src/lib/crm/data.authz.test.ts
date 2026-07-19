@@ -138,3 +138,19 @@ describe("role demotion clears the demoted user's sessions", () => {
     expect(fnBody("adminUpdateRole")).toContain("DELETE FROM sessions");
   });
 });
+
+describe("auto sweeps are admin-only", () => {
+  for (const name of ["getSweeps", "saveSweep", "deleteSweep", "runSweepNow"]) {
+    it(`${name} calls requireAdmin`, () => {
+      expect(fnBody(name)).toContain("requireAdmin(");
+    });
+  }
+});
+
+describe("discovery + insights require a signed-in user", () => {
+  for (const name of ["discoverLeads", "importDiscoveredLead", "getConversionInsights"]) {
+    it(`${name} calls requireUser`, () => {
+      expect(fnBody(name)).toContain("requireUser(");
+    });
+  }
+});

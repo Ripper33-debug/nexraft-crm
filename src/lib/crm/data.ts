@@ -1,4 +1,4 @@
-import { createServerFn } from "@tanstack/react-start";
+import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { db, uid } from "./db.server";
@@ -23,10 +23,13 @@ import {
   emailKey,
   groupDuplicates,
   analyzeSiteHtml,
+  parseSocials,
+  industryMatchesAny,
 } from "./constants";
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
 import { isStripeConfigured, stripeFetch } from "./stripe.server";
+import { isPlacesConfigured, fetchPlaceRatings } from "./places.server";
 
 const WON_STAGE = "Launched";
 const LOST_STAGE = "Lost";
@@ -3427,6 +3430,10 @@ export type DiscoveredLead = {
   // Pitchable defects the audit found on a live site (DIY builder, no mobile
   // support, stale copyright, ...). Empty when un-audited or clean.
   website_issues: string[];
+  // Social platforms the business maintains per OSM ("Facebook", "Instagram") —
+  // socials-but-no-site is the easiest pitch we have — plus a link to the first.
+  socials: string[];
+  social_url: string | null;
 };
 
 function normName(s: string | null | undefined): string {
@@ -3859,6 +3866,53 @@ export const discoverLeads = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await requireUser();
+    return discoverLeadsCore(data);
+  });
+
+// Industries that have actually converted for Nexraft — a won (Launched) deal,
+// or at least an "interested" outcome on the phone. Discovery uses this to tilt
+// scoring toward what historically closes for THIS team, not industry folklore.
+// Cached per server process for a few minutes; staleness is harmless here.
+let _provenCache: { at: number; industries: string[] } | null = null;
+async function provenIndustries(): Promise<string[]> {
+  if (_provenCache && Date.now() - _provenCache.at < 10 * 60_000) return _provenCache.industries;
+  try {
+    const rows =
+      (
+        await db()
+          .prepare(
+            `SELECT DISTINCT lower(trim(c.industry)) AS industry
+               FROM companies c
+              WHERE COALESCE(trim(c.industry), '') <> ''
+                AND (
+                  c.call_outcome = 'interested'
+                  OR EXISTS (
+                    SELECT 1 FROM deals d
+                     WHERE d.company_id = c.id AND d.stage = 'Launched' AND d.archived_at IS NULL
+                  )
+                )`,
+          )
+          .all<{ industry: string }>()
+      ).results ?? [];
+    _provenCache = { at: Date.now(), industries: rows.map((r) => r.industry) };
+  } catch {
+    _provenCache = { at: Date.now(), industries: [] };
+  }
+  return _provenCache.industries;
+}
+
+type DiscoverParams = {
+  businessType: string;
+  area?: string | null;
+  limit: number;
+  radiusKm?: number | null;
+};
+
+// The discovery engine itself, callable without a request context so both the
+// signed-in server fn above and the daily cron sweep share one implementation.
+async function discoverLeadsCore(
+  data: DiscoverParams,
+): Promise<{ ok: true; leads: DiscoveredLead[] } | { ok: false; error: string; leads: DiscoveredLead[] }> {
     await ensureExtraSchema();
 
     const area = (data.area ?? "").trim();
@@ -3946,6 +4000,10 @@ export const discoverLeads = createServerFn({ method: "POST" })
     };
     const existingDomains = new Set(existing.map((c) => domainOf(c.website)).filter(Boolean));
 
+    // What's converted for Nexraft before — tilts scoring toward the team's
+    // actual track record (cheap: cached per process).
+    const proven = await provenIndustries();
+
     const seen = new Set<string>();
     const seenPhones = new Set<string>();
     const seenDomains = new Set<string>();
@@ -3959,12 +4017,16 @@ export const discoverLeads = createServerFn({ method: "POST" })
           tags.phone || tags["contact:phone"] || tags["contact:mobile"] || tags["phone:mobile"] || null;
         const email = tags.email || tags["contact:email"] || null;
         const industry = osmLabel(tags) ?? data.businessType;
+        const social = parseSocials(tags);
+        const provenHit = industryMatchesAny(industry, proven);
         const scored = discoveryScore({
           hasWebsite: Boolean(website),
           industry,
           rating: null,
           reviews: null, // OSM has no reviews — scoring skips that signal
           hasPhone: Boolean(phone),
+          socials: social.platforms,
+          provenIndustry: provenHit,
         });
         const already =
           existingNames.has(normName(name)) ||
@@ -3987,6 +4049,8 @@ export const discoverLeads = createServerFn({ method: "POST" })
           already_in_crm: already,
           website_dead: null as boolean | null,
           website_issues: [] as string[],
+          socials: social.platforms,
+          social_url: social.url,
         };
       })
       .filter((l) => {
@@ -4038,6 +4102,8 @@ export const discoverLeads = createServerFn({ method: "POST" })
           rating: null,
           reviews: null,
           hasPhone: Boolean(l.phone),
+          socials: l.socials,
+          provenIndustry: industryMatchesAny(l.industry, proven),
         });
         l.score = rescored.score;
         l.band = rescored.band;
@@ -4046,8 +4112,42 @@ export const discoverLeads = createServerFn({ method: "POST" })
       leads.sort((a, b) => b.score - a.score);
     }
 
+    // Ratings pass (only when GOOGLE_PLACES_API_KEY is configured): pull Google
+    // rating + review count for the top prospects. Reviews are the best "this
+    // business is busy and making money" signal we can get — a 200-review roofer
+    // with a bad site outranks a 3-review one every time. Best-effort under a
+    // hard deadline, same as the audits; unmatched lookups just skip the signal.
+    if (isPlacesConfigured()) {
+      const targets = leads.filter((l) => !l.already_in_crm).slice(0, 12);
+      const queryFor = (l: DiscoveredLead) => `${l.name}, ${l.city ?? area}`;
+      const ratings = await fetchPlaceRatings(targets.map(queryFor), 5000);
+      let changed = false;
+      for (const l of targets) {
+        const r = ratings.get(queryFor(l));
+        if (!r) continue;
+        l.rating = r.rating;
+        l.reviews = r.reviews;
+        const rescored = discoveryScore({
+          hasWebsite: Boolean(l.website),
+          websiteDead: l.website_dead,
+          websiteIssues: l.website_issues,
+          industry: l.industry,
+          rating: l.rating,
+          reviews: l.reviews,
+          hasPhone: Boolean(l.phone),
+          socials: l.socials,
+          provenIndustry: industryMatchesAny(l.industry, proven),
+        });
+        l.score = rescored.score;
+        l.band = rescored.band;
+        l.reasons = rescored.reasons;
+        changed = true;
+      }
+      if (changed) leads.sort((a, b) => b.score - a.score);
+    }
+
     return { ok: true as const, leads };
-  });
+}
 
 // Reps who stay OUT of the auto-assign rotation: Barry (the owner) and Michael.
 // Everyone else on the team shares the auto-assigned half of discovered leads.
@@ -4117,6 +4217,25 @@ export const importDiscoveredLead = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const user = await requireUser();
+    return importLeadCore(data, { id: user.id, name: user.name });
+  });
+
+type ImportLeadData = {
+  name: string;
+  industry?: string | null;
+  website?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  city?: string | null;
+  autoAssign?: boolean;
+};
+
+// The import itself, callable without a request context (actor null = the daily
+// server sweep) so the signed-in server fn and the cron share one code path.
+async function importLeadCore(
+  data: ImportLeadData,
+  actor: { id: string; name: string } | null,
+): Promise<{ ok: true; id: string; duplicate: boolean; assignedTo: string | null }> {
     await ensureExtraSchema();
 
     // Duplicate guard: skip if ANY company already matches by name or phone —
@@ -4208,16 +4327,18 @@ export const importDiscoveredLead = createServerFn({ method: "POST" })
       .run();
 
     await logEvent({
-      actorId: user.id,
+      actorId: actor?.id ?? null,
       verb: assignee ? "assigned" : "created",
       entityType: "company",
       entityId: id,
       summary: assignee
         ? `${data.name} auto-assigned to ${assignee.name} from lead discovery`
-        : `${user.name} imported ${data.name} from lead discovery`,
+        : actor
+          ? `${actor.name} imported ${data.name} from lead discovery`
+          : `Overnight sweep found ${data.name} and dropped it in the pool`,
     });
     return { ok: true as const, id, duplicate: false, assignedTo: assignee?.name ?? null };
-  });
+}
 
 // The claimable "Fresh leads" pool shown on the Discover tab: every discovered
 // business that's still unowned (nobody has claimed it yet). Scored on the fly so
@@ -4303,6 +4424,252 @@ export const dismissDiscoveredLead = createServerFn({ method: "POST" })
       summary: `${me.name} dismissed ${c.name} from the discovery pool`,
     });
     return { ok: true as const };
+  });
+
+// ==================== What converts for you (win-based learning) ====================
+// Aggregate what actually happened to the leads the CRM has touched, industry by
+// industry — imported, got an "interested" on the phone, won a deal. Discovery
+// scoring already tilts toward these (see provenIndustries); this fn feeds the
+// panel on the Discover page so the team can SEE where their wins come from.
+export type ConversionInsight = {
+  industry: string;
+  companies: number;
+  interested: number;
+  won: number;
+};
+
+export const getConversionInsights = createServerFn({ method: "GET" }).handler(async () => {
+  await requireUser();
+  await ensureExtraSchema();
+  const rows =
+    (
+      await db()
+        .prepare(
+          `SELECT initcap(lower(trim(c.industry))) AS industry,
+                  COUNT(DISTINCT c.id) AS companies,
+                  COUNT(DISTINCT CASE WHEN c.call_outcome = 'interested' THEN c.id END) AS interested,
+                  COUNT(DISTINCT CASE WHEN d.stage = 'Launched' THEN c.id END) AS won
+             FROM companies c
+             LEFT JOIN deals d
+               ON d.company_id = c.id AND d.archived_at IS NULL
+            WHERE COALESCE(trim(c.industry), '') <> ''
+            GROUP BY 1
+           HAVING COUNT(DISTINCT CASE WHEN c.call_outcome = 'interested' THEN c.id END) > 0
+               OR COUNT(DISTINCT CASE WHEN d.stage = 'Launched' THEN c.id END) > 0
+            ORDER BY won DESC, interested DESC, companies DESC
+            LIMIT 8`,
+        )
+        .all<{ industry: string; companies: number; interested: number; won: number }>()
+    ).results ?? [];
+  const insights: ConversionInsight[] = rows.map((r) => ({
+    industry: r.industry,
+    companies: Number(r.companies) || 0,
+    interested: Number(r.interested) || 0,
+    won: Number(r.won) || 0,
+  }));
+  return { insights };
+});
+
+// ==================== Daily auto sweeps (server-side radar) ====================
+// The in-browser radar only mines while someone has the CRM open. These sweeps
+// are its server-side sibling: admin-saved searches (area + business types) that
+// a Vercel cron runs every morning, importing the strongest finds straight into
+// the claimable pool — so the team wakes up to fresh leads.
+
+export type SweepRow = {
+  id: string;
+  area: string;
+  types: string[];
+  enabled: boolean;
+  next_type_idx: number;
+  last_run_at: string | null;
+  last_imported: number;
+  total_imported: number;
+};
+
+function parseSweepTypes(raw: string): string[] {
+  try {
+    const arr = JSON.parse(raw) as unknown;
+    if (Array.isArray(arr)) return arr.filter((t): t is string => typeof t === "string");
+  } catch {
+    /* fall through */
+  }
+  return [];
+}
+
+async function loadSweeps(): Promise<SweepRow[]> {
+  const rows =
+    (
+      await db()
+        .prepare(
+          `SELECT id, area, types, enabled, next_type_idx, last_run_at, last_imported, total_imported
+             FROM auto_sweeps ORDER BY created_at ASC`,
+        )
+        .all<{
+          id: string;
+          area: string;
+          types: string;
+          enabled: boolean;
+          next_type_idx: number;
+          last_run_at: string | null;
+          last_imported: number;
+          total_imported: number;
+        }>()
+    ).results ?? [];
+  return rows.map((r) => ({
+    ...r,
+    enabled: Boolean(r.enabled),
+    types: parseSweepTypes(r.types),
+    next_type_idx: Number(r.next_type_idx) || 0,
+    last_imported: Number(r.last_imported) || 0,
+    total_imported: Number(r.total_imported) || 0,
+  }));
+}
+
+// How many business types one sweep run covers, and how many finds it may
+// import per type. Sized so a run stays comfortably inside the serverless
+// window (each discovery call is bounded at ~25s worst case).
+const SWEEP_TYPES_PER_RUN = 2;
+const SWEEP_IMPORTS_PER_TYPE = 5;
+
+// Run one sweep once: search the next SWEEP_TYPES_PER_RUN types on its rotation,
+// import the hottest workable finds (no website, contactable, not already ours)
+// into the pool with the usual auto-assign coin flip, and advance the rotation.
+async function runSweepOnce(sweep: SweepRow): Promise<{ imported: number; assigned: number }> {
+  const types = sweep.types.length > 0 ? sweep.types : ["Contractors"];
+  let imported = 0;
+  let assigned = 0;
+  const ran: string[] = [];
+  for (let i = 0; i < Math.min(SWEEP_TYPES_PER_RUN, types.length); i++) {
+    const type = types[(sweep.next_type_idx + i) % types.length];
+    ran.push(type);
+    const res = await discoverLeadsCore({ businessType: type, area: sweep.area, limit: 40 });
+    if (!res.ok) continue;
+    const targets = res.leads
+      .filter(
+        (l) =>
+          l.band === "hot" &&
+          !l.website &&
+          !l.already_in_crm &&
+          (Boolean(l.phone) || Boolean(l.email)),
+      )
+      .slice(0, SWEEP_IMPORTS_PER_TYPE);
+    for (const l of targets) {
+      try {
+        const imp = await importLeadCore(
+          {
+            name: l.name,
+            industry: l.industry,
+            website: l.website,
+            phone: l.phone,
+            email: l.email,
+            city: l.city,
+            autoAssign: true,
+          },
+          null,
+        );
+        if (imp.ok && !imp.duplicate) {
+          imported++;
+          if (imp.assignedTo) assigned++;
+        }
+      } catch {
+        /* skip this lead, keep sweeping */
+      }
+    }
+  }
+  const now = new Date().toISOString();
+  await db()
+    .prepare(
+      `UPDATE auto_sweeps
+          SET next_type_idx = ?, last_run_at = ?, last_imported = ?, total_imported = total_imported + ?
+        WHERE id = ?`,
+    )
+    .bind((sweep.next_type_idx + SWEEP_TYPES_PER_RUN) % Math.max(1, types.length), now, imported, imported, sweep.id)
+    .run();
+  if (imported > 0) {
+    await logEvent({
+      actorId: null,
+      verb: "radar",
+      entityType: "company",
+      summary: `Auto sweep: ${imported} new lead${imported === 1 ? "" : "s"} from ${sweep.area} (${ran.join(", ")})`,
+    });
+  }
+  return { imported, assigned };
+}
+
+// Entry point for the Vercel cron (/api/cron/sweep): run the enabled sweep
+// that's waited longest, skipping any that already ran in the last 20 hours —
+// which doubles as abuse protection if the endpoint is hit repeatedly.
+// createServerOnlyFn keeps this export out of the client bundle (it throws if a
+// client ever calls it; only the cron route does).
+export const runDueSweeps = createServerOnlyFn(
+  async (): Promise<{ ran: number; imported: number }> => {
+    await ensureExtraSchema();
+    const sweeps = (await loadSweeps()).filter((s) => s.enabled);
+    const cutoff = Date.now() - 20 * 3600_000;
+    const due = sweeps
+      .filter((s) => !s.last_run_at || new Date(s.last_run_at).getTime() < cutoff)
+      .sort((a, b) => (a.last_run_at ?? "").localeCompare(b.last_run_at ?? ""));
+    if (due.length === 0) return { ran: 0, imported: 0 };
+    const res = await runSweepOnce(due[0]);
+    return { ran: 1, imported: res.imported };
+  },
+);
+
+export const getSweeps = createServerFn({ method: "GET" }).handler(async () => {
+  await requireAdmin();
+  await ensureExtraSchema();
+  return { sweeps: await loadSweeps() };
+});
+
+export const saveSweep = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      id: z.string().optional().nullable(),
+      area: z.string().min(2).max(120),
+      types: z.array(z.string().min(1).max(60)).min(1).max(12),
+      enabled: z.boolean().default(true),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const admin = await requireAdmin();
+    await ensureExtraSchema();
+    if (data.id) {
+      await db()
+        .prepare(`UPDATE auto_sweeps SET area = ?, types = ?, enabled = ? WHERE id = ?`)
+        .bind(data.area.trim(), JSON.stringify(data.types), data.enabled, data.id)
+        .run();
+      return { ok: true as const, id: data.id };
+    }
+    const id = uid();
+    await db()
+      .prepare(
+        `INSERT INTO auto_sweeps (id, area, types, enabled, created_by) VALUES (?, ?, ?, ?, ?)`,
+      )
+      .bind(id, data.area.trim(), JSON.stringify(data.types), data.enabled, admin.id)
+      .run();
+    return { ok: true as const, id };
+  });
+
+export const deleteSweep = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string() }))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    await ensureExtraSchema();
+    await db().prepare(`DELETE FROM auto_sweeps WHERE id = ?`).bind(data.id).run();
+    return { ok: true as const };
+  });
+
+// Admin "Run now" — same engine the cron uses, on demand.
+export const runSweepNow = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string() }))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    await ensureExtraSchema();
+    const sweep = (await loadSweeps()).find((s) => s.id === data.id);
+    if (!sweep) return { ok: false as const, error: "That sweep is gone.", imported: 0 };
+    const res = await runSweepOnce(sweep);
+    return { ok: true as const, imported: res.imported, assigned: res.assigned };
   });
 
 // ==================== Projects (ERP phase 1) ====================
