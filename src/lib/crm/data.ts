@@ -4993,6 +4993,7 @@ export type ProjectRow = {
   checklist: string | null;
   launch_date: string | null;
   notes: string | null;
+  share_token: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -5145,6 +5146,98 @@ export const archiveProject = createServerFn({ method: "POST" })
     });
     return { ok: true as const };
   });
+
+// ---- Client-facing progress page -------------------------------------------
+// Builders can generate an unguessable share link per project; the client opens
+// /share/<token> (no login) and sees a branded page with the build % and the
+// checklist. Nothing is public until a builder explicitly creates the link.
+
+export const getProjectShareLink = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string() }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    requireBuilder(user);
+    const row = await db()
+      .prepare(`SELECT share_token FROM projects WHERE id = ? AND archived_at IS NULL`)
+      .bind(data.id)
+      .first<{ share_token: string | null }>();
+    if (!row) throw new Error("NOT_FOUND");
+    let token = row.share_token;
+    if (!token) {
+      token = `${uid()}${uid()}`;
+      await db()
+        .prepare(`UPDATE projects SET share_token = ? WHERE id = ?`)
+        .bind(token, data.id)
+        .run();
+    }
+    return { token };
+  });
+
+export type SharedProject = {
+  name: string;
+  company_name: string | null;
+  status: string;
+  checklist: string | null;
+  launch_date: string | null;
+};
+
+// PUBLIC by design: the token IS the credential (unguessable, per-project, only
+// exists once a builder generates it). Returns only client-safe fields — no
+// notes, no owner info, no ids.
+export const getSharedProject = createServerFn({ method: "GET" })
+  .validator(z.object({ token: z.string().min(10) }))
+  .handler(async ({ data }) => {
+    await ensureExtraSchema();
+    const row = await db()
+      .prepare(
+        `SELECT p.name, c.name AS company_name, p.status, p.checklist, p.launch_date
+           FROM projects p
+           LEFT JOIN companies c ON c.id = p.company_id
+          WHERE p.share_token = ? AND p.archived_at IS NULL`,
+      )
+      .bind(data.token)
+      .first<SharedProject>();
+    return row ?? null;
+  });
+
+// ---- Weekly rep leaderboard --------------------------------------------------
+// Friendly competition for the dashboard: everyone's calls, emails, and wins
+// since Monday. Calls = logged call activities + calls-board triages (each path
+// records exactly one of the two, so there's no double counting).
+export type LeaderboardRow = {
+  user_id: string;
+  name: string;
+  calls: number;
+  emails: number;
+  wins: number;
+};
+
+export const getLeaderboard = createServerFn({ method: "GET" }).handler(async () => {
+  await requireUser();
+  await ensureExtraSchema();
+  const { results } = await db()
+    .prepare(
+      `WITH week AS (SELECT to_char(date_trunc('week', now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS start)
+       SELECT u.id AS user_id, u.name,
+         (SELECT COUNT(*)::int FROM activities a
+           WHERE a.owner_id = u.id AND a.type = 'Call'
+             AND a.completed_at >= (SELECT start FROM week))
+         + (SELECT COUNT(*)::int FROM events e
+             WHERE e.actor_id = u.id AND e.verb = 'triaged'
+               AND e.created_at >= (SELECT start FROM week)) AS calls,
+         (SELECT COUNT(*)::int FROM events e
+           WHERE e.actor_id = u.id AND e.verb = 'emailed'
+             AND e.created_at >= (SELECT start FROM week)) AS emails,
+         (SELECT COUNT(*)::int FROM events e
+           WHERE e.actor_id = u.id AND e.verb = 'won'
+             AND e.created_at >= (SELECT start FROM week)) AS wins
+       FROM users u
+       ORDER BY wins DESC, calls DESC, emails DESC, u.name`,
+    )
+    .all<LeaderboardRow>();
+  return results ?? [];
+});
 
 // ==================== Billing (Stripe) ====================
 // Admin-only invoicing straight from the CRM. Config-gated on STRIPE_SECRET_KEY

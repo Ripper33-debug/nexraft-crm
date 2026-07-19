@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
-import { getDashboard, getActivityFeed, getCompanies, type FeedRow } from "../../lib/crm/data";
+import {
+  getDashboard,
+  getActivityFeed,
+  getCompanies,
+  getLeaderboard,
+  type FeedRow,
+  type LeaderboardRow,
+} from "../../lib/crm/data";
 import { Card, StageBadge, SummaryCard, Eyebrow, OwnerChip, Pill, Avatar, PageSkeleton } from "../../components/crm/ui";
 import { StageBarChart, MonthlyTrendChart } from "../../components/crm/charts";
 import {
@@ -16,12 +23,15 @@ import {
 
 export const Route = createFileRoute("/_app/")({
   loader: async () => {
-    const [dash, feed, companies] = await Promise.all([
+    const [dash, feed, companies, weekly] = await Promise.all([
       getDashboard(),
       getActivityFeed(),
       getCompanies(),
+      getLeaderboard(),
     ]);
-    return { ...dash, feed, companies };
+    // NB: `weekly` is the activity race (calls/emails/wins since Monday);
+    // dash.leaderboard stays the pipeline-value table further down the page.
+    return { ...dash, feed, companies, weekly };
   },
   component: Dashboard,
   pendingComponent: () => <PageSkeleton cards={4} rows={6} />,
@@ -304,6 +314,8 @@ function Dashboard() {
         followups={d.followups as Row[]}
         renewals={d.renewals as Row[]}
       />
+
+      <Leaderboard rows={d.weekly as LeaderboardRow[]} />
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <TrendCard
@@ -588,5 +600,58 @@ function Dashboard() {
         </ul>
       </Card>
     </div>
+  );
+}
+
+// ---- Weekly leaderboard ------------------------------------------------------
+// Friendly competition: everyone's calls, emails, and wins since Monday, ranked.
+// Goals are deliberately simple and team-wide — hit the bar, top the board.
+const WEEKLY_GOALS = { calls: 50, emails: 15, wins: 1 };
+
+function Leaderboard({ rows }: { rows: LeaderboardRow[] }) {
+  const active = rows.filter((r) => r.calls + r.emails + r.wins > 0);
+  const list = active.length > 0 ? active : rows;
+  const medals = ["🥇", "🥈", "🥉"];
+  return (
+    <Card className="mt-5 p-4">
+      <div className="flex items-center justify-between">
+        <Eyebrow>🏆 This week's leaderboard</Eyebrow>
+        <span className="text-[11px] text-faint">
+          Weekly goal: {WEEKLY_GOALS.calls} calls · {WEEKLY_GOALS.emails} emails ·{" "}
+          {WEEKLY_GOALS.wins} win
+        </span>
+      </div>
+      {list.length === 0 ? (
+        <p className="mt-3 text-sm text-faint">No activity yet this week — first call tops the board.</p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {list.map((r, i) => {
+            const callPct = Math.min(100, Math.round((r.calls / WEEKLY_GOALS.calls) * 100));
+            return (
+              <div key={r.user_id} className="flex items-center gap-3">
+                <span className="w-7 shrink-0 text-center text-sm">
+                  {medals[i] ?? <span className="text-faint">{i + 1}</span>}
+                </span>
+                <span className="w-32 shrink-0 truncate text-sm font-medium text-bone">
+                  {r.name}
+                </span>
+                <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-2">
+                  <div
+                    className={callPct >= 100 ? "h-full bg-emerald-400" : "h-full bg-signal"}
+                    style={{ width: `${Math.max(2, callPct)}%` }}
+                  />
+                </div>
+                <span className="shrink-0 text-xs tabular-nums text-mute">
+                  {r.calls} calls · {r.emails} emails ·{" "}
+                  <span className={r.wins > 0 ? "font-semibold text-emerald-400" : ""}>
+                    {r.wins} {r.wins === 1 ? "win" : "wins"}
+                  </span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
   );
 }

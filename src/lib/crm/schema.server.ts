@@ -158,6 +158,9 @@ export function ensureExtraSchema(): Promise<void> {
       `CREATE INDEX IF NOT EXISTS idx_projects_company ON projects(company_id)`,
       `CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_id)`,
       `CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)`,
+      // Unguessable token for the client-facing progress page (/share/<token>).
+      // NULL until a builder generates the link, so nothing is public by default.
+      `ALTER TABLE projects ADD COLUMN IF NOT EXISTS share_token TEXT`,
       // Stripe invoices raised from the CRM (billing phase). Mirrors what was
       // created in Stripe so the app can list/refresh without extra API calls.
       `CREATE TABLE IF NOT EXISTS invoices (

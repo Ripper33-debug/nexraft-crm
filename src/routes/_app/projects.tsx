@@ -5,6 +5,7 @@ import {
   getProjects,
   updateProject,
   archiveProject,
+  getProjectShareLink,
   isBuilder,
   PROJECT_STATUSES,
   type ProjectRow,
@@ -256,7 +257,31 @@ function ProjectCard({
           </div>
 
           {canBuild ? (
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                disabled={busy}
+                onClick={() => {
+                  // Client-facing progress link: generate (or fetch) the token
+                  // and drop the full URL on the clipboard, ready to paste into
+                  // an email or text to the client.
+                  setBusy(true);
+                  getProjectShareLink({ data: { id: project.id } })
+                    .then(async ({ token }) => {
+                      const url = `${window.location.origin}/share/${token}`;
+                      try {
+                        await navigator.clipboard.writeText(url);
+                        toast("Client link copied — paste it into an email or text.", "success");
+                      } catch {
+                        window.prompt("Copy the client link:", url);
+                      }
+                    })
+                    .catch(() => toast("Couldn't create the client link.", "error"))
+                    .finally(() => setBusy(false));
+                }}
+              >
+                Copy client link
+              </Button>
               <Button
                 variant="ghost"
                 disabled={busy}
