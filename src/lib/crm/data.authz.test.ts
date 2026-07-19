@@ -108,10 +108,13 @@ describe("follow-up cadence schedules the next nudge", () => {
   });
 });
 
-describe("project mutations enforce record-level permissions", () => {
+describe("project mutations are gated to the build team", () => {
+  // Projects are Barry & Michael's board: edits go through requireBuilder
+  // (admins + the build crew), not per-record ownership.
   for (const name of ["updateProject", "archiveProject"]) {
-    it(`${name} calls assertCanEdit`, () => {
-      expect(fnBody(name)).toContain("assertCanEdit(");
+    it(`${name} requires a signed-in builder`, () => {
+      expect(fnBody(name)).toContain("requireUser(");
+      expect(fnBody(name)).toContain("requireBuilder(");
     });
   }
   it("archiveProject soft-archives instead of deleting", () => {

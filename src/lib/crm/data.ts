@@ -4885,6 +4885,25 @@ export const runSweepNow = createServerFn({ method: "POST" })
 
 export const PROJECT_STATUSES = ["kickoff", "design", "build", "review", "launched"] as const;
 
+// The build crew: Barry and Michael do the actual site builds, so only they
+// (and admins) can update projects — everyone else sees the board read-only.
+// Identity rules mirror the auto-assign exclusions (email/name based, since
+// user ids differ between environments).
+export function isBuilder(u: { role?: string; email?: string; name?: string } | null | undefined): boolean {
+  if (!u) return false;
+  if (u.role === "admin") return true;
+  const email = (u.email ?? "").toLowerCase();
+  const name = (u.name ?? "").toLowerCase();
+  return email === "barry@nexraft.com" || name.includes("michael") || name.startsWith("barry castelli");
+}
+
+// Server-side gate for the project-editing fns.
+function requireBuilder(user: { role: string; email: string; name: string }): void {
+  if (!isBuilder(user)) {
+    throw new Error("Only the build team (Barry & Michael) can update projects.");
+  }
+}
+
 export const DEFAULT_PROJECT_CHECKLIST = [
   "Kickoff call",
   "Send deposit invoice",
@@ -4975,7 +4994,9 @@ export const updateProject = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = await requireUser();
     await ensureExtraSchema();
-    await assertCanEdit(user, "projects", data.id);
+    // Builders (Barry & Michael, plus admins) can update ANY project — it's
+    // their board. Everyone else is read-only, regardless of who owns the deal.
+    requireBuilder(user);
 
     // Validate the checklist actually parses to the expected shape before it's
     // stored — a malformed blob would break every later render of the board.
@@ -5043,7 +5064,7 @@ export const archiveProject = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = await requireUser();
     await ensureExtraSchema();
-    await assertCanEdit(user, "projects", data.id);
+    requireBuilder(user);
     const row = await db()
       .prepare(`SELECT name FROM projects WHERE id = ?`)
       .bind(data.id)

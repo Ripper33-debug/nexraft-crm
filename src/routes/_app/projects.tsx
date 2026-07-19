@@ -5,6 +5,7 @@ import {
   getProjects,
   updateProject,
   archiveProject,
+  isBuilder,
   PROJECT_STATUSES,
   type ProjectRow,
   type ProjectChecklistItem,
@@ -46,9 +47,13 @@ const STATUS_BLURBS: Record<string, string> = {
 };
 
 export const Route = createFileRoute("/_app/projects")({
-  loader: async () => {
+  loader: async ({ context }) => {
     const projects = await getProjects();
-    return { projects };
+    const me =
+      (context as { user?: { role?: string; email?: string; name?: string } }).user ?? null;
+    // Barry & Michael build the sites, so only they (and admins) get edit
+    // controls — the rest of the team sees the same board read-only.
+    return { projects, canBuild: isBuilder(me) };
   },
   component: ProjectsPage,
 });
@@ -66,7 +71,7 @@ function parseChecklist(raw: string | null): ProjectChecklistItem[] {
 function ProgressBar({ done, total }: { done: number; total: number }) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2.5">
       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
         <div
           className={cx(
@@ -76,14 +81,29 @@ function ProgressBar({ done, total }: { done: number; total: number }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-[11px] font-semibold tabular-nums text-faint">
-        {done}/{total}
+      {/* The number everyone actually asks about: "how far along is the build?" */}
+      <span
+        className={cx(
+          "text-sm font-bold tabular-nums",
+          pct >= 100 ? "text-emerald-400" : "text-signal",
+        )}
+        title={`${done} of ${total} checklist steps done`}
+      >
+        {pct}%
       </span>
     </div>
   );
 }
 
-function ProjectCard({ project, onChanged }: { project: ProjectRow; onChanged: () => void }) {
+function ProjectCard({
+  project,
+  canBuild,
+  onChanged,
+}: {
+  project: ProjectRow;
+  canBuild: boolean;
+  onChanged: () => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [notes, setNotes] = useState(project.notes ?? "");
@@ -140,21 +160,25 @@ function ProjectCard({ project, onChanged }: { project: ProjectRow; onChanged: (
       <ProgressBar done={done} total={checklist.length} />
 
       <div className="flex items-center gap-2">
-        <Select
-          value={project.status}
-          disabled={busy}
-          onChange={(e) => {
-            const status = e.target.value as (typeof PROJECT_STATUSES)[number];
-            void save({ status }, status === "launched" ? `${project.name} is live 🎉` : undefined);
-          }}
-          aria-label="Project status"
-        >
-          {PROJECT_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_LABELS[s]}
-            </option>
-          ))}
-        </Select>
+        {canBuild ? (
+          <Select
+            value={project.status}
+            disabled={busy}
+            onChange={(e) => {
+              const status = e.target.value as (typeof PROJECT_STATUSES)[number];
+              void save({ status }, status === "launched" ? `${project.name} is live 🎉` : undefined);
+            }}
+            aria-label="Project status"
+          >
+            {PROJECT_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABELS[s]}
+              </option>
+            ))}
+          </Select>
+        ) : (
+          <Pill tone={launched ? "ok" : "signal"}>{STATUS_LABELS[project.status] ?? project.status}</Pill>
+        )}
         <Button variant="ghost" onClick={() => setExpanded((v) => !v)}>
           {expanded ? "Hide details" : "Details"}
         </Button>
@@ -165,18 +189,29 @@ function ProjectCard({ project, onChanged }: { project: ProjectRow; onChanged: (
           <ul className="space-y-1.5">
             {checklist.map((item, i) => (
               <li key={`${i}-${item.label}`}>
-                <label className="flex cursor-pointer items-start gap-2.5 rounded-md px-1.5 py-1 text-sm hover:bg-surface-2">
-                  <input
-                    type="checkbox"
-                    checked={item.done}
-                    disabled={busy}
-                    onChange={() => void toggleItem(i)}
-                    className="mt-0.5 h-4 w-4 accent-[#f9531e]"
-                  />
-                  <span className={cx("leading-snug", item.done ? "text-faint line-through" : "text-mute")}>
-                    {item.label}
-                  </span>
-                </label>
+                {canBuild ? (
+                  <label className="flex cursor-pointer items-start gap-2.5 rounded-md px-1.5 py-1 text-sm hover:bg-surface-2">
+                    <input
+                      type="checkbox"
+                      checked={item.done}
+                      disabled={busy}
+                      onChange={() => void toggleItem(i)}
+                      className="mt-0.5 h-4 w-4 accent-[#f9531e]"
+                    />
+                    <span className={cx("leading-snug", item.done ? "text-faint line-through" : "text-mute")}>
+                      {item.label}
+                    </span>
+                  </label>
+                ) : (
+                  <div className="flex items-start gap-2.5 px-1.5 py-1 text-sm">
+                    <span className={cx("mt-0.5 w-4 text-center text-xs", item.done ? "text-emerald-400" : "text-faint")}>
+                      {item.done ? "✓" : "○"}
+                    </span>
+                    <span className={cx("leading-snug", item.done ? "text-faint line-through" : "text-mute")}>
+                      {item.label}
+                    </span>
+                  </div>
+                )}
               </li>
             ))}
             {checklist.length === 0 ? <li className="text-xs text-faint">No checklist on this project.</li> : null}
@@ -184,49 +219,63 @@ function ProjectCard({ project, onChanged }: { project: ProjectRow; onChanged: (
 
           <div className="space-y-1">
             <Eyebrow>Launch date</Eyebrow>
-            <input
-              type="date"
-              defaultValue={project.launch_date ?? ""}
-              disabled={busy}
-              onChange={(e) => void save({ launch_date: e.target.value || null })}
-              className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-bone outline-none focus:border-signal/60"
-              aria-label="Launch date"
-            />
+            {canBuild ? (
+              <input
+                type="date"
+                defaultValue={project.launch_date ?? ""}
+                disabled={busy}
+                onChange={(e) => void save({ launch_date: e.target.value || null })}
+                className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-bone outline-none focus:border-signal/60"
+                aria-label="Launch date"
+              />
+            ) : (
+              <div className="text-sm text-mute">
+                {project.launch_date || <span className="text-faint">Not set yet</span>}
+              </div>
+            )}
           </div>
 
           <div className="space-y-1">
             <Eyebrow>Notes</Eyebrow>
-            <Textarea
-              rows={3}
-              value={notes}
-              disabled={busy}
-              onChange={(e) => setNotes(e.target.value)}
-              onBlur={() => {
-                if ((project.notes ?? "") !== notes) void save({ notes });
-              }}
-              placeholder="Anything the next person picking this up should know…"
-            />
+            {canBuild ? (
+              <Textarea
+                rows={3}
+                value={notes}
+                disabled={busy}
+                onChange={(e) => setNotes(e.target.value)}
+                onBlur={() => {
+                  if ((project.notes ?? "") !== notes) void save({ notes });
+                }}
+                placeholder="Anything the next person picking this up should know…"
+              />
+            ) : (
+              <p className="whitespace-pre-wrap text-sm text-mute">
+                {project.notes || <span className="text-faint">No notes yet.</span>}
+              </p>
+            )}
           </div>
 
-          <div className="flex justify-end">
-            <Button
-              variant="ghost"
-              disabled={busy}
-              onClick={() => {
-                if (!window.confirm(`Archive ${project.name}? It disappears from the board.`)) return;
-                setBusy(true);
-                archiveProject({ data: { id: project.id } })
-                  .then(() => {
-                    toast("Project archived.", "success");
-                    onChanged();
-                  })
-                  .catch(() => toast("Couldn't archive.", "error"))
-                  .finally(() => setBusy(false));
-              }}
-            >
-              Archive
-            </Button>
-          </div>
+          {canBuild ? (
+            <div className="flex justify-end">
+              <Button
+                variant="ghost"
+                disabled={busy}
+                onClick={() => {
+                  if (!window.confirm(`Archive ${project.name}? It disappears from the board.`)) return;
+                  setBusy(true);
+                  archiveProject({ data: { id: project.id } })
+                    .then(() => {
+                      toast("Project archived.", "success");
+                      onChanged();
+                    })
+                    .catch(() => toast("Couldn't archive.", "error"))
+                    .finally(() => setBusy(false));
+                }}
+              >
+                Archive
+              </Button>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </Card>
@@ -234,7 +283,7 @@ function ProjectCard({ project, onChanged }: { project: ProjectRow; onChanged: (
 }
 
 function ProjectsPage() {
-  const { projects } = Route.useLoaderData() as { projects: ProjectRow[] };
+  const { projects, canBuild } = Route.useLoaderData() as { projects: ProjectRow[]; canBuild: boolean };
   const router = useRouter();
   const onChanged = () => void router.invalidate();
 
@@ -250,7 +299,11 @@ function ProjectsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Projects"
-        subtitle="Every signed deal becomes a build. Walk each one down the checklist to launch."
+        subtitle={
+          canBuild
+            ? "Every signed deal becomes a build. Walk each one down the checklist to launch."
+            : "Every signed deal becomes a build. Barry & Michael keep this board updated — check any project's % to see how far along it is."
+        }
       />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -280,7 +333,7 @@ function ProjectsPage() {
                 </div>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {group.map((p) => (
-                    <ProjectCard key={p.id} project={p} onChanged={onChanged} />
+                    <ProjectCard key={p.id} project={p} canBuild={canBuild} onChanged={onChanged} />
                   ))}
                 </div>
               </section>
@@ -295,7 +348,7 @@ function ProjectsPage() {
               </div>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {launched.map((p) => (
-                  <ProjectCard key={p.id} project={p} onChanged={onChanged} />
+                  <ProjectCard key={p.id} project={p} canBuild={canBuild} onChanged={onChanged} />
                 ))}
               </div>
             </section>
