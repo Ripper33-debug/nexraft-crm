@@ -9,6 +9,7 @@ import {
   archiveCompany,
   restoreCompany,
   importCompanies,
+  verifyCompanyWebsites,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, PageSkeleton } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
@@ -80,6 +81,7 @@ function CompaniesPage() {
   const [ownerFilter, setOwnerFilter] = useState<string>("");
   const [callFilter, setCallFilter] = useState<string>("");
   const [calling, setCalling] = useState<Row | null>(null);
+  const [checkingSites, setCheckingSites] = useState(false);
 
   // Deep-link: a global-search result routes here with ?focus=<id> to auto-open.
   useEffect(() => {
@@ -165,6 +167,33 @@ function CompaniesPage() {
                 Export CSV
               </Button>
             ) : null}
+            <Button
+              variant="outline"
+              disabled={checkingSites}
+              onClick={async () => {
+                setCheckingSites(true);
+                try {
+                  const res = await verifyCompanyWebsites();
+                  if (res.checked === 0) {
+                    toast("All websites are freshly checked — nothing to do.", "info");
+                  } else {
+                    toast(
+                      `Checked ${res.checked} site${res.checked === 1 ? "" : "s"} — ${
+                        res.down === 0 ? "all responding" : `${res.down} down (redesign openings!)`
+                      }${res.remaining > 0 ? ` · ${res.remaining} left, click again` : ""}`,
+                      res.down > 0 ? "success" : "info",
+                    );
+                    router.invalidate();
+                  }
+                } catch {
+                  toast("Couldn't run the website check — try again.", "error");
+                } finally {
+                  setCheckingSites(false);
+                }
+              }}
+            >
+              {checkingSites ? "Checking sites…" : "Check websites"}
+            </Button>
             <Button
               onClick={() => {
                 setEditing(null);
@@ -280,7 +309,25 @@ function CompaniesPage() {
                         <span className="ml-2 align-middle rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Need to call</span>
                       ) : null}
                       {c.website ? (
-                        <div className="text-xs text-faint">{c.website as string}</div>
+                        <div className="flex items-center gap-1.5 text-xs text-faint">
+                          {c.website_status === "dead" ? (
+                            <span
+                              className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-400"
+                              title="Website is down — redesign opening"
+                            />
+                          ) : c.website_status === "live" ? (
+                            <span
+                              className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400"
+                              title="Website is live"
+                            />
+                          ) : null}
+                          <span className="truncate">{c.website as string}</span>
+                          {c.website_status === "dead" ? (
+                            <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-300">
+                              Site down
+                            </span>
+                          ) : null}
+                        </div>
                       ) : null}
                     </td>
                     <td className="px-4 py-2.5">

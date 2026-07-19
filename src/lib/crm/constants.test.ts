@@ -238,6 +238,21 @@ describe("discoveryScore", () => {
     const noReviewData = discoveryScore({ hasWebsite: false, reviews: null });
     expect(noReviewData.score).toBeGreaterThan(withReviews.score);
   });
+
+  it("treats a dead website as nearly as strong a signal as no website", () => {
+    const noSite = discoveryScore({ hasWebsite: false });
+    const deadSite = discoveryScore({ hasWebsite: true, websiteDead: true });
+    const liveSite = discoveryScore({ hasWebsite: true, websiteDead: false });
+    expect(deadSite.score).toBeGreaterThan(liveSite.score);
+    expect(deadSite.score).toBeLessThanOrEqual(noSite.score);
+    expect(deadSite.reasons.join(" ")).toContain("down");
+  });
+
+  it("unprobed websites score exactly like the plain has-site case", () => {
+    const unknown = discoveryScore({ hasWebsite: true, websiteDead: null });
+    const plain = discoveryScore({ hasWebsite: true });
+    expect(unknown.score).toBe(plain.score);
+  });
 });
 
 describe("isBestFitIndustry", () => {

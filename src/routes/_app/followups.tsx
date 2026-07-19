@@ -16,6 +16,31 @@ import { relativeTime } from "../../lib/crm/constants";
 
 type Row = Record<string, unknown>;
 
+// Where a company sits in the nudge cadence, from its next_followup_at stamp.
+//  - "due"       — never scheduled (legacy / not yet emailed): nudge now
+//  - "overdue"   — the scheduled date has passed: top of the list, red chip
+//  - "scheduled" — a nudge is booked for the future: parked below
+function dueInfo(company: Row): { state: "due" | "overdue" | "scheduled"; label: string; at: number } {
+  const raw = company.next_followup_at as string | null;
+  if (!raw) return { state: "due", label: "Due now", at: 0 };
+  const at = Date.parse(raw);
+  if (Number.isNaN(at)) return { state: "due", label: "Due now", at: 0 };
+  const diffDays = Math.round((at - Date.now()) / 86400000);
+  if (at <= Date.now()) {
+    const late = Math.max(0, -diffDays);
+    return {
+      state: "overdue",
+      label: late <= 0 ? "Due today" : `Overdue by ${late} day${late === 1 ? "" : "s"}`,
+      at,
+    };
+  }
+  return {
+    state: "scheduled",
+    label: diffDays <= 0 ? "Due today" : `Due in ${diffDays} day${diffDays === 1 ? "" : "s"}`,
+    at,
+  };
+}
+
 export const Route = createFileRoute("/_app/followups")({
   loader: async ({ context }) => {
     const [companies, contacts, gmail] = await Promise.all([
@@ -47,6 +72,7 @@ function FollowUpCard({
   const touches = Number(company.email_touches) || 0;
   const nextTouch = Math.min(3, touches + 1);
   const allSent = touches >= 3;
+  const due = dueInfo(company);
   const [to, setTo] = useState(emailOnFile);
   const [busy, setBusy] = useState(false);
 
@@ -107,6 +133,11 @@ function FollowUpCard({
             ) : (
               <Pill tone="signal">{NUDGE_LABELS[nextTouch - 1]} next</Pill>
             )}
+            {!allSent && due.state === "overdue" ? (
+              <Pill tone="warn">{due.label}</Pill>
+            ) : !allSent && due.state === "scheduled" ? (
+              <Pill tone="neutral">{due.label}</Pill>
+            ) : null}
           </div>
           <div className="mt-0.5 text-xs text-faint">
             {touches === 0
@@ -179,23 +210,45 @@ function FollowUpsPage() {
     return m;
   }, [contacts]);
 
-  // Everyone who didn't pick up — the follow-up worklist. Least-nudged first.
+  // Everyone who didn't pick up — the follow-up worklist, split by urgency:
+  // overdue first (scheduled nudge date has passed), then never-scheduled,
+  // then future-scheduled parked at the bottom. Fully-nudged stay visible but last.
   const queue = useMemo(() => {
     return (companies as Row[])
       .filter((c) => c.call_outcome === "no_answer")
       .sort((a, b) => (Number(a.email_touches) || 0) - (Number(b.email_touches) || 0));
   }, [companies]);
 
+  const { dueNow, scheduled } = useMemo(() => {
+    const dueNow: Row[] = [];
+    const scheduled: Row[] = [];
+    for (const c of queue) {
+      const finished = (Number(c.email_touches) || 0) >= 3;
+      const d = dueInfo(c);
+      if (!finished && (d.state === "due" || d.state === "overdue")) dueNow.push(c);
+      else scheduled.push(c);
+    }
+    // Most-overdue first, then least-nudged.
+    dueNow.sort((a, b) => {
+      const da = dueInfo(a);
+      const db = dueInfo(b);
+      if (da.at !== db.at) return da.at - db.at;
+      return (Number(a.email_touches) || 0) - (Number(b.email_touches) || 0);
+    });
+    scheduled.sort((a, b) => dueInfo(a).at - dueInfo(b).at);
+    return { dueNow, scheduled };
+  }, [queue]);
+
   const stats = useMemo(() => {
-    let needFirst = 0;
+    let overdue = 0;
     let done = 0;
     for (const c of queue) {
       const t = Number(c.email_touches) || 0;
-      if (t === 0) needFirst++;
       if (t >= 3) done++;
+      else if (dueInfo(c).state === "overdue") overdue++;
     }
-    return { total: queue.length, needFirst, done };
-  }, [queue]);
+    return { total: queue.length, dueNow: dueNow.length, overdue, done };
+  }, [queue, dueNow]);
 
   const refresh = () => router.invalidate();
 
@@ -207,8 +260,8 @@ function FollowUpsPage() {
       />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <SummaryCard label="Waiting on a nudge" value={String(stats.total)} accent sub="didn't answer the call" />
-        <SummaryCard label="Not emailed yet" value={String(stats.needFirst)} hint="Send the 1st nudge" />
+        <SummaryCard label="Due now" value={String(stats.dueNow)} accent sub={stats.overdue > 0 ? `${stats.overdue} overdue` : "nudge these today"} />
+        <SummaryCard label="In the queue" value={String(stats.total)} hint="Everyone who didn't answer" />
         <SummaryCard label="Fully nudged" value={String(stats.done)} hint="All 3 sent" />
       </div>
 
@@ -218,18 +271,46 @@ function FollowUpsPage() {
           hint="When a call goes unanswered, mark it “No answer” on the Calls board and it'll show up here to email."
         />
       ) : (
-        <div className="grid grid-cols-1 gap-3">
-          {queue.map((c) => (
-            <FollowUpCard
-              key={c.id as string}
-              company={c}
-              emailOnFile={emailByCompany.get(c.id as string) ?? ""}
-              repName={me?.name ?? ""}
-              gmailConnected={gmailConnected}
-              onChanged={refresh}
-            />
-          ))}
-        </div>
+        <>
+          {dueNow.length > 0 ? (
+            <div className="grid grid-cols-1 gap-3">
+              {dueNow.map((c) => (
+                <FollowUpCard
+                  key={c.id as string}
+                  company={c}
+                  emailOnFile={emailByCompany.get(c.id as string) ?? ""}
+                  repName={me?.name ?? ""}
+                  gmailConnected={gmailConnected}
+                  onChanged={refresh}
+                />
+              ))}
+            </div>
+          ) : (
+            <Card className="p-4 text-sm text-mute">
+              Nothing due right now — every follow-up is scheduled or fully nudged. Nice.
+            </Card>
+          )}
+
+          {scheduled.length > 0 ? (
+            <div className="space-y-3">
+              <div className="pt-1 text-xs font-medium uppercase tracking-wider text-faint">
+                Scheduled &amp; finished · {scheduled.length}
+              </div>
+              <div className="grid grid-cols-1 gap-3">
+                {scheduled.map((c) => (
+                  <FollowUpCard
+                    key={c.id as string}
+                    company={c}
+                    emailOnFile={emailByCompany.get(c.id as string) ?? ""}
+                    repName={me?.name ?? ""}
+                    gmailConnected={gmailConnected}
+                    onChanged={refresh}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </>
       )}
 
       <p className="text-xs text-faint">

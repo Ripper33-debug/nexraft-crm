@@ -307,16 +307,25 @@ export type DiscoverySignals = {
   rating?: number | null; // 0-5 Google rating
   reviews?: number | null; // number of Google reviews
   hasPhone?: boolean;
+  // true = we probed the listed URL and it did NOT respond (dead site — nearly
+  // as strong a buyer signal as no site at all). false = probed and alive.
+  // null/undefined = not probed, so scoring falls back to URL presence alone.
+  websiteDead?: boolean | null;
 };
 
 export function discoveryScore(sig: DiscoverySignals): OpportunityScore {
   let score = 30;
   const reasons: string[] = [];
 
-  // 1) The buyer signal: no website means they need exactly what we sell.
+  // 1) The buyer signal: no website means they need exactly what we sell. A
+  //    listed-but-dead website is almost as good — they once paid for a site,
+  //    so they value having one, and right now they have nothing.
   if (!sig.hasWebsite) {
     score += 32;
     reasons.push("No website yet — prime target");
+  } else if (sig.websiteDead === true) {
+    score += 28;
+    reasons.push("Website is down — prime redesign target");
   } else {
     reasons.push("Already has a website (redesign play)");
   }

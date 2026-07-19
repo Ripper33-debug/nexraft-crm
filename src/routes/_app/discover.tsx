@@ -85,6 +85,10 @@ function LeadCard({
             <span className="truncate text-sm font-semibold text-bone">{lead.name}</span>
             {!lead.website ? (
               <Pill tone="ok">No website</Pill>
+            ) : lead.website_dead === true ? (
+              <Pill tone="warn">Site is down</Pill>
+            ) : lead.website_dead === false ? (
+              <Pill tone="neutral">Site live</Pill>
             ) : (
               <Pill tone="neutral">Has site</Pill>
             )}

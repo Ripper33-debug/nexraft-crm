@@ -191,10 +191,16 @@ export const getMe = createServerFn({ method: "GET" }).handler(async () => {
 export const getFollowupCount = createServerFn({ method: "GET" }).handler(async () => {
   await requireUser();
   await ensureExtraSchema();
+  // Counts only follow-ups actually DUE (never scheduled, or the scheduled date
+  // has arrived) and not yet fully nudged — so the nav badge is a real "do this
+  // now" number instead of the size of the whole waiting room.
   const row = await db()
     .prepare(
       `SELECT COUNT(*)::int AS n FROM companies
-       WHERE archived_at IS NULL AND call_outcome = 'no_answer'`,
+       WHERE archived_at IS NULL AND call_outcome = 'no_answer'
+         AND COALESCE(email_touches, 0) < 3
+         AND (next_followup_at IS NULL
+              OR next_followup_at <= to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))`,
     )
     .first<{ n: number }>();
   return { count: row?.n ?? 0 };
@@ -1066,9 +1072,16 @@ export const setCompanyCallOutcome = createServerFn({ method: "POST" })
       .first<{ id: string; name: string; owner_id: string | null }>();
     if (!company) throw new Error("NOT_FOUND");
 
+    // Leaving the "no answer" queue (they replied / gave up / signed) also
+    // clears any scheduled nudge so it never counts as due again.
     await db()
-      .prepare(`UPDATE companies SET call_outcome=? WHERE id=?`)
-      .bind(data.outcome, data.id)
+      .prepare(
+        `UPDATE companies
+            SET call_outcome = ?,
+                next_followup_at = CASE WHEN ? = 'no_answer' THEN next_followup_at ELSE NULL END
+          WHERE id = ?`,
+      )
+      .bind(data.outcome, data.outcome, data.id)
       .run();
 
     const name = company.name;
@@ -2279,6 +2292,58 @@ export const getTeamOverview = createServerFn({ method: "GET" }).handler(async (
   return results ?? [];
 });
 
+// ---------- Rep activity report (admin) ----------
+// "Who actually did the work" — pure effort metrics per rep over a time window,
+// rolled up from the event log. Complements getTeamOverview (which measures the
+// STATE of each rep's book) by measuring MOTION: calls triaged, emails sent,
+// records created, deals moved, notes written. An idle rep with a big book and a
+// grinder building one both show up honestly here.
+export type RepActivityRow = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  calls: number;
+  emails: number;
+  created: number;
+  stage_moves: number;
+  won: number;
+  lost: number;
+  notes: number;
+  claims: number;
+  total: number;
+  last_active: string | null;
+};
+
+export const getRepActivity = createServerFn({ method: "GET" })
+  .validator(z.object({ range: z.enum(["week", "month", "quarter"]).default("week") }))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    await ensureExtraSchema();
+    const days = data.range === "week" ? 7 : data.range === "month" ? 30 : 90;
+    const { results } = await db()
+      .prepare(
+        `SELECT u.id, u.name, u.email, u.role,
+           COALESCE(SUM(CASE WHEN e.verb = 'triaged' THEN 1 END), 0)::int AS calls,
+           COALESCE(SUM(CASE WHEN e.verb = 'emailed' THEN 1 END), 0)::int AS emails,
+           COALESCE(SUM(CASE WHEN e.verb IN ('created', 'imported') THEN 1 END), 0)::int AS created,
+           COALESCE(SUM(CASE WHEN e.verb = 'stage_changed' THEN 1 END), 0)::int AS stage_moves,
+           COALESCE(SUM(CASE WHEN e.verb = 'won' THEN 1 END), 0)::int AS won,
+           COALESCE(SUM(CASE WHEN e.verb = 'lost' THEN 1 END), 0)::int AS lost,
+           COALESCE(SUM(CASE WHEN e.verb = 'note_added' THEN 1 END), 0)::int AS notes,
+           COALESCE(SUM(CASE WHEN e.verb = 'claimed' THEN 1 END), 0)::int AS claims,
+           COALESCE(COUNT(e.id), 0)::int AS total,
+           MAX(e.created_at) AS last_active
+         FROM users u
+         LEFT JOIN events e ON e.actor_id = u.id
+           AND e.created_at >= to_char(now() AT TIME ZONE 'UTC' - make_interval(days => ${days}), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+         GROUP BY u.id, u.name, u.email, u.role
+         ORDER BY total DESC, u.name`,
+      )
+      .all<RepActivityRow>();
+    return { range: data.range, rows: results ?? [] };
+  });
+
 export type UserDealRow = {
   id: string;
   name: string;
@@ -3205,14 +3270,18 @@ export const recordEmailTouch = createServerFn({ method: "POST" })
       .first<{ name: string; email_touches: number }>();
     if (!row) return { ok: false as const, touches: 0 };
     const next = (Number(row.email_touches) || 0) + 1;
+    // Schedule the next nudge: 3 days after the 1st, 4 after the 2nd. After the
+    // 3rd the cadence is done — no next date, and the due-count leaves it out.
     await db()
       .prepare(
         `UPDATE companies
             SET email_touches = ?,
-                last_emailed_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+                last_emailed_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+                next_followup_at = CASE WHEN ? >= 3 THEN NULL
+                  ELSE to_char(now() AT TIME ZONE 'UTC' + make_interval(days => CASE WHEN ? = 1 THEN 3 ELSE 4 END), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') END
           WHERE id = ?`,
       )
-      .bind(next, data.company_id)
+      .bind(next, next, next, data.company_id)
       .run();
     await logEvent({
       actorId: user.id,
@@ -3279,14 +3348,18 @@ export const sendCrmEmail = createServerFn({ method: "POST" })
         .first<{ name: string; email_touches: number }>();
       if (row) {
         touches = (Number(row.email_touches) || 0) + 1;
+        // Same cadence as recordEmailTouch: next nudge lands 3 days after the
+        // 1st, 4 after the 2nd, and after the 3rd the sequence is done.
         await db()
           .prepare(
             `UPDATE companies
                 SET email_touches = ?,
-                    last_emailed_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+                    last_emailed_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+                    next_followup_at = CASE WHEN ? >= 3 THEN NULL
+                      ELSE to_char(now() AT TIME ZONE 'UTC' + make_interval(days => CASE WHEN ? = 1 THEN 3 ELSE 4 END), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') END
               WHERE id = ?`,
           )
-          .bind(touches, data.company_id)
+          .bind(touches, touches, touches, data.company_id)
           .run();
         await logEvent({
           actorId: user.id,
@@ -3341,6 +3414,9 @@ export type DiscoveredLead = {
   band: string;
   reasons: string[];
   already_in_crm: boolean;
+  // true = listed website was probed and is down; false = probed and alive;
+  // null = has no website, or the probe didn't run (time budget).
+  website_dead: boolean | null;
 };
 
 function normName(s: string | null | undefined): string {
@@ -3378,6 +3454,150 @@ async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Pro
     clearTimeout(timer);
   }
 }
+
+// ---------- Website liveness probing (lead-gen quality) ----------
+// "Has a website" is only half the signal — a listed site that no longer loads
+// is a business paying for nothing, which makes them the warmest possible
+// redesign prospect. probeWebsite() answers one question fast: does this URL
+// respond at all?
+//
+// Judgement calls, tuned for prospecting rather than uptime monitoring:
+//   - DNS failure / connection refused / timeout  → dead (site is gone)
+//   - 404 / 410 / 5xx                             → dead (broken at the root)
+//   - anything else that answers (200, redirects, 401/403 bot-blocks, etc.)
+//                                                 → live (a server is there)
+// Bot-blocking CDNs return 403 to unknown agents constantly; calling those
+// "dead" would flood reps with false positives, so any HTTP answer outside the
+// clearly-broken set counts as alive.
+function normalizeProbeUrl(raw: string): string | null {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return null;
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const u = new URL(withScheme);
+    if (!u.hostname.includes(".")) return null; // "coming soon" junk like "n/a"
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+async function probeWebsite(raw: string, timeoutMs = 5000): Promise<"live" | "dead" | null> {
+  const url = normalizeProbeUrl(raw);
+  if (!url) return null; // not a checkable URL — leave status unknown
+  try {
+    const res = await fetchWithTimeout(
+      url,
+      { method: "GET", redirect: "follow", headers: { "User-Agent": OSM_UA, Accept: "text/html,*/*" } },
+      timeoutMs,
+    );
+    if (res.status === 404 || res.status === 410 || res.status >= 500) return "dead";
+    return "live";
+  } catch {
+    // On https failure, one retry over plain http — plenty of small-business
+    // sites never got a certificate but are very much alive.
+    if (url.startsWith("https://")) {
+      try {
+        const res = await fetchWithTimeout(
+          url.replace(/^https:\/\//, "http://"),
+          { method: "GET", redirect: "follow", headers: { "User-Agent": OSM_UA, Accept: "text/html,*/*" } },
+          timeoutMs,
+        );
+        if (res.status === 404 || res.status === 410 || res.status >= 500) return "dead";
+        return "live";
+      } catch {
+        return "dead";
+      }
+    }
+    return "dead";
+  }
+}
+
+// Probe a batch of URLs with a hard overall deadline. Prospecting runs inside a
+// serverless request that also geocoded + queried Overpass, so this layer must
+// never blow the time budget: whatever hasn't answered by `deadlineMs` is simply
+// left unknown (null) rather than waited for.
+async function probeWebsitesBatch(
+  urls: string[],
+  deadlineMs: number,
+): Promise<Map<string, "live" | "dead">> {
+  const out = new Map<string, "live" | "dead">();
+  const perFetch = Math.max(1500, deadlineMs - 300);
+  await Promise.race([
+    Promise.allSettled(
+      urls.map(async (u) => {
+        const status = await probeWebsite(u, perFetch);
+        if (status) out.set(u, status);
+      }),
+    ),
+    new Promise((resolve) => setTimeout(resolve, deadlineMs)),
+  ]);
+  return out;
+}
+
+// On-demand verification for companies already in the CRM. Sweeps up to 12 of
+// the stalest unchecked websites (never checked, or checked > 7 days ago),
+// probes them concurrently, and stamps website_status / website_checked_at.
+// Runs in small batches so a click never risks the serverless time budget —
+// clicking again simply continues where the last sweep left off.
+export const verifyCompanyWebsites = createServerFn({ method: "POST" }).handler(async () => {
+  const user = await requireUser();
+  await ensureExtraSchema();
+  const { results } = await db()
+    .prepare(
+      `SELECT id, name, website FROM companies
+        WHERE archived_at IS NULL
+          AND website IS NOT NULL AND btrim(website) <> ''
+          AND (website_checked_at IS NULL
+               OR website_checked_at < to_char(now() AT TIME ZONE 'UTC' - interval '7 days', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+        ORDER BY website_checked_at NULLS FIRST
+        LIMIT 12`,
+    )
+    .all<{ id: string; name: string; website: string }>();
+  const targets = results ?? [];
+  if (targets.length === 0) return { ok: true as const, checked: 0, down: 0, remaining: 0 };
+
+  const statuses = await probeWebsitesBatch(targets.map((t) => t.website), 15000);
+  let down = 0;
+  for (const t of targets) {
+    const status = statuses.get(t.website) ?? null;
+    if (!status) continue; // deadline hit or junk URL — try again next sweep
+    if (status === "dead") down++;
+    await db()
+      .prepare(
+        `UPDATE companies
+            SET website_status = ?,
+                website_checked_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+          WHERE id = ?`,
+      )
+      .bind(status, t.id)
+      .run();
+    if (status === "dead") {
+      await logEvent({
+        actorId: user.id,
+        verb: "flagged",
+        entityType: "company",
+        entityId: t.id,
+        summary: `Website check: ${t.name}'s site (${t.website}) is down — redesign opening`,
+      });
+    }
+  }
+  const remainingRow = await db()
+    .prepare(
+      `SELECT COUNT(*)::int AS n FROM companies
+        WHERE archived_at IS NULL
+          AND website IS NOT NULL AND btrim(website) <> ''
+          AND (website_checked_at IS NULL
+               OR website_checked_at < to_char(now() AT TIME ZONE 'UTC' - interval '7 days', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))`,
+    )
+    .first<{ n: number }>();
+  return {
+    ok: true as const,
+    checked: statuses.size,
+    down,
+    remaining: remainingRow?.n ?? 0,
+  };
+});
 
 // Run an Overpass QL query against ALL mirrors in parallel and return the first
 // one that answers successfully. Racing (instead of trying them in sequence) is
@@ -3660,6 +3880,7 @@ export const discoverLeads = createServerFn({ method: "POST" })
           band: scored.band,
           reasons: scored.reasons,
           already_in_crm: already,
+          website_dead: null as boolean | null,
         };
       })
       .filter((l) => {
@@ -3671,6 +3892,35 @@ export const discoverLeads = createServerFn({ method: "POST" })
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, data.limit);
+
+    // Liveness pass: probe the listed websites of the top prospects (best-effort,
+    // hard 6s ceiling so the whole request stays inside the serverless budget).
+    // A site that doesn't respond flips that lead from "redesign play" to
+    // "website is down — prime redesign target" and re-scores it accordingly.
+    const withSites = leads.filter((l) => l.website && !l.already_in_crm).slice(0, 10);
+    if (withSites.length > 0) {
+      const statuses = await probeWebsitesBatch(
+        withSites.map((l) => l.website as string),
+        6000,
+      );
+      for (const l of withSites) {
+        const status = statuses.get(l.website as string);
+        if (!status) continue;
+        l.website_dead = status === "dead";
+        const rescored = discoveryScore({
+          hasWebsite: true,
+          websiteDead: l.website_dead,
+          industry: l.industry,
+          rating: null,
+          reviews: null,
+          hasPhone: Boolean(l.phone),
+        });
+        l.score = rescored.score;
+        l.band = rescored.band;
+        l.reasons = rescored.reasons;
+      }
+      leads.sort((a, b) => b.score - a.score);
+    }
 
     return { ok: true as const, leads };
   });

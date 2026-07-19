@@ -57,6 +57,16 @@ export function ensureExtraSchema(): Promise<void> {
       // last one went out. Drives which nudge template comes next (1st/2nd/3rd).
       `ALTER TABLE companies ADD COLUMN IF NOT EXISTS email_touches INTEGER DEFAULT 0`,
       `ALTER TABLE companies ADD COLUMN IF NOT EXISTS last_emailed_at TEXT`,
+      // Website liveness (lead-gen quality): whether the company's site actually
+      // responds. 'live' | 'dead' | NULL (never checked). A dead site is a prime
+      // redesign target, so this feeds prospect scoring and the companies list.
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS website_status TEXT`,
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS website_checked_at TEXT`,
+      // Follow-up scheduling: when the next nudge for a 'no_answer' company is
+      // due. NULL = due now (never emailed / legacy rows). Set automatically to
+      // a few days out each time a nudge is sent, so the Follow-ups badge counts
+      // what's actually actionable today instead of the whole queue.
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS next_followup_at TEXT`,
       // Proposal tracking on deals: 'none' | 'sent' | 'viewed' | 'signed' (+ sent date).
       `ALTER TABLE deals ADD COLUMN IF NOT EXISTS proposal_status TEXT`,
       `ALTER TABLE deals ADD COLUMN IF NOT EXISTS proposal_sent_at TEXT`,

@@ -5,12 +5,14 @@ import {
   getTeamOverview,
   getUserDetail,
   getSignupCode,
+  getRepActivity,
   adminCreateUser,
   adminUpdateRole,
   adminResetPassword,
   adminDeleteUser,
   adminReassignBook,
   type TeamMemberRow,
+  type RepActivityRow,
 } from "../../lib/crm/data";
 import {
   Button,
@@ -27,7 +29,7 @@ import {
   Pill,
   StageBadge,
 } from "../../components/crm/ui";
-import { formatMoney, formatRange, pipelineValueRange, pipelineMrrRange } from "../../lib/crm/constants";
+import { formatMoney, formatRange, pipelineValueRange, pipelineMrrRange, relativeTime } from "../../lib/crm/constants";
 
 export const Route = createFileRoute("/_app/team")({
   beforeLoad: ({ context }) => {
@@ -37,16 +39,139 @@ export const Route = createFileRoute("/_app/team")({
     }
   },
   loader: async () => {
-    const [team, code] = await Promise.all([getTeamOverview(), getSignupCode()]);
-    return { team, code: code.code };
+    const [team, code, activity] = await Promise.all([
+      getTeamOverview(),
+      getSignupCode(),
+      getRepActivity({ data: { range: "week" } }).catch(() => ({ range: "week" as const, rows: [] })),
+    ]);
+    return { team, code: code.code, activity };
   },
   component: TeamPage,
 });
 
 type Detail = Awaited<ReturnType<typeof getUserDetail>>;
 
+// "Who actually did the work" — effort metrics per rep from the event log, over
+// a selectable window. State (pipeline size) lives in the table above; this
+// panel measures MOTION: calls triaged, emails sent, records created, stage
+// moves, notes. The Total column ranks the hustle.
+function RepActivityPanel({
+  initial,
+}: {
+  initial: { range: "week" | "month" | "quarter"; rows: RepActivityRow[] };
+}) {
+  const [range, setRange] = useState<"week" | "month" | "quarter">(initial.range);
+  const [rows, setRows] = useState<RepActivityRow[]>(initial.rows);
+  const [loading, setLoading] = useState(false);
+
+  async function load(r: "week" | "month" | "quarter") {
+    setRange(r);
+    setLoading(true);
+    try {
+      const res = await getRepActivity({ data: { range: r } });
+      setRows(res.rows);
+    } catch {
+      /* keep whatever we have */
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const RANGES: Array<{ key: "week" | "month" | "quarter"; label: string }> = [
+    { key: "week", label: "7 days" },
+    { key: "month", label: "30 days" },
+    { key: "quarter", label: "90 days" },
+  ];
+
+  return (
+    <Card className="mt-4 overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
+        <div>
+          <Eyebrow>Rep activity</Eyebrow>
+          <div className="mt-0.5 text-xs text-faint">
+            Actions logged by each rep — calls, emails, new records, deal moves, notes.
+          </div>
+        </div>
+        <div className="flex gap-1">
+          {RANGES.map((r) => (
+            <button
+              key={r.key}
+              onClick={() => load(r.key)}
+              disabled={loading}
+              className={
+                "rounded-full px-2.5 py-1 text-xs font-medium transition-colors " +
+                (range === r.key
+                  ? "bg-signal-soft text-signal"
+                  : "text-mute hover:bg-surface-2 hover:text-bone")
+              }
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className={"overflow-x-auto" + (loading ? " opacity-50" : "")}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-wider text-faint">
+              <th className="px-4 py-2.5 font-medium">Rep</th>
+              <th className="px-4 py-2.5 font-medium">Calls</th>
+              <th className="px-4 py-2.5 font-medium">Emails</th>
+              <th className="px-4 py-2.5 font-medium">New records</th>
+              <th className="px-4 py-2.5 font-medium">Deal moves</th>
+              <th className="px-4 py-2.5 font-medium">Won / Lost</th>
+              <th className="px-4 py-2.5 font-medium">Notes</th>
+              <th className="px-4 py-2.5 font-medium">Total</th>
+              <th className="px-4 py-2.5 font-medium">Last active</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="border-b border-line/60 last:border-0 hover:bg-surface-2/60">
+                <td className="px-4 py-2.5">
+                  <span className="inline-flex items-center gap-2">
+                    <Avatar name={r.name} size={22} />
+                    <span className="font-medium text-bone">{r.name}</span>
+                  </span>
+                </td>
+                <td className="px-4 py-2.5 text-mute">{r.calls}</td>
+                <td className="px-4 py-2.5 text-mute">{r.emails}</td>
+                <td className="px-4 py-2.5 text-mute">{r.created + r.claims}</td>
+                <td className="px-4 py-2.5 text-mute">{r.stage_moves}</td>
+                <td className="px-4 py-2.5">
+                  <span className="text-emerald-400">{r.won}</span>
+                  <span className="text-faint"> / </span>
+                  <span className="text-red-400">{r.lost}</span>
+                </td>
+                <td className="px-4 py-2.5 text-mute">{r.notes}</td>
+                <td className="px-4 py-2.5">
+                  {Number(r.total) === 0 ? (
+                    <Pill tone="warn">Idle</Pill>
+                  ) : (
+                    <span className="font-medium text-bone">{r.total}</span>
+                  )}
+                </td>
+                <td className="px-4 py-2.5 text-xs text-faint">
+                  {r.last_active ? relativeTime(r.last_active) : "—"}
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="px-4 py-6 text-center text-sm text-faint">
+                  No activity logged in this window yet.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
 function TeamPage() {
-  const { team, code } = Route.useLoaderData();
+  const { team, code, activity } = Route.useLoaderData();
   const router = useRouter();
   const rows = team as TeamMemberRow[];
 
@@ -248,6 +373,8 @@ function TeamPage() {
           </table>
         </div>
       </Card>
+
+      <RepActivityPanel initial={activity as { range: "week" | "month" | "quarter"; rows: RepActivityRow[] }} />
 
       <MemberDetailModal
         detail={detail}

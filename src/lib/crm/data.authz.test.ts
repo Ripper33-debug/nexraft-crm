@@ -81,6 +81,33 @@ describe("imports keep their dedupe guards", () => {
   });
 });
 
+describe("website liveness sweep stays authenticated and bounded", () => {
+  it("verifyCompanyWebsites requires a signed-in user", () => {
+    expect(fnBody("verifyCompanyWebsites")).toContain("requireUser(");
+  });
+  it("verifyCompanyWebsites sweeps a bounded batch (LIMIT)", () => {
+    expect(fnBody("verifyCompanyWebsites")).toContain("LIMIT 12");
+  });
+});
+
+describe("rep activity report is admin-only", () => {
+  it("getRepActivity calls requireAdmin", () => {
+    expect(fnBody("getRepActivity")).toContain("requireAdmin(");
+  });
+});
+
+describe("follow-up cadence schedules the next nudge", () => {
+  it("recordEmailTouch stamps next_followup_at", () => {
+    expect(fnBody("recordEmailTouch")).toContain("next_followup_at");
+  });
+  it("sendCrmEmail stamps next_followup_at on the company touch", () => {
+    expect(fnBody("sendCrmEmail")).toContain("next_followup_at");
+  });
+  it("resolving a call outcome clears the scheduled nudge", () => {
+    expect(fnBody("setCompanyCallOutcome")).toContain("next_followup_at");
+  });
+});
+
 describe("role demotion clears the demoted user's sessions", () => {
   it("adminUpdateRole deletes sessions on demotion", () => {
     expect(fnBody("adminUpdateRole")).toContain("DELETE FROM sessions");
