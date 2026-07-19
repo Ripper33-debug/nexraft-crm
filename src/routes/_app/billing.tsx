@@ -111,6 +111,10 @@ function NewInvoiceModal({
   const [days, setDays] = useState("14");
   const [busy, setBusy] = useState(false);
 
+  // Only bill clients you've actually won — companies with a live deal in the
+  // won stage. Keeps the picker short and stops accidental invoices to leads.
+  const wonCompanies = useMemo(() => companies.filter((c) => Number(c.won_deals) > 0), [companies]);
+
   // Prefill the billing email from the company's first contact with one.
   const suggestedEmail = useMemo(() => {
     if (!companyId) return "";
@@ -162,15 +166,20 @@ function NewInvoiceModal({
   return (
     <Modal open={open} onClose={onClose} title="New invoice" wide>
       <div className="space-y-3">
-        <Field label="Company">
+        <Field label="Company (won clients only)">
           <Select value={companyId} onChange={(e) => pickCompany(e.target.value)}>
-            <option value="">Choose a company…</option>
-            {companies.map((c) => (
+            <option value="">Choose a client you&apos;ve won…</option>
+            {wonCompanies.map((c) => (
               <option key={c.id as string} value={c.id as string}>
                 {c.name as string}
               </option>
             ))}
           </Select>
+          {wonCompanies.length === 0 ? (
+            <p className="mt-1.5 text-xs text-faint">
+              No won clients yet — a company shows up here once one of its deals reaches the won stage.
+            </p>
+          ) : null}
         </Field>
         <Field label="Billing email">
           <Input
@@ -313,6 +322,16 @@ function BillingPage() {
                               className="rounded-md px-2 py-1 text-xs font-medium text-signal hover:bg-signal-soft"
                             >
                               Payment link
+                            </a>
+                          ) : null}
+                          {inv.pdf_url ? (
+                            <a
+                              href={inv.pdf_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="rounded-md px-2 py-1 text-xs font-medium text-signal hover:bg-signal-soft"
+                            >
+                              PDF
                             </a>
                           ) : null}
                           {inv.stripe_invoice_id ? (

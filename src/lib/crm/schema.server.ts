@@ -174,6 +174,9 @@ export function ensureExtraSchema(): Promise<void> {
          updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
        )`,
       `CREATE INDEX IF NOT EXISTS idx_invoices_company ON invoices(company_id)`,
+      // Stripe also renders a downloadable PDF of every finalized invoice — keep
+      // its link alongside the hosted payment page.
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS pdf_url TEXT`,
       // Daily auto sweeps (lead gen): admin-saved searches (area + business
       // types) that a Vercel cron runs every morning server-side — so fresh
       // leads land in the pool even when nobody has the CRM open in a browser.

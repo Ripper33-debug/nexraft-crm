@@ -78,6 +78,7 @@ export type CompanyRow = {
   created_at: string;
   owner_name: string | null;
   deal_count: number;
+  won_deals: number;
 };
 
 export type ContactRow = {
@@ -232,7 +233,8 @@ export const getCompanies = createServerFn({ method: "GET" }).handler(async () =
   const { results } = await db()
     .prepare(
       `SELECT c.*, u.name AS owner_name,
-        (SELECT COUNT(*)::int FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL) AS deal_count
+        (SELECT COUNT(*)::int FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL) AS deal_count,
+        (SELECT COUNT(*)::int FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL AND d.stage = '${WON_STAGE}') AS won_deals
        FROM companies c LEFT JOIN users u ON u.id = c.owner_id
        WHERE c.archived_at IS NULL
        ORDER BY c.name`,
@@ -5064,6 +5066,7 @@ export type InvoiceRow = {
   amount: number;
   status: string;
   hosted_url: string | null;
+  pdf_url: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -5142,17 +5145,19 @@ export const createStripeInvoice = createServerFn({ method: "POST" })
       description: data.description,
     });
     if (!item.ok) return { ok: false as const, error: item.error };
-    const fin = await stripeFetch<{ id: string; status: string; hosted_invoice_url: string | null }>(
-      `/invoices/${inv.data.id}/finalize`,
-      { auto_advance: true },
-    );
+    const fin = await stripeFetch<{
+      id: string;
+      status: string;
+      hosted_invoice_url: string | null;
+      invoice_pdf: string | null;
+    }>(`/invoices/${inv.data.id}/finalize`, { auto_advance: true });
     if (!fin.ok) return { ok: false as const, error: fin.error };
 
     const localId = uid();
     await db()
       .prepare(
-        `INSERT INTO invoices (id, company_id, deal_id, stripe_invoice_id, description, amount, status, hosted_url, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO invoices (id, company_id, deal_id, stripe_invoice_id, description, amount, status, hosted_url, pdf_url, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         localId,
@@ -5163,6 +5168,7 @@ export const createStripeInvoice = createServerFn({ method: "POST" })
         data.amount,
         fin.data.status || "open",
         fin.data.hosted_invoice_url ?? null,
+        fin.data.invoice_pdf ?? null,
         user.id,
       )
       .run();
@@ -5186,17 +5192,20 @@ export const refreshInvoiceStatus = createServerFn({ method: "POST" })
       .bind(data.id)
       .first<{ stripe_invoice_id: string | null }>();
     if (!row?.stripe_invoice_id) return { ok: false as const, error: "No Stripe invoice attached." };
-    const res = await stripeFetch<{ status: string; hosted_invoice_url: string | null }>(
-      `/invoices/${row.stripe_invoice_id}`,
-    );
+    const res = await stripeFetch<{
+      status: string;
+      hosted_invoice_url: string | null;
+      invoice_pdf: string | null;
+    }>(`/invoices/${row.stripe_invoice_id}`);
     if (!res.ok) return { ok: false as const, error: res.error };
     await db()
       .prepare(
         `UPDATE invoices SET status = ?, hosted_url = COALESCE(?, hosted_url),
+           pdf_url = COALESCE(?, pdf_url),
            updated_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
          WHERE id = ?`,
       )
-      .bind(res.data.status || "open", res.data.hosted_invoice_url ?? null, data.id)
+      .bind(res.data.status || "open", res.data.hosted_invoice_url ?? null, res.data.invoice_pdf ?? null, data.id)
       .run();
     return { ok: true as const, status: res.data.status };
   });
