@@ -38,13 +38,16 @@ type Cmd = { id: string; label: string; hint: string; group: "Create" | "Go to" 
 
 const NAV_CMDS: { to: string; label: string; admin?: boolean }[] = [
   { to: "/", label: "Dashboard" },
-  { to: "/pipeline", label: "Pipeline" },
-  { to: "/contacts", label: "Contacts" },
-  { to: "/companies", label: "Companies" },
-  { to: "/activities", label: "Activities" },
-  { to: "/reports", label: "Reports" },
+  { to: "/today", label: "My Day" },
   { to: "/calls", label: "Calls" },
+  { to: "/followups", label: "Outreach" },
+  { to: "/pipeline", label: "Pipeline" },
+  { to: "/companies", label: "Companies" },
+  { to: "/contacts", label: "Contacts" },
+  { to: "/projects", label: "Projects" },
+  { to: "/activities", label: "Activities" },
   { to: "/team", label: "Team", admin: true },
+  { to: "/discover", label: "Discover (lead radar)", admin: true },
 ];
 
 export function CommandPalette({ isAdmin }: { isAdmin: boolean }) {

@@ -512,13 +512,17 @@ function TodayPage() {
         title="Hot leads up for grabs"
         icon="🔥"
         count={hotPool.length}
-        emptyLine="No unclaimed hot leads right now — check Discover to find more."
+        emptyLine="No unclaimed hot leads right now — grab from the pool on Companies."
       >
         {hotPool.map(({ row: c, score, band, reasons }) => {
           const color = OPPORTUNITY_BAND_INFO[band].color;
           return (
             <li key={c.id as string} className="px-4 py-2.5">
-              <Link to="/opportunities" className="flex items-center gap-3 hover:opacity-90">
+              <Link
+                to="/companies/$companyId"
+                params={{ companyId: c.id as string }}
+                className="flex items-center gap-3 hover:opacity-90"
+              >
                 <span
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 text-sm font-bold"
                   style={{ borderColor: color, color }}
@@ -719,8 +723,7 @@ function ArcadeDeck({
           <div>
             <div className="text-sm font-semibold text-bone">Deck cleared — {handled.size} triaged this run</div>
             <div className="text-xs text-mute">
-              Grab more from <Link to="/opportunities" className="text-signal hover:underline">Opportunities</Link> or{" "}
-              <Link to="/discover" className="text-signal hover:underline">Discover</Link>.
+              Grab more from the <Link to="/companies" search={{ focus: undefined, new: undefined }} className="text-signal hover:underline">Companies</Link> pool.
             </div>
           </div>
         </div>

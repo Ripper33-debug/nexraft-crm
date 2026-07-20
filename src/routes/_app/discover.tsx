@@ -1,9 +1,8 @@
-import { createFileRoute, useRouteContext } from "@tanstack/react-router";
+import { createFileRoute, useRouter, useRouteContext } from "@tanstack/react-router";
 
-import { getUsers } from "../../lib/crm/data";
+import { getUsers, getLeadEngineState, setLeadEnginePaused } from "../../lib/crm/data";
 import { toast } from "../../components/crm/toast";
 import { useAutoConfig, useAutoStatus, setConfig } from "../../lib/crm/autodiscover";
-import { LEAD_ENGINE_PAUSED } from "../../lib/crm/constants";
 import { OrbStage } from "../../components/crm/orbstage";
 
 // The Discover page is now a single living scene: the molten LEADS orb in the
@@ -13,30 +12,38 @@ import { OrbStage } from "../../components/crm/orbstage";
 export const Route = createFileRoute("/_app/discover")({
   component: DiscoverPage,
   loader: async () => {
-    const users = await getUsers();
-    return { users };
+    const [users, engine] = await Promise.all([getUsers(), getLeadEngineState()]);
+    return { users, engine };
   },
 });
 
 const DEFAULT_AREA = "Florida, USA";
 
 function DiscoverPage() {
-  const { users } = Route.useLoaderData();
+  const { users, engine } = Route.useLoaderData();
+  const router = useRouter();
   const { user } = useRouteContext({ from: "/_app" }) as { user?: { role?: string } };
   const isAdmin = user?.role === "admin";
   const config = useAutoConfig();
   const st = useAutoStatus();
-  const live = !LEAD_ENGINE_PAUSED && config.on && !st.paused;
+  const on = !engine.paused && config.on;
+  const live = on && !st.paused;
 
-  function toggle() {
+  // One switch does everything: flipping it on lifts the master pause (the
+  // admin-only kill switch stored in the database) AND arms the local radar;
+  // flipping it off pauses the engine for the whole team.
+  async function toggle() {
     if (!isAdmin) return;
-    if (LEAD_ENGINE_PAUSED) {
-      toast("Lead engine is paused for now — the team is working the companies they have.", "info");
+    const next = !on;
+    try {
+      await setLeadEnginePaused({ data: { paused: !next } });
+    } catch {
+      toast("Couldn't reach the server to flip the engine — try again.", "error");
       return;
     }
-    const next = !config.on;
     setConfig({ on: next, area: config.area.trim() || DEFAULT_AREA });
-    toast(next ? "Radar is live — hunting leads." : "Radar powered down.", "info");
+    toast(next ? "Radar is live — hunting leads." : "Radar powered down for the whole team.", "info");
+    void router.invalidate();
   }
 
   return (
@@ -63,7 +70,7 @@ function DiscoverPage() {
               }
             />
             <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.22em] text-bone">
-              {LEAD_ENGINE_PAUSED
+              {engine.paused
                 ? "Lead engine paused — working the book"
                 : st.paused
                 ? "Session cap reached"
@@ -84,11 +91,11 @@ function DiscoverPage() {
         {isAdmin ? (
           <button
             type="button"
-            onClick={toggle}
-            aria-pressed={config.on}
+            onClick={() => void toggle()}
+            aria-pressed={on}
             className={
               "group absolute right-5 top-5 flex items-center gap-3 rounded-full border px-4 py-2 transition-all duration-300 " +
-              (config.on
+              (on
                 ? "border-signal/50 bg-signal-soft shadow-[0_0_24px_rgba(255,77,28,0.25)]"
                 : "border-line-strong bg-surface/80 hover:border-signal/40")
             }
@@ -96,21 +103,21 @@ function DiscoverPage() {
             <span
               className={
                 "font-mono text-[11px] font-bold uppercase tracking-[0.2em] " +
-                (config.on ? "text-signal" : "text-mute group-hover:text-bone")
+                (on ? "text-signal" : "text-mute group-hover:text-bone")
               }
             >
-              {config.on ? "On" : "Off"}
+              {on ? "On" : "Off"}
             </span>
             <span
               className={
                 "relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-300 " +
-                (config.on ? "bg-signal" : "bg-surface-2")
+                (on ? "bg-signal" : "bg-surface-2")
               }
             >
               <span
                 className={
                   "inline-block h-4 w-4 transform rounded-full bg-bone shadow transition-transform duration-300 " +
-                  (config.on ? "translate-x-[18px]" : "translate-x-0.5")
+                  (on ? "translate-x-[18px]" : "translate-x-0.5")
                 }
               />
             </span>

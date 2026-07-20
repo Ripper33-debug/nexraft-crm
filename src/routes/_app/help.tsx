@@ -92,25 +92,14 @@ function HelpPage() {
           </p>
         </Section>
 
-        <Section title="Finding new businesses to pitch (Discover)">
+        <Section title="Claiming leads from the pool">
           <p>
-            <Link to="/discover" className="text-signal hover:underline">Discover</Link> helps you find
-            real local businesses to reach out to — no setup, no cost. It leans toward the ones with{" "}
-            <strong className="text-bone">no website yet</strong>, since those are the easiest to help and
-            the most likely to say yes.
-          </p>
-          <p>
-            When you find a good one, <strong className="text-bone">claim</strong> it — that pulls it into
-            your Companies list as your lead and drops it into your call queue, so it flows straight into
-            the same process as everything else.
-          </p>
-        </Section>
-
-        <Section title="Where to spend your time first (Opportunities)">
-          <p>
-            <Link to="/opportunities" className="text-signal hover:underline">Opportunities</Link> scores
-            every company on how likely it is to close and sorts the hottest to the top, so you're always
-            working the best chances first instead of guessing. Grab the strong ones before a teammate does.
+            Unowned companies are the <strong className="text-bone">open pool</strong>. On the{" "}
+            <Link to="/companies" search={{ focus: undefined, new: undefined }} className="text-signal hover:underline">Companies</Link> list, anything
+            without an owner shows a <strong className="text-bone">Claim</strong> button — hit it and the
+            company (plus its deal) is yours and drops straight into your call queue. The hottest unclaimed
+            ones are also flagged on <Link to="/today" className="text-signal hover:underline">My Day</Link>,
+            so you can grab the best chances before a teammate does.
           </p>
         </Section>
 
@@ -192,10 +181,11 @@ function HelpPage() {
         <Section title="Emailing prospects who don't pick up">
           <p>
             When someone doesn't answer a call, head to{" "}
-            <Link to="/followups" className="text-signal hover:underline">Follow-ups</Link> and send them a
+            <Link to="/followups" className="text-signal hover:underline">Outreach</Link> and send them a
             nudge by email. The CRM writes a friendly, ready-to-send draft for you — a gentle set of
             escalating notes ("sorry we missed you," then a quick idea, then a graceful last check-in) — so
-            you never stare at a blank message.
+            you never stare at a blank message. The same page has a composer at the bottom for any other
+            email — intros, quote heads-ups, launch-day notes — pre-filled from a template.
           </p>
           <p>
             If you connect your Google account under{" "}
@@ -206,11 +196,12 @@ function HelpPage() {
           </p>
         </Section>
 
-        <Section title="Reports (win/loss & exports)">
+        <Section title="Win/loss numbers & exports">
           <p>
-            <Link to="/reports" search={{ range: "all" }} className="text-signal hover:underline">Reports</Link> shows how the team is
-            performing — how many deals are being won versus lost, and by whom. It's also where you can pull
-            a clean export of your data if you ever need it elsewhere.
+            The bottom of the <Link to="/" className="text-signal hover:underline">Dashboard</Link> shows how
+            the team is performing — how many deals are being won versus lost, why the lost ones were lost,
+            and who's closing. It's also where admins can pull a clean export of all the data if you ever
+            need it elsewhere.
           </p>
         </Section>
 

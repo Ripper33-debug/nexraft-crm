@@ -210,6 +210,13 @@ export function ensureExtraSchema(): Promise<void> {
          created_by TEXT,
          created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
        )`,
+      // Tiny key/value store for app-wide switches (e.g. lead_engine_paused),
+      // so admins can flip things from the UI without a code change + redeploy.
+      `CREATE TABLE IF NOT EXISTS app_settings (
+         key TEXT PRIMARY KEY,
+         value TEXT NOT NULL,
+         updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+       )`,
       // Query-path indexes for the columns the app filters on constantly.
       // All IF NOT EXISTS, all safe on existing data (plain b-tree indexes
       // never conflict with live rows the way unique constraints could).

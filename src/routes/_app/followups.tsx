@@ -8,10 +8,24 @@ import {
   recordEmailTouch,
   sendCrmEmail,
   getGmailStatus,
+  getEmailWorkspace,
+  type EmailTargetRow,
+  type SentEmailRow,
 } from "../../lib/crm/data";
-import { Button, Card, EmptyState, Input, PageHeader, Pill, SummaryCard } from "../../components/crm/ui";
+import {
+  Button,
+  Card,
+  EmptyState,
+  Eyebrow,
+  Input,
+  PageHeader,
+  Pill,
+  SummaryCard,
+  Textarea,
+  cx,
+} from "../../components/crm/ui";
 import { toast } from "../../components/crm/toast";
-import { followUpEmail, mailtoLink, NUDGE_LABELS } from "../../lib/crm/emails";
+import { EMAIL_TEMPLATES, followUpEmail, mailtoLink, NUDGE_LABELS } from "../../lib/crm/emails";
 import { relativeTime } from "../../lib/crm/constants";
 
 type Row = Record<string, unknown>;
@@ -43,13 +57,14 @@ function dueInfo(company: Row): { state: "due" | "overdue" | "scheduled"; label:
 
 export const Route = createFileRoute("/_app/followups")({
   loader: async ({ context }) => {
-    const [companies, contacts, gmail] = await Promise.all([
+    const [companies, contacts, gmail, workspace] = await Promise.all([
       getCompanies(),
       getContacts(),
       getGmailStatus().catch(() => ({ configured: false, connected: false, email: null })),
+      getEmailWorkspace(),
     ]);
     const me = (context as { user?: { id: string; role: string; name: string; email: string } }).user ?? null;
-    return { companies, contacts, me, gmail };
+    return { companies, contacts, me, gmail, workspace };
   },
   component: FollowUpsPage,
 });
@@ -222,7 +237,7 @@ function FollowUpCard({
 }
 
 function FollowUpsPage() {
-  const { companies, contacts, me, gmail } = Route.useLoaderData();
+  const { companies, contacts, me, gmail, workspace } = Route.useLoaderData();
   const gmailConnected = !!(gmail as { connected?: boolean }).connected;
   const router = useRouter();
 
@@ -323,8 +338,8 @@ function FollowUpsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Follow-ups"
-        subtitle="Your outbox: every nudge is pre-written and lined up — read it, tweak it, approve it. Or approve the whole due list in one click."
+        title="Outreach"
+        subtitle="Your outbox: every nudge is pre-written and lined up — read it, tweak it, approve it. Need a one-off email instead? The composer is at the bottom."
       />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -391,11 +406,257 @@ function FollowUpsPage() {
         </>
       )}
 
+      <ComposeSection
+        companies={workspace.companies as EmailTargetRow[]}
+        recent={workspace.recent as SentEmailRow[]}
+        gmail={gmail as { configured: boolean; connected: boolean; email: string | null }}
+        repName={me?.name ?? ""}
+        onSent={refresh}
+      />
+
       <p className="text-xs text-faint">
         {gmailConnected
           ? "Nudges send from your own Gmail address, and replies land in your inbox. Each send is logged on the company's timeline."
           : "Right now drafts open in your own email app with everything pre-filled. Connect your Gmail in Settings to send them straight from here."}
       </p>
     </div>
+  );
+}
+
+// The one-off composer (formerly its own Email tab): pick a client and the
+// To field + a ready-to-edit draft fill themselves in. Sends go through the
+// rep's connected Gmail, or open as a pre-filled draft in their mail app.
+function ComposeSection({
+  companies,
+  recent,
+  gmail,
+  repName,
+  onSent,
+}: {
+  companies: EmailTargetRow[];
+  recent: SentEmailRow[];
+  gmail: { configured: boolean; connected: boolean; email: string | null };
+  repName: string;
+  onSent: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [templateId, setTemplateId] = useState("intro");
+  const [to, setTo] = useState("");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const selected = useMemo(
+    () => companies.find((c) => c.id === selectedId) ?? null,
+    [companies, selectedId],
+  );
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return companies;
+    return companies.filter(
+      (c) =>
+        c.name.toLowerCase().includes(needle) ||
+        (c.city ?? "").toLowerCase().includes(needle) ||
+        (c.industry ?? "").toLowerCase().includes(needle) ||
+        (c.contact_email ?? "").toLowerCase().includes(needle),
+    );
+  }, [companies, q]);
+
+  function applyTemplate(id: string, company: EmailTargetRow | null) {
+    const tpl = EMAIL_TEMPLATES.find((t) => t.id === id) ?? EMAIL_TEMPLATES[0];
+    const draft = tpl.build({
+      company: company?.name ?? "your business",
+      firstName: company?.contact_first_name ?? null,
+      repName,
+    });
+    setTemplateId(id);
+    setSubject(draft.subject);
+    setBody(draft.body);
+  }
+
+  function pickCompany(c: EmailTargetRow) {
+    setSelectedId(c.id);
+    setTo(c.contact_email ?? "");
+    // Re-run the current template so the draft speaks to THIS client.
+    const tpl = EMAIL_TEMPLATES.find((t) => t.id === templateId) ?? EMAIL_TEMPLATES[0];
+    const draft = tpl.build({ company: c.name, firstName: c.contact_first_name, repName });
+    setSubject(draft.subject);
+    setBody(draft.body);
+  }
+
+  const canSend = to.trim().includes("@") && subject.trim().length > 0 && body.trim().length > 0;
+
+  async function send() {
+    if (!canSend || sending) return;
+    setSending(true);
+    try {
+      if (gmail.connected) {
+        const res = await sendCrmEmail({
+          data: {
+            to: to.trim(),
+            subject: subject.trim(),
+            body,
+            company_id: selected?.id,
+            contact_id: selected?.contact_id ?? undefined,
+          },
+        });
+        if (!res.ok) {
+          toast(res.error || "Couldn't send the email.", "error");
+          return;
+        }
+        toast(`Sent to ${to.trim()} ✓`, "success");
+        onSent();
+      } else {
+        // No Gmail connected: open a pre-filled draft in their own email app and
+        // still record the touch so the follow-up cadence stays accurate.
+        if (selected) await recordEmailTouch({ data: { company_id: selected.id } }).catch(() => {});
+        window.location.href = mailtoLink(to.trim(), subject.trim(), body);
+        onSent();
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Couldn't send the email.", "error");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <section className="space-y-3 border-t border-line pt-5">
+      <div>
+        <Eyebrow>Write any email</Eyebrow>
+        <p className="mt-1 text-xs text-faint">
+          Pick a client and the email writes itself — their name, your name, all filled in. Tweak it and hit send.
+        </p>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(260px,1fr)_2fr]">
+        {/* Client picker */}
+        <Card className="flex max-h-[520px] flex-col p-3">
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search clients…"
+            aria-label="Search clients"
+          />
+          <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
+            {filtered.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => pickCompany(c)}
+                className={cx(
+                  "w-full rounded-lg border px-3 py-2 text-left transition-colors",
+                  selectedId === c.id
+                    ? "border-signal/50 bg-signal-soft"
+                    : "border-transparent hover:bg-surface-2",
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-sm font-medium text-bone">{c.name}</span>
+                  {c.email_touches > 0 ? (
+                    <Pill tone="neutral">{c.email_touches}× emailed</Pill>
+                  ) : null}
+                </div>
+                <div className="mt-0.5 truncate text-xs text-faint">
+                  {c.contact_email || "No email on file — add one or type it in"}
+                </div>
+              </button>
+            ))}
+            {filtered.length === 0 ? (
+              <p className="px-2 py-4 text-center text-xs text-faint">No clients match.</p>
+            ) : null}
+          </div>
+        </Card>
+
+        {/* Compose */}
+        <Card className="space-y-3 p-4">
+          <div className="flex flex-wrap gap-1.5">
+            {EMAIL_TEMPLATES.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                title={t.hint}
+                onClick={() => applyTemplate(t.id, selected)}
+                className={cx(
+                  "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                  templateId === t.id
+                    ? "border-signal/60 bg-signal-soft text-signal"
+                    : "border-line text-mute hover:border-line-strong hover:text-bone",
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-1">
+            <Eyebrow>To</Eyebrow>
+            <Input
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              placeholder={selected ? "No email on file — type one" : "Pick a client or type an address"}
+              aria-label="Recipient email"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <Eyebrow>Subject</Eyebrow>
+            <Input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Subject"
+              aria-label="Subject"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <Eyebrow>Message</Eyebrow>
+            <Textarea
+              rows={10}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="Pick a client on the left and a template above — the draft fills itself in."
+              aria-label="Email body"
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-faint">
+              {gmail.connected
+                ? `Sends from ${gmail.email ?? "your connected Gmail"}`
+                : "Opens a pre-filled draft in your email app"}
+            </span>
+            <Button disabled={!canSend || sending} onClick={() => void send()}>
+              {sending ? "Sending…" : gmail.connected ? "Send email" : "Open draft"}
+            </Button>
+          </div>
+        </Card>
+      </div>
+
+      {/* Recent sends */}
+      {recent.length > 0 ? (
+        <div className="space-y-2">
+          <Eyebrow>Your recent emails</Eyebrow>
+          <Card className="divide-y divide-line p-0">
+            {recent.map((r) => (
+              <div key={r.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                <div className="min-w-0">
+                  <div className="truncate text-sm text-bone">{r.subject || "(no subject)"}</div>
+                  <div className="truncate text-xs text-faint">
+                    {r.company_name ? `${r.company_name} · ` : ""}
+                    {r.to_email}
+                  </div>
+                </div>
+                <span className="shrink-0 text-xs text-faint" title={r.created_at}>
+                  {relativeTime(r.created_at)}
+                </span>
+              </div>
+            ))}
+          </Card>
+        </div>
+      ) : null}
+    </section>
   );
 }

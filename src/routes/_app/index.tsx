@@ -6,10 +6,13 @@ import {
   getActivityFeed,
   getCompanies,
   getLeaderboard,
+  getAnalytics,
+  getExportBundle,
   type FeedRow,
   type LeaderboardRow,
 } from "../../lib/crm/data";
-import { Card, StageBadge, SummaryCard, Eyebrow, OwnerChip, Pill, Avatar, PageSkeleton } from "../../components/crm/ui";
+import { Button, Card, EmptyState, StageBadge, SummaryCard, Eyebrow, OwnerChip, Pill, Avatar, PageSkeleton } from "../../components/crm/ui";
+import { downloadCsv, stampedName } from "../../lib/crm/csv";
 import { StageBarChart, MonthlyTrendChart } from "../../components/crm/charts";
 import {
   formatMoney,
@@ -23,15 +26,16 @@ import {
 
 export const Route = createFileRoute("/_app/")({
   loader: async () => {
-    const [dash, feed, companies, weekly] = await Promise.all([
+    const [dash, feed, companies, weekly, analytics] = await Promise.all([
       getDashboard(),
       getActivityFeed(),
       getCompanies(),
       getLeaderboard(),
+      getAnalytics({ data: { range: "all" } }),
     ]);
     // NB: `weekly` is the activity race (calls/emails/wins since Monday);
     // dash.leaderboard stays the pipeline-value table further down the page.
-    return { ...dash, feed, companies, weekly };
+    return { ...dash, feed, companies, weekly, analytics };
   },
   component: Dashboard,
   pendingComponent: () => <PageSkeleton cards={4} rows={6} />,
@@ -619,7 +623,221 @@ function Dashboard() {
           ) : null}
         </ul>
       </Card>
+
+      <AnalyticsSection initial={d.analytics} isAdmin={user.role === "admin"} />
     </div>
+  );
+}
+
+// ---- Win/loss analytics (formerly the Reports tab) -------------------------
+// Same data, one less tab: range picker, win/loss KPIs, lost reasons, source
+// conversion, rep performance, and the admin-only full CSV export.
+
+const ANALYTICS_RANGES = [
+  { value: "all", label: "All time" },
+  { value: "year", label: "Last 12 months" },
+  { value: "quarter", label: "This quarter" },
+  { value: "month", label: "This month" },
+] as const;
+
+type AnalyticsRange = (typeof ANALYTICS_RANGES)[number]["value"];
+type AnalyticsData = Awaited<ReturnType<typeof getAnalytics>>;
+
+function AnalyticsSection({ initial, isAdmin }: { initial: AnalyticsData; isAdmin: boolean }) {
+  const [range, setRange] = useState<AnalyticsRange>("all");
+  const [a, setA] = useState<AnalyticsData>(initial);
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  async function pickRange(next: AnalyticsRange) {
+    if (next === range || loading) return;
+    setRange(next);
+    setLoading(true);
+    try {
+      setA(await getAnalytics({ data: { range: next } }));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function exportAll() {
+    setExporting(true);
+    try {
+      const bundle = await getExportBundle();
+      // One CSV per object; staggered so browsers don't drop concurrent downloads.
+      const files: [string, Record<string, string>[]][] = [
+        ["nexraft_companies", bundle.companies],
+        ["nexraft_contacts", bundle.contacts],
+        ["nexraft_deals", bundle.deals],
+        ["nexraft_activities", bundle.activities],
+      ];
+      files.forEach(([name, rows], i) => {
+        if (rows.length === 0) return;
+        setTimeout(() => downloadCsv(stampedName(name), rows), i * 350);
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const rangeSub = ANALYTICS_RANGES.find((r) => r.value === range)?.label ?? "All time";
+  const maxLost = Math.max(1, ...a.lost_reasons.map((r) => r.n));
+
+  return (
+    <section className="mt-8 border-t border-line pt-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <Eyebrow>Win / loss report</Eyebrow>
+          <p className="mt-1 text-xs text-faint">How deals are actually closing — and why the lost ones were lost.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-lg border border-line bg-surface p-0.5" role="group" aria-label="Time range">
+            {ANALYTICS_RANGES.map((r) => (
+              <button
+                key={r.value}
+                onClick={() => void pickRange(r.value)}
+                aria-pressed={range === r.value}
+                aria-label={`Show ${r.label}`}
+                className={
+                  "rounded-md px-2.5 py-1 text-xs font-medium transition-colors " +
+                  (range === r.value ? "bg-signal-soft text-signal" : "text-mute hover:text-bone")
+                }
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+          {isAdmin ? (
+            <Button variant="outline" onClick={() => void exportAll()} disabled={exporting}>
+              {exporting ? "Preparing…" : "Export all (CSV)"}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className={loading ? "opacity-60 transition-opacity" : "transition-opacity"}>
+        {/* Win/loss KPIs */}
+        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <SummaryCard
+            label="Win rate"
+            value={a.win_rate === null ? "—" : `${a.win_rate}%`}
+            sub={`${a.won_count} won · ${a.lost_count} lost`}
+            accent
+          />
+          <SummaryCard label="Won revenue" value={formatMoney(a.won_value)} sub={rangeSub} />
+          <SummaryCard label="Avg deal size" value={formatMoney(a.avg_won_value)} sub="Won deals" />
+          <SummaryCard
+            label="Avg sales cycle"
+            value={a.avg_cycle_days === null ? "—" : `${a.avg_cycle_days}d`}
+            sub="Created → won"
+          />
+        </div>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          {/* Lost reasons */}
+          <Card className="p-4">
+            <Eyebrow className="mb-3">Why deals are lost</Eyebrow>
+            {a.lost_reasons.length === 0 ? (
+              <p className="py-6 text-center text-sm text-faint">No lost deals recorded yet.</p>
+            ) : (
+              <ul className="space-y-2.5">
+                {a.lost_reasons.map((r) => (
+                  <li key={r.reason}>
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="text-mute">{r.reason}</span>
+                      <span className="font-mono text-faint">
+                        {r.n} · {formatMoney(r.value)}
+                      </span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-surface-2">
+                      <div
+                        className="h-full rounded-full bg-red-500/70"
+                        style={{ width: `${Math.round((r.n / maxLost) * 100)}%` }}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          {/* Source conversion */}
+          <Card className="p-4">
+            <Eyebrow className="mb-3">Where your wins come from</Eyebrow>
+            {a.sources.length === 0 ? (
+              <p className="py-6 text-center text-sm text-faint">No decided deals yet.</p>
+            ) : (
+              <ul className="space-y-2.5">
+                {a.sources.map((s) => (
+                  <li key={s.source}>
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="text-mute">{s.source}</span>
+                      <span className="font-mono text-faint">
+                        {s.win_rate === null ? "—" : `${s.win_rate}% win`} · {s.won}/{s.won + s.lost} · {formatMoney(s.won_value)}
+                      </span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-surface-2">
+                      <div
+                        className="h-full rounded-full bg-signal/70"
+                        style={{ width: `${s.win_rate ?? 0}%` }}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
+
+        {/* Per-rep performance */}
+        <Card className="mt-4 overflow-hidden">
+          <div className="border-b border-line px-4 py-3">
+            <Eyebrow>Rep performance</Eyebrow>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-wider text-faint">
+                  <th className="px-4 py-2 font-medium">Team member</th>
+                  <th className="px-4 py-2 font-medium">Won</th>
+                  <th className="px-4 py-2 font-medium">Lost</th>
+                  <th className="px-4 py-2 font-medium">Win rate</th>
+                  <th className="px-4 py-2 font-medium">Won value</th>
+                  <th className="px-4 py-2 font-medium">Avg deal</th>
+                  <th className="px-4 py-2 font-medium">Avg cycle</th>
+                </tr>
+              </thead>
+              <tbody>
+                {a.reps.map((r) => (
+                  <tr key={r.id} className="border-b border-line/60 last:border-0 hover:bg-surface-2/60">
+                    <td className="px-4 py-2.5">
+                      <OwnerChip name={r.name} />
+                    </td>
+                    <td className="px-4 py-2.5 text-mute">{r.won_count}</td>
+                    <td className="px-4 py-2.5 text-mute">{r.lost_count}</td>
+                    <td className="px-4 py-2.5 text-bone">{r.win_rate === null ? "—" : `${r.win_rate}%`}</td>
+                    <td className="px-4 py-2.5 text-mute">{formatMoney(r.won_value)}</td>
+                    <td className="px-4 py-2.5 text-mute">{r.avg_deal ? formatMoney(r.avg_deal) : "—"}</td>
+                    <td className="px-4 py-2.5 text-mute">{r.avg_cycle_days === null ? "—" : `${r.avg_cycle_days}d`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {a.reps.length === 0 ? (
+            <div className="p-4">
+              <EmptyState title="No reps yet" hint="Performance shows once deals are won or lost." />
+            </div>
+          ) : null}
+        </Card>
+
+        {isAdmin ? (
+          <p className="mt-3 text-xs text-faint">
+            Export downloads clean, denormalized CSVs — companies, contacts, deals and activities — ready for Excel.
+          </p>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

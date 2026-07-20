@@ -232,18 +232,20 @@ const companySchema = z.object({
 });
 
 export const getCompanies = createServerFn({ method: "GET" }).handler(async () => {
-  await requireUser();
+  const me = await requireUser();
   await ensureExtraSchema();
-  const { results } = await db()
-    .prepare(
-      `SELECT c.*, u.name AS owner_name,
+  // Reps see their own book plus the unowned pool (so they can claim from it);
+  // admins see the whole team's companies.
+  const scope = me.role === "admin" ? "" : "AND (c.owner_id = ? OR c.owner_id IS NULL)";
+  const stmt = db().prepare(
+    `SELECT c.*, u.name AS owner_name,
         (SELECT COUNT(*)::int FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL) AS deal_count,
         (SELECT COUNT(*)::int FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL AND d.stage = '${WON_STAGE}') AS won_deals
        FROM companies c LEFT JOIN users u ON u.id = c.owner_id
-       WHERE c.archived_at IS NULL
+       WHERE c.archived_at IS NULL ${scope}
        ORDER BY c.name`,
-    )
-    .all<CompanyRow>();
+  );
+  const { results } = await (scope ? stmt.bind(me.id) : stmt).all<CompanyRow>();
   return results ?? [];
 });
 
@@ -402,9 +404,13 @@ const contactSchema = z.object({
 });
 
 export const getContacts = createServerFn({ method: "GET" }).handler(async () => {
-  await requireUser();
+  const me = await requireUser();
   await ensureExtraSchema();
-  const { results } = await db()
+  // Reps see contacts they own, contacts at companies they own, and the
+  // unowned pool; admins see everyone's.
+  const scope =
+    me.role === "admin" ? "" : "AND (ct.owner_id = ? OR co.owner_id = ? OR (ct.owner_id IS NULL AND co.owner_id IS NULL))";
+  const stmt = db()
     .prepare(
       `SELECT ct.*, co.name AS company_name, u.name AS owner_name,
         co.owner_id AS company_owner_id, cu.name AS company_owner_name,
@@ -417,10 +423,10 @@ export const getContacts = createServerFn({ method: "GET" }).handler(async () =>
        LEFT JOIN companies co ON co.id = ct.company_id
        LEFT JOIN users u ON u.id = ct.owner_id
        LEFT JOIN users cu ON cu.id = co.owner_id
-       WHERE ct.archived_at IS NULL
+       WHERE ct.archived_at IS NULL ${scope}
        ORDER BY ct.first_name, ct.last_name`,
-    )
-    .all<ContactRow>();
+    );
+  const { results } = await (scope ? stmt.bind(me.id, me.id) : stmt).all<ContactRow>();
   return results ?? [];
 });
 
@@ -538,20 +544,23 @@ const dealSchema = z.object({
 });
 
 export const getDeals = createServerFn({ method: "GET" }).handler(async () => {
-  await requireUser();
+  const me = await requireUser();
   await ensureExtraSchema();
-  const { results } = await db()
-    .prepare(
-      `SELECT d.*, co.name AS company_name, u.name AS owner_name,
+  // Reps see their own deals plus unowned deals at companies they own or that
+  // sit in the pool; admins see the whole pipeline.
+  const scope =
+    me.role === "admin" ? "" : "AND (d.owner_id = ? OR (d.owner_id IS NULL AND (co.owner_id = ? OR co.owner_id IS NULL)))";
+  const stmt = db().prepare(
+    `SELECT d.*, co.name AS company_name, u.name AS owner_name,
         ct.first_name AS contact_first, ct.last_name AS contact_last
        FROM deals d
        LEFT JOIN companies co ON co.id = d.company_id
        LEFT JOIN users u ON u.id = d.owner_id
        LEFT JOIN contacts ct ON ct.id = d.contact_id
-       WHERE d.archived_at IS NULL
+       WHERE d.archived_at IS NULL ${scope}
        ORDER BY d.updated_at DESC`,
-    )
-    .all<DealRow>();
+  );
+  const { results } = await (scope ? stmt.bind(me.id, me.id) : stmt).all<DealRow>();
   return results ?? [];
 });
 
@@ -611,6 +620,7 @@ export const upsertDeal = createServerFn({ method: "POST" })
         // Won → spin up the onboarding project right away so nobody drops the
         // new client between "signed" and someone opening the Projects board.
         if (data.stage === WON_STAGE) await syncWonDealProjects();
+        if (data.stage === LOST_STAGE) await syncCompanyOnDealLost(data.company_id ?? null);
       }
       return { id: data.id };
     }
@@ -682,6 +692,35 @@ async function logStageChange(
   });
 }
 
+// When a deal is lost, close out its company too — otherwise the company still
+// looks callable and a rep can re-dial someone who already said no. Skips
+// signed companies (never downgrade a win) and companies that still have
+// another live deal in play. Best-effort: losing the deal always succeeds
+// even if this sync hits a snag.
+async function syncCompanyOnDealLost(companyId: string | null): Promise<void> {
+  if (!companyId) return;
+  try {
+    const company = await db()
+      .prepare("SELECT call_outcome FROM companies WHERE id = ? AND archived_at IS NULL")
+      .bind(companyId)
+      .first<{ call_outcome: string | null }>();
+    if (!company || company.call_outcome === "signed") return;
+    const open = await db()
+      .prepare(
+        `SELECT COUNT(*)::int AS n FROM deals WHERE company_id = ? AND archived_at IS NULL AND stage != '${LOST_STAGE}'`,
+      )
+      .bind(companyId)
+      .first<{ n: number }>();
+    if ((open?.n ?? 0) > 0) return;
+    await db()
+      .prepare("UPDATE companies SET call_outcome = 'not_interested' WHERE id = ?")
+      .bind(companyId)
+      .run();
+  } catch {
+    // swallow — the deal update is the important part
+  }
+}
+
 export const setDealStage = createServerFn({ method: "POST" })
   .validator(
     z.object({
@@ -698,9 +737,9 @@ export const setDealStage = createServerFn({ method: "POST" })
     await assertCanEdit(user, "deals", data.id);
     const now = new Date().toISOString();
     const prev = await db()
-      .prepare("SELECT name, stage FROM deals WHERE id = ?")
+      .prepare("SELECT name, stage, company_id FROM deals WHERE id = ?")
       .bind(data.id)
-      .first<{ name: string; stage: string }>();
+      .first<{ name: string; stage: string; company_id: string | null }>();
     // Clear any stale lost reason when moving out of Lost.
     await db()
       .prepare(
@@ -714,6 +753,7 @@ export const setDealStage = createServerFn({ method: "POST" })
     if (prev && prev.stage !== data.stage) {
       await logStageChange(user, data.id, prev.name, prev.stage, data.stage);
       if (data.stage === WON_STAGE) await syncWonDealProjects();
+      if (data.stage === LOST_STAGE) await syncCompanyOnDealLost(prev.company_id);
     }
     return { ok: true };
   });
@@ -817,6 +857,50 @@ export const transferOwnership = createServerFn({ method: "POST" })
       });
     }
     return { ok: true };
+  });
+
+// ---- App-wide switches ------------------------------------------------------
+// The lead engine used to be paused by a hardcoded constant (a code change and
+// redeploy just to flip it). Now it's a DB switch an admin flips right on the
+// Discover page; the constant is only the default before it's ever been set.
+async function readLeadEnginePaused(): Promise<boolean> {
+  try {
+    const row = await db()
+      .prepare("SELECT value FROM app_settings WHERE key = 'lead_engine_paused'")
+      .first<{ value: string }>();
+    if (!row) return LEAD_ENGINE_PAUSED;
+    return row.value === "true";
+  } catch {
+    return LEAD_ENGINE_PAUSED;
+  }
+}
+
+export const getLeadEngineState = createServerFn({ method: "GET" }).handler(async () => {
+  await requireUser();
+  await ensureExtraSchema();
+  return { paused: await readLeadEnginePaused() };
+});
+
+export const setLeadEnginePaused = createServerFn({ method: "POST" })
+  .validator(z.object({ paused: z.boolean() }))
+  .handler(async ({ data }) => {
+    const me = await requireAdmin();
+    await ensureExtraSchema();
+    await db()
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES ('lead_engine_paused', ?)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value,
+           updated_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+      )
+      .bind(data.paused ? "true" : "false")
+      .run();
+    await logEvent({
+      actorId: me.id,
+      verb: data.paused ? "paused" : "resumed",
+      entityType: "lead_engine",
+      summary: `${me.name} ${data.paused ? "paused" : "resumed"} the lead engine`,
+    });
+    return { ok: true as const, paused: data.paused };
   });
 
 // Open-pool claim: a rep grabs an unowned opportunity off the Opportunities
@@ -1869,18 +1953,20 @@ const activitySchema = z.object({
 });
 
 export const getActivities = createServerFn({ method: "GET" }).handler(async () => {
-  await requireUser();
-  const { results } = await db()
-    .prepare(
-      `SELECT a.*, d.name AS deal_name, u.name AS owner_name,
+  const me = await requireUser();
+  // Reps see their own activities (plus any unowned ones); admins see all.
+  const scope = me.role === "admin" ? "" : "WHERE (a.owner_id = ? OR a.owner_id IS NULL)";
+  const stmt = db().prepare(
+    `SELECT a.*, d.name AS deal_name, u.name AS owner_name,
         ct.first_name AS contact_first, ct.last_name AS contact_last
        FROM activities a
        LEFT JOIN deals d ON d.id = a.deal_id
        LEFT JOIN users u ON u.id = a.owner_id
        LEFT JOIN contacts ct ON ct.id = a.contact_id
+       ${scope}
        ORDER BY (a.status='open') DESC, COALESCE(a.due_date, a.created_at) ASC`,
-    )
-    .all<ActivityRow>();
+  );
+  const { results } = await (scope ? stmt.bind(me.id) : stmt).all<ActivityRow>();
   return results ?? [];
 });
 
@@ -5119,7 +5205,7 @@ export const runDueSweeps = createServerOnlyFn(
     }
     // Master pause: housekeeping and research above still ran, but no new
     // companies get imported while the lead engine is switched off.
-    if (LEAD_ENGINE_PAUSED) return { ran: 0, imported: 0, nudged, recycled };
+    if (await readLeadEnginePaused()) return { ran: 0, imported: 0, nudged, recycled };
     const sweeps = (await loadSweeps()).filter((s) => s.enabled);
     const cutoff = Date.now() - 20 * 3600_000;
     const due = sweeps

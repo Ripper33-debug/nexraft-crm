@@ -10,6 +10,7 @@ import {
   restoreCompany,
   importCompanies,
   verifyCompanyWebsites,
+  claimCompany,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, PageSkeleton } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
@@ -344,7 +345,31 @@ function CompaniesPage() {
                     <td className="px-4 py-2.5 text-mute">{(c.industry as string) || "—"}</td>
                     <td className="px-4 py-2.5 text-mute">{(c.city as string) || "—"}</td>
                     <td className="px-4 py-2.5 text-mute">{Number(c.deal_count) || 0}</td>
-                    <td className="px-4 py-2.5"><OwnerChip name={c.owner_name as string} /></td>
+                    <td className="px-4 py-2.5">
+                      {!c.owner_id ? (
+                        <button
+                          onClick={async () => {
+                            try {
+                              const res = await claimCompany({ data: { company_id: c.id as string } });
+                              if (res.ok) {
+                                toast(`${(c.name as string) || "Company"} is yours — it's in your book now.`, "success");
+                                void router.invalidate();
+                              } else {
+                                toast(res.error || "Couldn't claim it.", "error");
+                              }
+                            } catch {
+                              toast("Couldn't claim it — try again.", "error");
+                            }
+                          }}
+                          className="rounded-full border border-signal/40 bg-signal-soft px-2.5 py-1 text-[11px] font-medium text-signal transition-colors hover:border-signal"
+                          title="Unowned — claim it and it goes straight into your book"
+                        >
+                          Claim
+                        </button>
+                      ) : (
+                        <OwnerChip name={c.owner_name as string} />
+                      )}
+                    </td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center justify-end gap-3">
                         <button

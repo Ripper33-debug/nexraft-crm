@@ -17,9 +17,9 @@ import {
   discoverLeads,
   importDiscoveredLead,
   getConversionInsights,
+  getLeadEngineState,
   type DiscoveredLead,
 } from "./data";
-import { LEAD_ENGINE_PAUSED } from "./constants";
 
 export type AutoDiscoverConfig = { on: boolean; area: string };
 export type AutoDiscoverStatus = {
@@ -249,9 +249,11 @@ export async function runAutoDiscovery(
   isCancelled: () => boolean,
   onImported: () => void,
 ) {
-  // Master pause: the team has enough companies for now, so the radar never
-  // starts a session regardless of the on/off switch state.
-  if (LEAD_ENGINE_PAUSED) {
+  // Master pause: an admin can switch the whole engine off from Discover, so
+  // the radar never starts a session while that kill switch is on. If the
+  // check itself fails, err on the side of staying quiet.
+  const engine = await getLeadEngineState().catch(() => ({ paused: true }));
+  if (engine.paused) {
     patchStatus({ ...DEFAULT_STATUS, running: false, paused: true });
     return;
   }
