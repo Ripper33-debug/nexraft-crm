@@ -939,3 +939,203 @@ export function groupDuplicates<T extends DupeRecord>(
   groups.sort((a, b) => b.length - a.length);
   return groups;
 }
+
+// ---------- Company research (deep-dive intel extraction) ----------
+// Pure functions: given already-fetched HTML pages, distill a call-ready
+// dossier — what the business does, who runs it, how to reach them, and what
+// to pitch. Kept network-free so it's unit-testable; the crawling lives in
+// data.ts next to the other fetch helpers.
+
+export type CompanyIntel = {
+  summary: string | null; // plain-English "what they do" line
+  services: string[]; // offerings pulled from nav / headings
+  established: number | null; // "since 1998" style year
+  serviceArea: string | null; // "serving Greater Austin" phrase
+  people: string[]; // owner / founder names when stated
+  emails: string[];
+  phones: string[];
+  socials: string[]; // profile URLs, one per platform
+  angles: string[]; // pitchable defects + gaps for the call
+  pagesCrawled: number;
+};
+
+// Nav labels that are navigation chrome, not services.
+const NON_SERVICE_LINKS = [
+  "home", "about", "about us", "contact", "contact us", "blog", "news",
+  "gallery", "portfolio", "reviews", "testimonials", "faq", "faqs", "careers",
+  "jobs", "privacy", "privacy policy", "terms", "sitemap", "login", "log in",
+  "sign in", "search", "menu", "our team", "team", "locations", "shop", "cart",
+];
+
+function stripTags(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&#0?39;|&rsquo;|&apos;/g, "'")
+    .replace(/&quot;|&ldquo;|&rdquo;/g, '"')
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&#0?39;|&rsquo;|&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&nbsp;/g, " ")
+    .trim();
+}
+
+const SOCIAL_HOSTS: [RegExp, string][] = [
+  [/facebook\.com\/(?!sharer|share|plugins)[A-Za-z0-9_.\-/%]{2,}/i, "facebook"],
+  [/instagram\.com\/[A-Za-z0-9_.\-/%]{2,}/i, "instagram"],
+  [/linkedin\.com\/(?:company|in)\/[A-Za-z0-9_.\-/%]{2,}/i, "linkedin"],
+  [/(?:twitter|x)\.com\/(?!intent|share)[A-Za-z0-9_/%]{2,}/i, "x"],
+  [/youtube\.com\/(?:@|channel\/|c\/|user\/)[A-Za-z0-9_.\-/%]{2,}/i, "youtube"],
+  [/tiktok\.com\/@[A-Za-z0-9_.\-/%]{2,}/i, "tiktok"],
+];
+
+export function extractCompanyIntel(
+  pages: { url: string; html: string }[],
+  opts?: { https?: boolean },
+): CompanyIntel {
+  const capped = pages.map((p) => ({ url: p.url, html: (p.html ?? "").slice(0, 200_000) }));
+  const all = capped.map((p) => p.html).join("\n");
+  const home = capped[0]?.html ?? "";
+
+  // Summary: meta description beats og:description beats first meaty paragraph.
+  let summary: string | null = null;
+  const meta =
+    all.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']{40,300})["']/i) ??
+    all.match(/<meta[^>]+content=["']([^"']{40,300})["'][^>]+name=["']description["']/i) ??
+    all.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']{40,300})["']/i);
+  if (meta) {
+    summary = decodeEntities(meta[1]);
+  } else {
+    for (const p of capped) {
+      const paras = [...p.html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)].map((m) => stripTags(m[1]));
+      const meaty = paras.find((t) => t.length >= 80 && t.length <= 400 && !/cookie|javascript/i.test(t));
+      if (meaty) { summary = meaty; break; }
+    }
+  }
+
+  // Services: nav/menu link labels plus h2/h3 headings, minus chrome words.
+  const labels = new Set<string>();
+  const anchorTexts = [...all.matchAll(/<a[^>]*>([\s\S]*?)<\/a>/gi)].map((m) => stripTags(m[1]));
+  const headingTexts = [...all.matchAll(/<h[23][^>]*>([\s\S]*?)<\/h[23]>/gi)].map((m) => stripTags(m[1]));
+  for (const t of [...anchorTexts, ...headingTexts]) {
+    const clean = t.replace(/\s+/g, " ").trim();
+    if (clean.length < 4 || clean.length > 42) continue;
+    if (NON_SERVICE_LINKS.includes(clean.toLowerCase())) continue;
+    if (/\d{3}/.test(clean)) continue; // phone-ish / address-ish
+    if (!/^[A-Za-z][A-Za-z0-9&' \-/]+$/.test(clean)) continue;
+    // Keep only labels that read like offerings.
+    if (
+      /(repair|install|service|cleaning|removal|design|remodel|landscap|roofing|plumbing|electric|hvac|heating|cooling|inspection|maintenance|grooming|catering|treatment|therapy|coaching|training|photography|marketing|towing|painting|flooring|fencing|welding|moving|storage|detailing|restoration|excavat|paving|septic|window|gutter|siding|masonry|concrete|drywall|insulation|pressure wash|junk|handyman|lawn|tree|pest|pool|spa|salon|barber|massage|nail|tattoo|dental|chiropract|veterinar|auto|tire|brake|oil change|locksmith|security|solar|garage door|appliance|computer|it support|web|seo|bookkeep|tax|legal|insurance|real estate|property)/i.test(clean)
+    ) {
+      labels.add(clean);
+    }
+    if (labels.size >= 8) break;
+  }
+
+  const text = stripTags(all);
+
+  // Established year: earliest credible "since/established" year.
+  const estYears = [...text.matchAll(/(?:since|established(?:\s+in)?|est\.?|founded(?:\s+in)?|serving[^.]{0,60}since)\s+((?:19|20)\d{2})/gi)]
+    .map((m) => parseInt(m[1], 10))
+    .filter((y) => y >= 1900 && y <= new Date().getFullYear());
+  const established = estYears.length ? Math.min(...estYears) : null;
+
+  // Service area: "serving X" / "proudly serving X".
+  let serviceArea: string | null = null;
+  const area = text.match(/(?:proudly\s+)?serving\s+(?:the\s+)?([A-Z][A-Za-z ,'&-]{3,60}?)(?:\s+(?:area|region|since|and surrounding|for)\b|[.!])/);
+  if (area) serviceArea = area[1].replace(/\s+/g, " ").trim();
+
+  // People: only names the site explicitly ties to ownership.
+  const people = [...new Set(
+    [...text.matchAll(/(?:[Oo]wner|[Ff]ounder|[Ff]ounded [Bb]y|[Oo]wned(?:\s+and\s+operated)?\s+[Bb]y|[Oo]wner[-\s][Oo]perator)[,:\s]+([A-Z][a-z]{2,15}\s[A-Z][a-z]{2,20})/g)]
+      .map((m) => m[1]),
+  )].slice(0, 2);
+
+  // Contacts: every plausible email (junk-filtered) + every tel: link.
+  const emails = [...new Set(
+    (all.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [])
+      .map((e) => e.toLowerCase())
+      .filter((l) => l.length <= 60 && !/\.(png|jpe?g|gif|webp|svg|css|js|woff2?)$/.test(l) && !EMAIL_JUNK.some((j) => l.includes(j))),
+  )].slice(0, 3);
+  const phones = [...new Set(
+    [...all.matchAll(/href=["']tel:([+0-9()\-.\s]{7,20})["']/gi)].map((m) => m[1].trim()),
+  )].slice(0, 3);
+
+  // Socials: one profile URL per platform.
+  const socials: string[] = [];
+  const seenPlatforms = new Set<string>();
+  for (const href of [...all.matchAll(/href=["'](https?:\/\/[^"']+)["']/gi)].map((m) => m[1])) {
+    for (const [re, platform] of SOCIAL_HOSTS) {
+      if (seenPlatforms.has(platform)) continue;
+      if (re.test(href)) {
+        seenPlatforms.add(platform);
+        socials.push(href.split("?")[0]);
+      }
+    }
+  }
+
+  // Pitch angles: homepage defects + gaps a web agency can sell against.
+  const angles = [...analyzeSiteHtml(home, opts).issues];
+  const lowerAll = all.toLowerCase();
+  if (!/calendly|acuity|booksy|square\s*appointments|setmore|book\s*(?:now|online|an?\s+appointment)|schedule\s*(?:now|online)/i.test(all)) {
+    angles.push("No online booking — customers can't schedule without calling");
+  }
+  if (!/testimonial|review|"ratingvalue"|stars?\s+on\s+google/i.test(lowerAll)) {
+    angles.push("No testimonials or reviews shown — missing easy trust signals");
+  }
+  if (!/<form[\s>]/i.test(all)) {
+    angles.push("No contact form — the only way in is phone or email");
+  }
+
+  return {
+    summary,
+    services: [...labels],
+    established,
+    serviceArea,
+    people,
+    emails,
+    phones,
+    socials,
+    angles,
+    pagesCrawled: capped.length,
+  };
+}
+
+// Pick the internal pages worth a second fetch: about / services / contact.
+export function pickResearchLinks(homeHtml: string, baseUrl: string, max = 3): string[] {
+  let base: URL;
+  try {
+    base = new URL(baseUrl);
+  } catch {
+    return [];
+  }
+  const wanted = /about|service|contact|team|our[-_]story|company|meet/i;
+  const out: string[] = [];
+  const seen = new Set<string>([base.href.replace(/\/$/, "")]);
+  for (const m of (homeHtml ?? "").slice(0, 200_000).matchAll(/<a[^>]+href=["']([^"'#]+)["']/gi)) {
+    let u: URL;
+    try {
+      u = new URL(m[1], base);
+    } catch {
+      continue;
+    }
+    if (u.hostname !== base.hostname) continue;
+    if (!wanted.test(u.pathname)) continue;
+    if (/\.(pdf|jpe?g|png|gif|webp|svg|zip|mp4)$/i.test(u.pathname)) continue;
+    const key = (u.origin + u.pathname).replace(/\/$/, "");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(u.href);
+    if (out.length >= max) break;
+  }
+  return out;
+}

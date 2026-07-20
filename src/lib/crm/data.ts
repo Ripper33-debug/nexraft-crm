@@ -25,6 +25,9 @@ import {
   analyzeSiteHtml,
   parseSocials,
   industryMatchesAny,
+  extractCompanyIntel,
+  pickResearchLinks,
+  type CompanyIntel,
 } from "./constants";
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
@@ -3751,6 +3754,208 @@ async function auditWebsitesBatch(urls: string[], deadlineMs: number): Promise<M
   return out;
 }
 
+// ---------- Company research (level 3: the full dossier) ----------
+// Where auditWebsite() reads the homepage, researchCompanyCore() reads the
+// SITE — homepage plus up to three internal pages (about / services /
+// contact) — and distills a call-ready dossier: what they do, services,
+// owner names, every email/phone/social found, pitch angles, and (when the
+// API keys are set) their Google/Yelp rating. Saved as JSON on
+// companies.research and mirrored into a note so it shows in the thread.
+export type ResearchDossier = CompanyIntel & {
+  siteStatus: "live" | "dead" | "none";
+  rating: number | null;
+  reviews: number | null;
+  ratingSource: "google" | "yelp" | null;
+  researched_at: string;
+};
+
+const EMPTY_INTEL: CompanyIntel = {
+  summary: null,
+  services: [],
+  established: null,
+  serviceArea: null,
+  people: [],
+  emails: [],
+  phones: [],
+  socials: [],
+  angles: [],
+  pagesCrawled: 0,
+};
+
+async function researchCompanyCore(company: {
+  id: string;
+  name: string;
+  website: string | null;
+  city: string | null;
+}): Promise<ResearchDossier> {
+  const researched_at = new Date().toISOString();
+  let intel: CompanyIntel = { ...EMPTY_INTEL };
+  let siteStatus: ResearchDossier["siteStatus"] = "none";
+  const url = company.website ? normalizeProbeUrl(company.website) : null;
+  if (url) {
+    const attempt = (u: string) =>
+      fetchWithTimeout(
+        u,
+        { method: "GET", redirect: "follow", headers: { "User-Agent": OSM_UA, Accept: "text/html,*/*" } },
+        5000,
+      );
+    let res: Response | null = null;
+    let https = true;
+    try {
+      res = await attempt(url);
+    } catch {
+      if (url.startsWith("https://")) {
+        try {
+          res = await attempt(url.replace(/^https:\/\//, "http://"));
+          https = false;
+        } catch {
+          res = null;
+        }
+      }
+    }
+    if (!res || res.status === 404 || res.status === 410 || res.status >= 500) {
+      siteStatus = "dead";
+      intel.angles = ["Their website is down or gone — wide open for a rebuild pitch"];
+    } else {
+      siteStatus = "live";
+      let home = "";
+      try {
+        home = (await res.text()).slice(0, 200_000);
+      } catch {
+        /* alive but unreadable — analyze what we have */
+      }
+      const pages: { url: string; html: string }[] = [{ url, html: home }];
+      // Second pass: about / services / contact pages, best-effort with a
+      // hard overall deadline so a slow site can't eat the request budget.
+      const links = pickResearchLinks(home, res.url || url, 3);
+      await Promise.race([
+        Promise.allSettled(
+          links.map(async (href) => {
+            try {
+              const r = await attempt(href);
+              if (r.ok) pages.push({ url: href, html: (await r.text()).slice(0, 200_000) });
+            } catch {
+              /* skip page */
+            }
+          }),
+        ),
+        new Promise((resolve) => setTimeout(resolve, 6000)),
+      ]);
+      intel = extractCompanyIntel(pages, { https });
+    }
+  } else {
+    intel.angles = ["No website at all — the easiest pitch there is"];
+  }
+  // Reputation: Google first, Yelp as the free fallback — same pattern as
+  // discovery scoring. Both are config-gated and best-effort.
+  let rating: number | null = null;
+  let reviews: number | null = null;
+  let ratingSource: ResearchDossier["ratingSource"] = null;
+  const q = `${company.name} ${company.city ?? ""}`.trim();
+  try {
+    if (isPlacesConfigured()) {
+      const r = (await fetchPlaceRatings([q], 4000)).get(q);
+      if (r && (r.rating !== null || r.reviews !== null)) {
+        rating = r.rating;
+        reviews = r.reviews;
+        ratingSource = "google";
+      }
+    }
+    if (ratingSource === null && isYelpConfigured() && company.city) {
+      const r = (
+        await fetchYelpRatings([{ key: company.id, term: company.name, location: company.city }], 4000)
+      ).get(company.id);
+      if (r && (r.rating !== null || r.reviews !== null)) {
+        rating = r.rating;
+        reviews = r.reviews;
+        ratingSource = "yelp";
+      }
+    }
+  } catch {
+    /* reputation is a bonus, never a blocker */
+  }
+  return { ...intel, siteStatus, rating, reviews, ratingSource, researched_at };
+}
+
+// Human-readable digest of the dossier for the notes thread.
+function dossierNoteBody(d: ResearchDossier): string {
+  const lines: string[] = ["🔎 Research findings"];
+  if (d.summary) lines.push(`What they do: ${d.summary}`);
+  if (d.services.length) lines.push(`Services: ${d.services.join(", ")}`);
+  if (d.established) lines.push(`In business since ${d.established}`);
+  if (d.serviceArea) lines.push(`Service area: ${d.serviceArea}`);
+  if (d.people.length) lines.push(`Owner/founder: ${d.people.join(", ")}`);
+  if (d.emails.length) lines.push(`Emails found: ${d.emails.join(", ")}`);
+  if (d.phones.length) lines.push(`Phones found: ${d.phones.join(", ")}`);
+  if (d.socials.length) lines.push(`Socials: ${d.socials.join(" · ")}`);
+  if (d.rating !== null) lines.push(`Reputation: ${d.rating}★ (${d.reviews ?? 0} reviews, ${d.ratingSource})`);
+  if (d.angles.length) lines.push(`Pitch angles: ${d.angles.map((a) => `\n  • ${a}`).join("")}`);
+  if (lines.length === 1) lines.push("Nothing notable found — site had little to go on.");
+  return lines.join("\n");
+}
+
+// Persist a dossier: JSON on the company row, blanks filled (never
+// overwriting anything a rep typed), and a note in the thread.
+async function saveDossier(companyId: string, d: ResearchDossier, authorId: string | null): Promise<void> {
+  await db()
+    .prepare(
+      `UPDATE companies SET
+         research = ?,
+         research_at = ?,
+         phone = COALESCE(NULLIF(phone, ''), ?)
+       WHERE id = ?`,
+    )
+    .bind(JSON.stringify(d), d.researched_at, d.phones[0] ?? null, companyId)
+    .run();
+  await db()
+    .prepare("INSERT INTO notes (id, entity_type, entity_id, author_id, body) VALUES (?, ?, ?, ?, ?)")
+    .bind(uid(), "company", companyId, authorId, dossierNoteBody(d))
+    .run();
+}
+
+export const researchCompany = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string() }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    const company = await db()
+      .prepare("SELECT id, name, website, city FROM companies WHERE id = ?")
+      .bind(data.id)
+      .first<{ id: string; name: string; website: string | null; city: string | null }>();
+    if (!company) throw new Error("Company not found.");
+    const dossier = await researchCompanyCore(company);
+    await saveDossier(company.id, dossier, user.id);
+    return { ok: true as const, dossier };
+  });
+
+// Cron half of "auto on import": every sweep hit enriches a small batch of
+// the NEWEST never-researched companies with a website, so fresh leads have
+// intel waiting by the time a rep opens them. Capped hard — research is
+// multi-fetch work and the cron shares a serverless time budget.
+async function enrichNewLeads(cap = 5): Promise<number> {
+  const { results } = await db()
+    .prepare(
+      `SELECT id, name, website, city FROM companies
+       WHERE research IS NULL AND archived_at IS NULL
+         AND website IS NOT NULL AND website <> ''
+       ORDER BY created_at DESC
+       LIMIT ?`,
+    )
+    .bind(cap)
+    .all<{ id: string; name: string; website: string | null; city: string | null }>();
+  let enriched = 0;
+  for (const c of results ?? []) {
+    try {
+      const dossier = await researchCompanyCore(c);
+      await saveDossier(c.id, dossier, null);
+      enriched++;
+    } catch {
+      /* per-company best effort — a broken site must not stall the batch */
+    }
+  }
+  return enriched;
+}
+
 // On-demand verification for companies already in the CRM. Sweeps up to 12 of
 // the stalest unchecked websites (never checked, or checked > 7 days ago),
 // probes them concurrently, and stamps website_status / website_checked_at.
@@ -4883,6 +5088,13 @@ export const runDueSweeps = createServerOnlyFn(
       recycled = r.recycled;
     } catch {
       /* housekeeping is best-effort */
+    }
+    // Auto-research: give the newest un-researched leads a dossier so reps
+    // open them to ready-made intel. Small cap, best-effort, never blocking.
+    try {
+      await enrichNewLeads(5);
+    } catch {
+      /* research is a bonus, never a blocker */
     }
     const sweeps = (await loadSweeps()).filter((s) => s.enabled);
     const cutoff = Date.now() - 20 * 3600_000;

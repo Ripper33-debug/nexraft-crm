@@ -134,8 +134,11 @@ function buildScript(opts: {
   lastContacted: string | null;
   deals: Row[];
   hasWon: boolean;
+  // Saved research dossier (companies.research) — turns the generic script
+  // into one that name-drops the owner and pitches their actual site gaps.
+  intel: { summary: string | null; established: number | null; people: string[]; angles: string[] } | null;
 }): Section[] {
-  const { kind, companyName, firstName, industry, tags, source, deals, hasWon } = opts;
+  const { kind, companyName, firstName, industry, tags, source, deals, hasWon, intel } = opts;
   const deal = activeDeal(deals);
   const stage = deal ? (deal.stage as string) : null;
   const dn = deal ? dealLabel(deal) : null;
@@ -187,6 +190,22 @@ function buildScript(opts: {
     why.push({ kind: "tip", text: `Cold-ish — earn 30 seconds of curiosity before going further.` });
   }
   sections.push({ heading: "Why you're calling", lines: why });
+
+  // --- Intel from research -------------------------------------------------
+  // Only shown when a dossier exists; specifics beat generic pitching.
+  if (intel && (intel.people.length > 0 || intel.angles.length > 0 || intel.established || intel.summary)) {
+    const know: Line[] = [];
+    if (intel.people.length > 0) {
+      know.push({ kind: "tip", text: `Ask for ${intel.people[0]} by name — their site says they run the place.` });
+    }
+    if (intel.established) {
+      know.push({ kind: "say", text: `I saw you've been at it since ${intel.established} — clearly doing something right.` });
+    }
+    for (const a of intel.angles.slice(0, 3)) {
+      know.push({ kind: "tip", text: `Pitch angle: ${a}` });
+    }
+    sections.push({ heading: "Intel from research", lines: know });
+  }
 
   // --- Discovery questions -------------------------------------------------
   const ask: Line[] = [];
@@ -496,6 +515,28 @@ export function CallMode({
   const hasWon = useMemo(() => relDeals.some((d) => d.stage === "Launched"), [relDeals]);
   const linkDeal = activeDeal(relDeals) ?? relDeals[0] ?? null;
 
+  // Research dossier travels on the company row (companies.research JSON).
+  const intel = useMemo(() => {
+    const raw = !isContact ? (subject?.research as string) : null;
+    if (!raw) return null;
+    try {
+      const d = JSON.parse(raw) as {
+        summary?: string | null;
+        established?: number | null;
+        people?: string[];
+        angles?: string[];
+      };
+      return {
+        summary: d.summary ?? null,
+        established: d.established ?? null,
+        people: Array.isArray(d.people) ? d.people : [],
+        angles: Array.isArray(d.angles) ? d.angles : [],
+      };
+    } catch {
+      return null;
+    }
+  }, [subject, isContact]);
+
   const script = useMemo(
     () =>
       subject
@@ -509,9 +550,10 @@ export function CallMode({
             lastContacted: (subject.last_contacted as string) || null,
             deals: relDeals,
             hasWon,
+            intel,
           })
         : [],
-    [subject, kind, companyName, isContact, tags, relDeals, hasWon],
+    [subject, kind, companyName, isContact, tags, relDeals, hasWon, intel],
   );
 
   const signals = useMemo(

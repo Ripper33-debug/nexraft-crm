@@ -67,6 +67,11 @@ export function ensureExtraSchema(): Promise<void> {
       // a few days out each time a nudge is sent, so the Follow-ups badge counts
       // what's actually actionable today instead of the whole queue.
       `ALTER TABLE companies ADD COLUMN IF NOT EXISTS next_followup_at TEXT`,
+      // Company research dossier: JSON blob produced by the research engine
+      // (brief, services, contacts found, pitch angles, ratings) + when it ran.
+      // NULL = never researched; the nightly cron backfills newest-first.
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS research TEXT`,
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS research_at TEXT`,
       // Proposal tracking on deals: 'none' | 'sent' | 'viewed' | 'signed' (+ sent date).
       `ALTER TABLE deals ADD COLUMN IF NOT EXISTS proposal_status TEXT`,
       `ALTER TABLE deals ADD COLUMN IF NOT EXISTS proposal_sent_at TEXT`,

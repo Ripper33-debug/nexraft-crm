@@ -658,3 +658,114 @@ describe("discoveryScore — expired-domain signal", () => {
     expect(s.reasons.some((r) => r.includes("marketing-minded"))).toBe(true);
   });
 });
+
+// ---------- Company research extraction ----------
+import { extractCompanyIntel, pickResearchLinks } from "./constants";
+
+describe("extractCompanyIntel", () => {
+  const home = `
+    <html><head>
+      <meta name="viewport" content="width=device-width">
+      <meta name="description" content="Riverside Plumbing has provided honest plumbing repair and drain cleaning to families across the valley for over two decades.">
+    </head><body>
+      <nav>
+        <a href="/">Home</a>
+        <a href="/services/drain-cleaning">Drain Cleaning</a>
+        <a href="/services/water-heater-repair">Water Heater Repair</a>
+        <a href="/about">About Us</a>
+        <a href="/contact">Contact</a>
+      </nav>
+      <p>Proudly serving Boise and surrounding areas since 1998.</p>
+      <a href="tel:(208) 555-0134">Call us</a>
+      <a href="mailto:office@riversideplumbing.com">Email</a>
+      <a href="https://www.facebook.com/riversideplumbing">Facebook</a>
+      <a href="https://www.facebook.com/sharer/sharer.php?u=x">Share</a>
+      <form action="/contact"><input></form>
+      <footer>&copy; 2019 Riverside Plumbing</footer>
+    </body></html>`;
+  const about = `
+    <html><body>
+      <h2>Our Story</h2>
+      <p>Riverside Plumbing was founded in 1998. Owner: James Whitfield, a master plumber, leads every job personally and stands behind the work.</p>
+    </body></html>`;
+
+  const intel = extractCompanyIntel(
+    [
+      { url: "https://riversideplumbing.com", html: home },
+      { url: "https://riversideplumbing.com/about", html: about },
+    ],
+    { https: true },
+  );
+
+  it("pulls the meta description as the summary", () => {
+    expect(intel.summary).toContain("honest plumbing repair");
+  });
+
+  it("collects service-like nav labels and skips chrome links", () => {
+    expect(intel.services).toContain("Drain Cleaning");
+    expect(intel.services).toContain("Water Heater Repair");
+    expect(intel.services).not.toContain("About Us");
+    expect(intel.services).not.toContain("Contact");
+  });
+
+  it("finds the established year and service area", () => {
+    expect(intel.established).toBe(1998);
+    expect(intel.serviceArea).toContain("Boise");
+  });
+
+  it("finds the owner when the site names one", () => {
+    expect(intel.people).toContain("James Whitfield");
+  });
+
+  it("harvests email, phone, and one social profile (not share links)", () => {
+    expect(intel.emails).toContain("office@riversideplumbing.com");
+    expect(intel.phones[0]).toBe("(208) 555-0134");
+    expect(intel.socials).toEqual(["https://www.facebook.com/riversideplumbing"]);
+  });
+
+  it("turns site gaps into pitch angles (stale copyright, no booking) but not ones that don't apply", () => {
+    expect(intel.angles.some((a) => a.includes("2019"))).toBe(true);
+    expect(intel.angles.some((a) => a.includes("No online booking"))).toBe(true);
+    // The page HAS a contact form, so that angle must not fire.
+    expect(intel.angles.some((a) => a.includes("No contact form"))).toBe(false);
+  });
+
+  it("handles an empty page without inventing facts", () => {
+    const empty = extractCompanyIntel([{ url: "https://x.com", html: "<html></html>" }]);
+    expect(empty.summary).toBeNull();
+    expect(empty.services).toEqual([]);
+    expect(empty.established).toBeNull();
+    expect(empty.people).toEqual([]);
+    expect(empty.emails).toEqual([]);
+  });
+});
+
+describe("pickResearchLinks", () => {
+  const html = `
+    <a href="/about">About</a>
+    <a href="/services">Services</a>
+    <a href="/contact">Contact</a>
+    <a href="/blog">Blog</a>
+    <a href="https://other-site.com/about">External about</a>
+    <a href="/about">About again</a>
+    <a href="/brochure.pdf">Brochure</a>`;
+
+  it("keeps only same-host about/services/contact style pages, deduped and capped", () => {
+    const links = pickResearchLinks(html, "https://riversideplumbing.com", 3);
+    expect(links).toEqual([
+      "https://riversideplumbing.com/about",
+      "https://riversideplumbing.com/services",
+      "https://riversideplumbing.com/contact",
+    ]);
+  });
+
+  it("never follows external hosts or file downloads", () => {
+    const links = pickResearchLinks(html, "https://riversideplumbing.com", 10);
+    expect(links.some((l) => l.includes("other-site.com"))).toBe(false);
+    expect(links.some((l) => l.endsWith(".pdf"))).toBe(false);
+  });
+
+  it("returns nothing for an unusable base URL", () => {
+    expect(pickResearchLinks(html, "not a url")).toEqual([]);
+  });
+});
