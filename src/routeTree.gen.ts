@@ -41,8 +41,8 @@ import { Route as ApiAuthSignupRouteImport } from './routes/api/auth/signup'
 import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
 import { Route as AppDealsDealIdRouteImport } from './routes/_app/deals.$dealId'
-import { Route as AppContactsContactIdRouteImport } from './routes/_app/contacts.$contactId'
-import { Route as AppCompaniesCompanyIdRouteImport } from './routes/_app/companies.$companyId'
+import { Route as AppContactsContactIdRouteImport } from './routes/_app/contacts_.$contactId'
+import { Route as AppCompaniesCompanyIdRouteImport } from './routes/_app/companies_.$companyId'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -204,14 +204,14 @@ const AppDealsDealIdRoute = AppDealsDealIdRouteImport.update({
   getParentRoute: () => AppRoute,
 } as any)
 const AppContactsContactIdRoute = AppContactsContactIdRouteImport.update({
-  id: '/$contactId',
-  path: '/$contactId',
-  getParentRoute: () => AppContactsRoute,
+  id: '/contacts_/$contactId',
+  path: '/contacts/$contactId',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppCompaniesCompanyIdRoute = AppCompaniesCompanyIdRouteImport.update({
-  id: '/$companyId',
-  path: '/$companyId',
-  getParentRoute: () => AppCompaniesRoute,
+  id: '/companies_/$companyId',
+  path: '/companies/$companyId',
+  getParentRoute: () => AppRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -223,8 +223,8 @@ export interface FileRoutesByFullPath {
   '/activities': typeof AppActivitiesRoute
   '/billing': typeof AppBillingRoute
   '/calls': typeof AppCallsRoute
-  '/companies': typeof AppCompaniesRouteWithChildren
-  '/contacts': typeof AppContactsRouteWithChildren
+  '/companies': typeof AppCompaniesRoute
+  '/contacts': typeof AppContactsRoute
   '/discover': typeof AppDiscoverRoute
   '/emails': typeof AppEmailsRoute
   '/followups': typeof AppFollowupsRoute
@@ -257,8 +257,8 @@ export interface FileRoutesByTo {
   '/activities': typeof AppActivitiesRoute
   '/billing': typeof AppBillingRoute
   '/calls': typeof AppCallsRoute
-  '/companies': typeof AppCompaniesRouteWithChildren
-  '/contacts': typeof AppContactsRouteWithChildren
+  '/companies': typeof AppCompaniesRoute
+  '/contacts': typeof AppContactsRoute
   '/discover': typeof AppDiscoverRoute
   '/emails': typeof AppEmailsRoute
   '/followups': typeof AppFollowupsRoute
@@ -294,8 +294,8 @@ export interface FileRoutesById {
   '/_app/activities': typeof AppActivitiesRoute
   '/_app/billing': typeof AppBillingRoute
   '/_app/calls': typeof AppCallsRoute
-  '/_app/companies': typeof AppCompaniesRouteWithChildren
-  '/_app/contacts': typeof AppContactsRouteWithChildren
+  '/_app/companies': typeof AppCompaniesRoute
+  '/_app/contacts': typeof AppContactsRoute
   '/_app/discover': typeof AppDiscoverRoute
   '/_app/emails': typeof AppEmailsRoute
   '/_app/followups': typeof AppFollowupsRoute
@@ -310,8 +310,8 @@ export interface FileRoutesById {
   '/_app/today': typeof AppTodayRoute
   '/share/$token': typeof ShareTokenRoute
   '/_app/': typeof AppIndexRoute
-  '/_app/companies/$companyId': typeof AppCompaniesCompanyIdRoute
-  '/_app/contacts/$contactId': typeof AppContactsContactIdRoute
+  '/_app/companies_/$companyId': typeof AppCompaniesCompanyIdRoute
+  '/_app/contacts_/$contactId': typeof AppContactsContactIdRoute
   '/_app/deals/$dealId': typeof AppDealsDealIdRoute
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
@@ -418,8 +418,8 @@ export interface FileRouteTypes {
     | '/_app/today'
     | '/share/$token'
     | '/_app/'
-    | '/_app/companies/$companyId'
-    | '/_app/contacts/$contactId'
+    | '/_app/companies_/$companyId'
+    | '/_app/contacts_/$contactId'
     | '/_app/deals/$dealId'
     | '/api/auth/login'
     | '/api/auth/logout'
@@ -672,53 +672,29 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDealsDealIdRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/contacts/$contactId': {
-      id: '/_app/contacts/$contactId'
-      path: '/$contactId'
+    '/_app/contacts_/$contactId': {
+      id: '/_app/contacts_/$contactId'
+      path: '/contacts/$contactId'
       fullPath: '/contacts/$contactId'
       preLoaderRoute: typeof AppContactsContactIdRouteImport
-      parentRoute: typeof AppContactsRoute
+      parentRoute: typeof AppRoute
     }
-    '/_app/companies/$companyId': {
-      id: '/_app/companies/$companyId'
-      path: '/$companyId'
+    '/_app/companies_/$companyId': {
+      id: '/_app/companies_/$companyId'
+      path: '/companies/$companyId'
       fullPath: '/companies/$companyId'
       preLoaderRoute: typeof AppCompaniesCompanyIdRouteImport
-      parentRoute: typeof AppCompaniesRoute
+      parentRoute: typeof AppRoute
     }
   }
 }
-
-interface AppCompaniesRouteChildren {
-  AppCompaniesCompanyIdRoute: typeof AppCompaniesCompanyIdRoute
-}
-
-const AppCompaniesRouteChildren: AppCompaniesRouteChildren = {
-  AppCompaniesCompanyIdRoute: AppCompaniesCompanyIdRoute,
-}
-
-const AppCompaniesRouteWithChildren = AppCompaniesRoute._addFileChildren(
-  AppCompaniesRouteChildren,
-)
-
-interface AppContactsRouteChildren {
-  AppContactsContactIdRoute: typeof AppContactsContactIdRoute
-}
-
-const AppContactsRouteChildren: AppContactsRouteChildren = {
-  AppContactsContactIdRoute: AppContactsContactIdRoute,
-}
-
-const AppContactsRouteWithChildren = AppContactsRoute._addFileChildren(
-  AppContactsRouteChildren,
-)
 
 interface AppRouteChildren {
   AppActivitiesRoute: typeof AppActivitiesRoute
   AppBillingRoute: typeof AppBillingRoute
   AppCallsRoute: typeof AppCallsRoute
-  AppCompaniesRoute: typeof AppCompaniesRouteWithChildren
-  AppContactsRoute: typeof AppContactsRouteWithChildren
+  AppCompaniesRoute: typeof AppCompaniesRoute
+  AppContactsRoute: typeof AppContactsRoute
   AppDiscoverRoute: typeof AppDiscoverRoute
   AppEmailsRoute: typeof AppEmailsRoute
   AppFollowupsRoute: typeof AppFollowupsRoute
@@ -732,6 +708,8 @@ interface AppRouteChildren {
   AppTeamRoute: typeof AppTeamRoute
   AppTodayRoute: typeof AppTodayRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppCompaniesCompanyIdRoute: typeof AppCompaniesCompanyIdRoute
+  AppContactsContactIdRoute: typeof AppContactsContactIdRoute
   AppDealsDealIdRoute: typeof AppDealsDealIdRoute
 }
 
@@ -739,8 +717,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppActivitiesRoute: AppActivitiesRoute,
   AppBillingRoute: AppBillingRoute,
   AppCallsRoute: AppCallsRoute,
-  AppCompaniesRoute: AppCompaniesRouteWithChildren,
-  AppContactsRoute: AppContactsRouteWithChildren,
+  AppCompaniesRoute: AppCompaniesRoute,
+  AppContactsRoute: AppContactsRoute,
   AppDiscoverRoute: AppDiscoverRoute,
   AppEmailsRoute: AppEmailsRoute,
   AppFollowupsRoute: AppFollowupsRoute,
@@ -754,6 +732,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppTeamRoute: AppTeamRoute,
   AppTodayRoute: AppTodayRoute,
   AppIndexRoute: AppIndexRoute,
+  AppCompaniesCompanyIdRoute: AppCompaniesCompanyIdRoute,
+  AppContactsContactIdRoute: AppContactsContactIdRoute,
   AppDealsDealIdRoute: AppDealsDealIdRoute,
 }
 

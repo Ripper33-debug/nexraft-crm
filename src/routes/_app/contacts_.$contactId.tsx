@@ -15,7 +15,7 @@ import { formatMoney, relativeTime } from "../../lib/crm/constants";
 
 type Row = Record<string, unknown>;
 
-export const Route = createFileRoute("/_app/contacts/$contactId")({
+export const Route = createFileRoute("/_app/contacts_/$contactId")({
   loader: async ({ params }) => {
     const [contacts, deals] = await Promise.all([getContacts(), getDeals()]);
     const contact = (contacts as Row[]).find((c) => c.id === params.contactId) ?? null;

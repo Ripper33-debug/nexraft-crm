@@ -18,7 +18,7 @@ import { formatMoney, relativeTime, stageInfo } from "../../lib/crm/constants";
 
 type Row = Record<string, unknown>;
 
-export const Route = createFileRoute("/_app/companies/$companyId")({
+export const Route = createFileRoute("/_app/companies_/$companyId")({
   loader: async ({ params }) => {
     const [companies, contacts, deals] = await Promise.all([
       getCompanies(),
