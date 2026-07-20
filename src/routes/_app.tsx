@@ -219,6 +219,56 @@ function NavLinks({
   );
 }
 
+// Live "mission control" readout for the desktop top bar: pulsing link dot
+// (flips to SYNC while a background refresh is in flight), ISO week number,
+// and a ticking clock. Time renders client-side only so SSR never mismatches.
+function StatusStrip() {
+  const syncing = useSyncExternalStore(
+    subscribeSyncing,
+    isBackgroundSyncing,
+    () => false,
+  );
+  const [clock, setClock] = useState("");
+  useEffect(() => {
+    const tick = () =>
+      setClock(
+        new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      );
+    tick();
+    const id = window.setInterval(tick, 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+  // ISO week: Thursday of the current week determines the year/week pairing.
+  const now = new Date();
+  const thu = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  thu.setUTCDate(thu.getUTCDate() + 4 - (thu.getUTCDay() || 7));
+  const week = Math.ceil(
+    ((thu.getTime() - Date.UTC(thu.getUTCFullYear(), 0, 1)) / 86_400_000 + 1) / 7,
+  );
+  return (
+    <div
+      className="hidden select-none items-center gap-3 font-mono text-[10px] uppercase tracking-[0.14em] text-faint lg:flex"
+      aria-hidden="true"
+    >
+      <span className="flex items-center gap-1.5">
+        <span
+          className={
+            "h-1.5 w-1.5 rounded-full " +
+            (syncing ? "animate-pulse bg-signal" : "bg-emerald-400")
+          }
+        />
+        <span className={syncing ? "text-signal" : "text-emerald-400/80"}>
+          {syncing ? "Sync" : "Online"}
+        </span>
+      </span>
+      <span className="text-line-strong">/</span>
+      <span>Week {week}</span>
+      <span className="text-line-strong">/</span>
+      <span className="tabular-nums">{clock || "--:--"}</span>
+    </div>
+  );
+}
+
 function AppLayout() {
   const { user, followupCount } = Route.useLoaderData();
   const pathname = useLocation().pathname;
@@ -296,7 +346,8 @@ function AppLayout() {
         {/* Desktop top bar with global search */}
         <header className="hidden items-center gap-4 border-b border-line bg-surface/80 px-6 py-2.5 backdrop-blur md:flex">
           <CommandPaletteTrigger />
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-4">
+            <StatusStrip />
             <NotificationBell />
           </div>
         </header>

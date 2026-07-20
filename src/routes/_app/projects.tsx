@@ -77,7 +77,9 @@ function ProgressBar({ done, total }: { done: number; total: number }) {
         <div
           className={cx(
             "h-full rounded-full transition-all duration-500",
-            pct >= 100 ? "bg-emerald-400" : "bg-signal shadow-[0_0_8px_rgba(255,77,28,0.5)]",
+            pct >= 100
+              ? "bg-gradient-to-r from-emerald-500 to-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.55)]"
+              : "bg-gradient-to-r from-signal-strong to-signal shadow-[0_0_10px_rgba(255,77,28,0.5)]",
           )}
           style={{ width: `${pct}%` }}
         />

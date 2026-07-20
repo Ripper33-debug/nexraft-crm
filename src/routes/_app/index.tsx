@@ -637,7 +637,11 @@ function Leaderboard({ rows }: { rows: LeaderboardRow[] }) {
                 </span>
                 <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-2">
                   <div
-                    className={callPct >= 100 ? "h-full bg-emerald-400" : "h-full bg-signal"}
+                    className={
+                      callPct >= 100
+                        ? "h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.55)] transition-[width] duration-700 ease-out"
+                        : "h-full rounded-full bg-gradient-to-r from-signal-strong to-signal shadow-[0_0_10px_rgba(255,77,28,0.5)] transition-[width] duration-700 ease-out"
+                    }
                     style={{ width: `${Math.max(2, callPct)}%` }}
                   />
                 </div>
