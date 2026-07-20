@@ -237,13 +237,14 @@ function StatusStrip() {
     const id = window.setInterval(tick, 15_000);
     return () => window.clearInterval(id);
   }, []);
-  // ISO week: Thursday of the current week determines the year/week pairing.
+  // Nexraft week counter: counts from when the team started working the book
+  // (Week 1 began Monday 2026-07-13, per Barry), not the calendar year — so
+  // "Week 2" means the second week of the push, which is what everyone says
+  // out loud anyway. Clamped to 1 so a clock set in the past can't show 0.
+  const WEEK_ONE_MONDAY = Date.UTC(2026, 6, 13); // Mon 2026-07-13
   const now = new Date();
-  const thu = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-  thu.setUTCDate(thu.getUTCDate() + 4 - (thu.getUTCDay() || 7));
-  const week = Math.ceil(
-    ((thu.getTime() - Date.UTC(thu.getUTCFullYear(), 0, 1)) / 86_400_000 + 1) / 7,
-  );
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const week = Math.max(1, Math.floor((today - WEEK_ONE_MONDAY) / (7 * 86_400_000)) + 1);
   return (
     <div
       className="hidden select-none items-center gap-3 font-mono text-[10px] uppercase tracking-[0.14em] text-faint lg:flex"
