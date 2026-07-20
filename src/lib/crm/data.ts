@@ -28,6 +28,7 @@ import {
   extractCompanyIntel,
   pickResearchLinks,
   type CompanyIntel,
+  LEAD_ENGINE_PAUSED,
 } from "./constants";
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
@@ -5114,6 +5115,9 @@ export const runDueSweeps = createServerOnlyFn(
     } catch {
       /* research is a bonus, never a blocker */
     }
+    // Master pause: housekeeping and research above still ran, but no new
+    // companies get imported while the lead engine is switched off.
+    if (LEAD_ENGINE_PAUSED) return { ran: 0, imported: 0, nudged, recycled };
     const sweeps = (await loadSweeps()).filter((s) => s.enabled);
     const cutoff = Date.now() - 20 * 3600_000;
     const due = sweeps

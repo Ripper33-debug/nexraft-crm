@@ -3,6 +3,7 @@ import { createFileRoute, useRouteContext } from "@tanstack/react-router";
 import { getUsers } from "../../lib/crm/data";
 import { toast } from "../../components/crm/toast";
 import { useAutoConfig, useAutoStatus, setConfig } from "../../lib/crm/autodiscover";
+import { LEAD_ENGINE_PAUSED } from "../../lib/crm/constants";
 import { OrbStage } from "../../components/crm/orbstage";
 
 // The Discover page is now a single living scene: the molten LEADS orb in the
@@ -25,10 +26,14 @@ function DiscoverPage() {
   const isAdmin = user?.role === "admin";
   const config = useAutoConfig();
   const st = useAutoStatus();
-  const live = config.on && !st.paused;
+  const live = !LEAD_ENGINE_PAUSED && config.on && !st.paused;
 
   function toggle() {
     if (!isAdmin) return;
+    if (LEAD_ENGINE_PAUSED) {
+      toast("Lead engine is paused for now — the team is working the companies they have.", "info");
+      return;
+    }
     const next = !config.on;
     setConfig({ on: next, area: config.area.trim() || DEFAULT_AREA });
     toast(next ? "Radar is live — hunting leads." : "Radar powered down.", "info");
@@ -58,7 +63,9 @@ function DiscoverPage() {
               }
             />
             <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.22em] text-bone">
-              {st.paused
+              {LEAD_ENGINE_PAUSED
+                ? "Lead engine paused — working the book"
+                : st.paused
                 ? "Session cap reached"
                 : live
                   ? st.currentType

@@ -19,6 +19,7 @@ import {
   getConversionInsights,
   type DiscoveredLead,
 } from "./data";
+import { LEAD_ENGINE_PAUSED } from "./constants";
 
 export type AutoDiscoverConfig = { on: boolean; area: string };
 export type AutoDiscoverStatus = {
@@ -248,6 +249,12 @@ export async function runAutoDiscovery(
   isCancelled: () => boolean,
   onImported: () => void,
 ) {
+  // Master pause: the team has enough companies for now, so the radar never
+  // starts a session regardless of the on/off switch state.
+  if (LEAD_ENGINE_PAUSED) {
+    patchStatus({ ...DEFAULT_STATUS, running: false, paused: true });
+    return;
+  }
   patchStatus({ ...DEFAULT_STATUS, running: true });
   // Weight the industry rotation by what's actually converted (wins/interest
   // double up), then pick up from the saved bookmark if there is one.

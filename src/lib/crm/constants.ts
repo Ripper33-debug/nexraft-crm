@@ -1139,3 +1139,11 @@ export function pickResearchLinks(homeHtml: string, baseUrl: string, max = 3): s
   }
   return out;
 }
+
+// ---------- Lead engine master switch ----------
+// Barry's call (2026-07-20): the team has enough companies to work for now,
+// so ALL automatic lead intake is paused — the Discover radar won't import
+// and the nightly cron skips its sweeps. Housekeeping (follow-up nudges,
+// stale-lead recycling, research enrichment) keeps running. Flip to false
+// and redeploy to turn the intake back on.
+export const LEAD_ENGINE_PAUSED = true;
