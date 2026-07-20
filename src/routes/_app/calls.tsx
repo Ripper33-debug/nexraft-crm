@@ -609,9 +609,9 @@ function CallsPage() {
   const [view, setView] = useState<"board" | "list">("board");
   const [mode, setMode] = useState<Mode>("people");
   const [query, setQuery] = useState("");
-  // Default the list to the rep's own records (they can switch to "All owners");
-  // admins start unfiltered.
-  const [ownerFilter, setOwnerFilter] = useState(isAdmin ? "" : me?.id ?? "");
+  // Admins can slice the list by owner; reps don't get a choice — their list is
+  // hard-limited to their own book below, so the filter only renders for admins.
+  const [ownerFilter, setOwnerFilter] = useState("");
   const [calling, setCalling] = useState<Row | null>(null);
   const [noAnswer, setNoAnswer] = useState<Row | null>(null);
 
@@ -640,8 +640,23 @@ function CallsPage() {
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const base = (mode === "people" ? (contacts as Row[]) : (companies as Row[])).filter((r) => {
-      if (ownerFilter) {
+    // Reps only ever see their OWN people and companies here — calling someone
+    // else's account steps on toes (and the server rejects the outcome anyway).
+    // Admins see everything and can narrow with the owner filter.
+    const source = mode === "people" ? (contacts as Row[]) : (companies as Row[]);
+    // A contact counts as "mine" if I own it OR it belongs to one of my companies
+    // (imported contacts often have no owner of their own).
+    const myCompanyIds = new Set(
+      (companies as Row[]).filter((c) => (c.owner_id as string | null) === me?.id).map((c) => c.id as string),
+    );
+    const visible = isAdmin
+      ? source
+      : source.filter((r) =>
+          (r.owner_id as string | null) === me?.id ||
+          (mode === "people" && !!r.company_id && myCompanyIds.has(r.company_id as string)),
+        );
+    const base = visible.filter((r) => {
+      if (isAdmin && ownerFilter) {
         const oid = r.owner_id as string | null;
         if (ownerFilter === "__none__" ? !!oid : oid !== ownerFilter) return false;
       }
@@ -670,7 +685,7 @@ function CallsPage() {
       if (ao !== bo) return bo - ao;
       return (a.name as string).localeCompare(b.name as string);
     });
-  }, [mode, contacts, companies, query, ownerFilter, openByCompany]);
+  }, [mode, contacts, companies, query, ownerFilter, openByCompany, isAdmin, me]);
 
   const withPhone = rows.filter((r) => r.phone).length;
 
@@ -678,7 +693,7 @@ function CallsPage() {
     <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
       <PageHeader
         title="Calls"
-        subtitle="Call new companies, then move them along: Yes, Maybe, No — or Signed."
+        subtitle={isAdmin ? "Everyone's call flow — call, then move them along: Yes, Maybe, No — or Signed." : "Your companies only — call, then move them along: Yes, Maybe, No — or Signed."}
         actions={
           <div className="inline-flex rounded-lg border border-line bg-surface p-0.5">
             {(["board", "list"] as const).map((v) => (
@@ -714,6 +729,7 @@ function CallsPage() {
 
       {view === "list" ? (
         <ListView
+          isAdmin={isAdmin}
           mode={mode}
           setMode={setMode}
           query={query}
@@ -765,6 +781,7 @@ function CallsPage() {
 }
 
 function ListView({
+  isAdmin,
   mode,
   setMode,
   query,
@@ -778,6 +795,7 @@ function ListView({
   onCall,
   onNotAFit,
 }: {
+  isAdmin: boolean;
   mode: Mode;
   setMode: (m: Mode) => void;
   query: string;
@@ -825,22 +843,26 @@ function ListView({
           />
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Owner</span>
-          <Select
-            value={ownerFilter}
-            onChange={(e) => setOwnerFilter(e.target.value)}
-            className="h-9 w-auto min-w-[9rem] py-1 text-xs"
-          >
-            <option value="">All owners</option>
-            {(users as Row[]).map((u) => (
-              <option key={u.id as string} value={u.id as string}>
-                {u.name as string}
-              </option>
-            ))}
-            <option value="__none__">Unassigned</option>
-          </Select>
-        </div>
+        {isAdmin ? (
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Owner</span>
+            <Select
+              value={ownerFilter}
+              onChange={(e) => setOwnerFilter(e.target.value)}
+              className="h-9 w-auto min-w-[9rem] py-1 text-xs"
+            >
+              <option value="">All owners</option>
+              {(users as Row[]).map((u) => (
+                <option key={u.id as string} value={u.id as string}>
+                  {u.name as string}
+                </option>
+              ))}
+              <option value="__none__">Unassigned</option>
+            </Select>
+          </div>
+        ) : (
+          <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Your book only</span>
+        )}
       </div>
 
       <Card className="mt-3 overflow-hidden">
