@@ -30,7 +30,7 @@ export function LogoMark({ size = 32, radius = 8 }: { size?: number; radius?: nu
   );
 }
 
-// Full wordmark for the auth screens: bone "NEXRAFT" with the orange period.
+// Full wordmark for the auth screens: bone "NEX", orange "RAFT" (Barry's call).
 export function FullLogo({ className = "" }: { className?: string }) {
   return (
     <div className={"inline-flex items-baseline " + className}>
@@ -38,23 +38,29 @@ export function FullLogo({ className = "" }: { className?: string }) {
         className="font-display text-3xl font-extrabold uppercase tracking-[0.16em]"
         style={{ color: BONE }}
       >
-        Nexraft
+        Nex
       </span>
-      <span className="font-display text-3xl font-extrabold" style={{ color: ACCENT }}>
-        .
+      <span
+        className="font-display text-3xl font-extrabold uppercase tracking-[0.16em]"
+        style={{ color: ACCENT }}
+      >
+        raft
       </span>
     </div>
   );
 }
 
-// Sidebar / header lockup: monogram + product name.
+// Sidebar / header lockup: monogram + product name. The mark tips in 3D toward
+// the cursor on hover — a small "alive" moment every time you glance at it.
 export function Wordmark({ small }: { small?: boolean }) {
   return (
-    <div className="flex items-center gap-2.5">
-      <LogoMark size={small ? 28 : 32} radius={small ? 7 : 8} />
+    <div className="group flex items-center gap-2.5" style={{ perspective: "480px" }}>
+      <span className="inline-flex transition-transform duration-300 ease-out will-change-transform group-hover:[transform:rotateY(-16deg)_rotateX(8deg)_scale(1.06)]">
+        <LogoMark size={small ? 28 : 32} radius={small ? 7 : 8} />
+      </span>
       <div className="leading-tight">
         <div className="font-display text-sm font-extrabold uppercase tracking-[0.08em] text-bone">
-          Nexraft<span className="text-signal">_._</span>
+          Nex<span className="text-signal">raft</span>
         </div>
         {!small ? (
           <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">Sales OS</div>

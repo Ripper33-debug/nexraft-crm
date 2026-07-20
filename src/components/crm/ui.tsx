@@ -107,12 +107,38 @@ function trackPointer(e: React.PointerEvent<HTMLDivElement>) {
   el.style.setProperty("--my", `${e.clientY - r.top}px`);
 }
 
-export function Card({ className, children }: { className?: string; children: ReactNode }) {
+export function Card({
+  className,
+  children,
+  tilt,
+}: {
+  className?: string;
+  children: ReactNode;
+  /** Opt-in 3D: the card tips toward the cursor. Use on compact grid cards
+      (projects board), not big page-width panels where tilt feels seasick. */
+  tilt?: boolean;
+}) {
+  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    trackPointer(e);
+    if (!tilt) return;
+    const el = e.currentTarget;
+    const r = el.getBoundingClientRect();
+    const rx = ((e.clientY - r.top) / r.height - 0.5) * -4;
+    const ry = ((e.clientX - r.left) / r.width - 0.5) * 4;
+    el.style.transform = `perspective(800px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(-2px)`;
+  };
+  const onLeave = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (tilt) e.currentTarget.style.transform = "";
+  };
   return (
     <div
-      onPointerMove={trackPointer}
+      onPointerMove={onMove}
+      onPointerLeave={onLeave}
       className={cx(
-        "nx-spot rounded-xl border border-line bg-gradient-to-br from-[#14141a] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.3),0_8px_24px_-16px_rgba(0,0,0,0.6),inset_0_1px_0_0_rgba(255,255,255,0.03)] transition-[border-color,box-shadow] duration-300 hover:border-line-strong hover:shadow-[0_16px_40px_-14px_rgba(0,0,0,0.6),0_0_0_1px_rgba(255,77,28,0.1)]",
+        tilt
+          ? "will-change-transform transition-[border-color,box-shadow,transform] duration-300"
+          : "transition-[border-color,box-shadow] duration-300",
+        "nx-spot rounded-xl border border-line bg-gradient-to-br from-[#14141a] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.3),0_8px_24px_-16px_rgba(0,0,0,0.6),inset_0_1px_0_0_rgba(255,255,255,0.03)] hover:border-line-strong hover:shadow-[0_16px_40px_-14px_rgba(0,0,0,0.6),0_0_0_1px_rgba(255,77,28,0.1)]",
         className,
       )}
     >
@@ -198,9 +224,9 @@ export function SummaryCard({
     trackPointer(e);
     const el = e.currentTarget;
     const r = el.getBoundingClientRect();
-    const rx = ((e.clientY - r.top) / r.height - 0.5) * -3;
-    const ry = ((e.clientX - r.left) / r.width - 0.5) * 3;
-    el.style.transform = `perspective(900px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(-2px)`;
+    const rx = ((e.clientY - r.top) / r.height - 0.5) * -6;
+    const ry = ((e.clientX - r.left) / r.width - 0.5) * 6;
+    el.style.transform = `perspective(700px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(-3px) scale(1.015)`;
   };
   const onLeave = (e: React.PointerEvent<HTMLDivElement>) => {
     e.currentTarget.style.transform = "";
