@@ -11,9 +11,11 @@ import {
   adminResetPassword,
   adminDeleteUser,
   adminReassignBook,
+  runResearchBatch,
   type TeamMemberRow,
   type RepActivityRow,
 } from "../../lib/crm/data";
+import { toast } from "../../components/crm/toast";
 import {
   Button,
   Card,
@@ -55,6 +57,33 @@ type Detail = Awaited<ReturnType<typeof getUserDetail>>;
 // a selectable window. State (pipeline size) lives in the table above; this
 // panel measures MOTION: calls triaged, emails sent, records created, stage
 // moves, notes. The Total column ranks the hustle.
+// Admin lever for the research engine: each click researches the next batch
+// of un-researched companies (newest first) — the exact code path the nightly
+// cron uses, just on demand. Click until the queue reads zero.
+function ResearchBatchButton() {
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try {
+      const res = await runResearchBatch();
+      toast(
+        res.enriched === 0 && res.remaining === 0
+          ? "🔎 All caught up — every lead with a website has a dossier."
+          : `🔎 Researched ${res.enriched} lead${res.enriched === 1 ? "" : "s"} — ${res.remaining} still in the queue.`,
+      );
+    } catch {
+      toast("Research batch failed — try again in a moment.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Button variant="outline" onClick={run} disabled={busy}>
+      {busy ? "Digging…" : "🔎 Research leads"}
+    </Button>
+  );
+}
+
 function RepActivityPanel({
   initial,
 }: {
@@ -234,7 +263,12 @@ function TeamPage() {
       <PageHeader
         title="Team"
         subtitle="Admin view — everything your team has in the CRM."
-        actions={<Button onClick={() => setAddOpen(true)}>+ Add teammate</Button>}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <ResearchBatchButton />
+            <Button onClick={() => setAddOpen(true)}>+ Add teammate</Button>
+          </div>
+        }
       />
 
       {error ? (

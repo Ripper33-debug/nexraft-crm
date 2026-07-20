@@ -3956,6 +3956,24 @@ async function enrichNewLeads(cap = 5): Promise<number> {
   return enriched;
 }
 
+// Admin trigger for the same batch the cron runs: research a chunk of the
+// un-researched backlog right now instead of waiting for tonight. Clicking
+// again simply continues — enrichNewLeads always takes the newest still-blank
+// companies, so repeated clicks walk the whole backlog.
+export const runResearchBatch = createServerFn({ method: "POST" }).handler(async () => {
+  await requireAdmin();
+  await ensureExtraSchema();
+  const enriched = await enrichNewLeads(6);
+  const r = await db()
+    .prepare(
+      `SELECT COUNT(*)::int AS n FROM companies
+       WHERE research IS NULL AND archived_at IS NULL
+         AND website IS NOT NULL AND website <> ''`,
+    )
+    .first<{ n: number }>();
+  return { ok: true as const, enriched, remaining: r?.n ?? 0 };
+});
+
 // On-demand verification for companies already in the CRM. Sweeps up to 12 of
 // the stalest unchecked websites (never checked, or checked > 7 days ago),
 // probes them concurrently, and stamps website_status / website_checked_at.
