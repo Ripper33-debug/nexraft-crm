@@ -8,8 +8,10 @@ import {
   getLeaderboard,
   getAnalytics,
   getExportBundle,
+  getCooBriefing,
   type FeedRow,
   type LeaderboardRow,
+  type CooFlag,
 } from "../../lib/crm/data";
 import { Button, Card, EmptyState, StageBadge, SummaryCard, Eyebrow, OwnerChip, Pill, Avatar, PageSkeleton } from "../../components/crm/ui";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
@@ -26,16 +28,17 @@ import {
 
 export const Route = createFileRoute("/_app/")({
   loader: async () => {
-    const [dash, feed, companies, weekly, analytics] = await Promise.all([
+    const [dash, feed, companies, weekly, analytics, coo] = await Promise.all([
       getDashboard(),
       getActivityFeed(),
       getCompanies(),
       getLeaderboard(),
       getAnalytics({ data: { range: "all" } }),
+      getCooBriefing(), // null for non-admins
     ]);
     // NB: `weekly` is the activity race (calls/emails/wins since Monday);
     // dash.leaderboard stays the pipeline-value table further down the page.
-    return { ...dash, feed, companies, weekly, analytics };
+    return { ...dash, feed, companies, weekly, analytics, coo };
   },
   component: Dashboard,
   pendingComponent: () => <PageSkeleton cards={4} rows={6} />,
@@ -328,6 +331,8 @@ function Dashboard() {
       </div>
 
       <LiveTicker feed={d.feed as FeedRow[]} />
+
+      {d.coo ? <CooBriefing flags={d.coo.flags} /> : null}
 
       <TodayBoard
         companies={d.companies as Row[]}
@@ -931,6 +936,48 @@ function Leaderboard({ rows }: { rows: LeaderboardRow[] }) {
           {idle} {idle === 1 ? "rep hasn't" : "reps haven't"} logged anything yet this week.
         </p>
       ) : null}
+    </Card>
+  );
+}
+
+// ==================== COO briefing (admin only) ====================
+// The watcher's report: everything a chief-of-operations would chase today,
+// pulled from the team's own logged work. Red = money or a client is waiting;
+// amber = drifting and worth a nudge. Renders nothing when all is well —
+// silence is the good outcome.
+function CooBriefing({ flags }: { flags: CooFlag[] }) {
+  if (flags.length === 0) {
+    return (
+      <Card className="mt-5 border-emerald-500/25">
+        <div className="flex items-center gap-2.5">
+          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+          <Eyebrow>Needs your attention</Eyebrow>
+          <span className="text-sm text-mute">Nothing. Reps active, leads worked, projects moving, invoices current.</span>
+        </div>
+      </Card>
+    );
+  }
+  return (
+    <Card className="mt-5 border-signal/30">
+      <div className="flex items-center justify-between">
+        <Eyebrow>Needs your attention</Eyebrow>
+        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-faint">
+          {flags.length} item{flags.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      <ul className="mt-2.5 space-y-1.5">
+        {flags.map((f, i) => (
+          <li key={i} className="flex items-start gap-2.5 text-sm">
+            <span
+              className={
+                "mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full " +
+                (f.severity === "red" ? "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.8)]" : "bg-amber-300")
+              }
+            />
+            <span className={f.severity === "red" ? "text-bone" : "text-mute"}>{f.text}</span>
+          </li>
+        ))}
+      </ul>
     </Card>
   );
 }

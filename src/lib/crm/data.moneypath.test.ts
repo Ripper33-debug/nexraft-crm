@@ -140,3 +140,19 @@ describe("research-email backfill is safe to rerun", () => {
     expect(body).toContain("emailShape");
   });
 });
+
+describe("COO briefing is boss-only and read-only", () => {
+  const body = fnBody("getCooBriefing");
+  it("returns nothing for non-admins", () => {
+    expect(body).toContain('me.role !== "admin"');
+    expect(body).toContain("return null");
+  });
+  it("never writes — it only flags", () => {
+    expect(body).not.toMatch(/INSERT INTO|UPDATE |DELETE FROM/);
+  });
+  it("watches all five operational areas", () => {
+    for (const probe of ["quiet_rep", "hot_lead", "stalled_project", "unpaid_invoice", "pace"]) {
+      expect(body).toContain(probe);
+    }
+  });
+});

@@ -5810,6 +5810,143 @@ export const getLeaderboard = createServerFn({ method: "GET" }).handler(async ()
   return results ?? [];
 });
 
+// ==================== COO briefing ====================
+// The "AI COO" watcher (version 1, no AI needed): every dashboard load for an
+// admin, sweep the data the team already produces and surface the handful of
+// things a chief-of-operations would chase today — reps gone quiet, hot leads
+// nobody has touched, projects stuck mid-build, invoices sitting unpaid, and
+// the team's call pace against the weekly goal. Read-only: it flags, Barry acts.
+
+export type CooFlag = {
+  kind: "quiet_rep" | "hot_lead" | "stalled_project" | "unpaid_invoice" | "followups" | "pace";
+  severity: "red" | "amber";
+  text: string;
+};
+
+const ISO_NOW = `to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+const isoDaysAgo = (n: number) =>
+  `to_char(now() AT TIME ZONE 'UTC' - interval '${n} days', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+
+export const getCooBriefing = createServerFn({ method: "GET" }).handler(async () => {
+  const me = await requireUser();
+  if (me.role !== "admin") return null; // reps get no surveillance panel — this is the boss view
+  await ensureExtraSchema();
+  const flags: CooFlag[] = [];
+
+  // 1) Reps gone quiet — no logged event or activity in 2+ days (weekends
+  //    forgiven by the threshold; "never" counts as quiet from day one).
+  const { results: reps } = await db()
+    .prepare(
+      `SELECT u.id, u.name,
+         GREATEST(
+           COALESCE((SELECT MAX(e.created_at) FROM events e WHERE e.actor_id = u.id), ''),
+           COALESCE((SELECT MAX(a.created_at) FROM activities a WHERE a.owner_id = u.id), '')
+         ) AS last_seen
+       FROM users u WHERE u.role <> 'admin'`,
+    )
+    .all<{ id: string; name: string; last_seen: string }>();
+  for (const r of reps ?? []) {
+    const last = r.last_seen ? Date.parse(r.last_seen) : NaN;
+    const days = Number.isFinite(last) ? Math.floor((Date.now() - last) / 86_400_000) : null;
+    if (days === null) {
+      flags.push({ kind: "quiet_rep", severity: "amber", text: `${r.name} hasn't logged anything yet — worth a check-in.` });
+    } else if (days >= 4) {
+      flags.push({ kind: "quiet_rep", severity: "red", text: `${r.name} has logged nothing in ${days} days.` });
+    } else if (days >= 2) {
+      flags.push({ kind: "quiet_rep", severity: "amber", text: `${r.name} has been quiet for ${days} days.` });
+    }
+  }
+
+  // 2) Hot leads going cold — companies marked "interested" with no touch
+  //    (event of any kind) in 3+ days. Interested is the money queue.
+  const hot = await db()
+    .prepare(
+      `SELECT COUNT(*)::int AS n FROM companies c
+        WHERE c.archived_at IS NULL AND c.call_outcome = 'interested'
+          AND NOT EXISTS (
+            SELECT 1 FROM events e
+             WHERE e.entity_type = 'company' AND e.entity_id = c.id
+               AND e.created_at >= ${isoDaysAgo(3)}
+          )`,
+    )
+    .first<{ n: number }>();
+  if ((hot?.n ?? 0) > 0) {
+    flags.push({
+      kind: "hot_lead",
+      severity: "red",
+      text: `${hot!.n} interested lead${hot!.n === 1 ? "" : "s"} untouched for 3+ days — these are the closest to money.`,
+    });
+  }
+
+  // 3) Overdue follow-ups piling up.
+  const due = await db()
+    .prepare(
+      `SELECT COUNT(*)::int AS n FROM companies
+        WHERE archived_at IS NULL AND next_followup_at IS NOT NULL
+          AND next_followup_at <= ${ISO_NOW}`,
+    )
+    .first<{ n: number }>();
+  if ((due?.n ?? 0) >= 10) {
+    flags.push({ kind: "followups", severity: "amber", text: `${due!.n} follow-ups are overdue in the Outreach queue.` });
+  }
+
+  // 4) Projects stuck mid-build — a paying client is waiting on each of these.
+  const { results: stalled } = await db()
+    .prepare(
+      `SELECT p.name FROM projects p
+        WHERE p.archived_at IS NULL AND p.status <> 'launched'
+          AND p.updated_at < ${isoDaysAgo(10)}
+        ORDER BY p.updated_at ASC LIMIT 5`,
+    )
+    .all<{ name: string }>();
+  for (const p of stalled ?? []) {
+    flags.push({ kind: "stalled_project", severity: "red", text: `Project "${p.name}" hasn't moved in 10+ days — the client is waiting.` });
+  }
+
+  // 5) Invoices sitting unpaid past their 14-day terms.
+  const unpaid = await db()
+    .prepare(
+      `SELECT COUNT(*)::int AS n, COALESCE(SUM(amount), 0)::float AS total FROM invoices
+        WHERE status NOT IN ('paid', 'void') AND created_at < ${isoDaysAgo(14)}`,
+    )
+    .first<{ n: number; total: number }>();
+  if ((unpaid?.n ?? 0) > 0) {
+    flags.push({
+      kind: "unpaid_invoice",
+      severity: "red",
+      text: `${unpaid!.n} invoice${unpaid!.n === 1 ? "" : "s"} past the 14-day terms — $${Math.round(unpaid!.total).toLocaleString()} outstanding.`,
+    });
+  }
+
+  // 6) Team call pace vs. the weekly goal (50 calls/rep), scaled to how much
+  //    of the working week has elapsed so Monday mornings aren't all-red.
+  const week = await db()
+    .prepare(
+      `WITH week AS (SELECT to_char(date_trunc('week', now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS start)
+       SELECT
+         (SELECT COUNT(*)::int FROM activities a WHERE a.type = 'Call' AND a.completed_at >= (SELECT start FROM week))
+         + (SELECT COUNT(*)::int FROM events e WHERE e.verb = 'triaged' AND e.created_at >= (SELECT start FROM week)) AS calls,
+         (SELECT COUNT(*)::int FROM users WHERE role <> 'admin') AS reps`,
+    )
+    .first<{ calls: number; reps: number }>();
+  const calls = week?.calls ?? 0;
+  const repCount = week?.reps ?? 0;
+  const weekday = new Date().getUTCDay(); // 0 Sun … 6 Sat
+  const elapsed = Math.min(Math.max(weekday === 0 ? 5 : weekday, 1), 5) / 5;
+  const expected = Math.round(repCount * 50 * elapsed);
+  if (repCount > 0 && weekday >= 2 && calls < expected * 0.6) {
+    flags.push({
+      kind: "pace",
+      severity: calls < expected * 0.3 ? "red" : "amber",
+      text: `Call pace is behind: ${calls} this week vs ~${expected} expected by now across ${repCount} reps.`,
+    });
+  }
+
+  const order = { red: 0, amber: 1 } as const;
+  flags.sort((a, b) => order[a.severity] - order[b.severity]);
+  return { flags, calls, reps: repCount, generated_at: new Date().toISOString() };
+});
+
 // ==================== Billing (Stripe) ====================
 // Admin-only invoicing straight from the CRM. Config-gated on STRIPE_SECRET_KEY
 // (set it in Vercel env) — until then the billing page shows setup steps and
