@@ -189,12 +189,20 @@ function TodayBoard({
               📞
             </span>
             <div className="min-w-0 flex-1">
+              {/* A winnable daily target, not the whole 2,400-company pool —
+                  "call 2403 companies" reads as impossible and demoralizing. */}
               <div className="text-sm font-semibold text-bone">
-                Call {toCall.length} {toCall.length === 1 ? "company" : "companies"}
+                {toCall.length > DAILY_CALL_TARGET
+                  ? `Your next ${DAILY_CALL_TARGET} calls`
+                  : `Call ${toCall.length} ${toCall.length === 1 ? "company" : "companies"}`}
               </div>
               <div className="truncate text-xs text-mute">
                 {callNames.join(", ")}
-                {toCall.length > callNames.length ? `, +${toCall.length - callNames.length} more` : ""}
+                {toCall.length > DAILY_CALL_TARGET
+                  ? ` — ${toCall.length.toLocaleString()} in the pool`
+                  : toCall.length > callNames.length
+                    ? `, +${toCall.length - callNames.length} more`
+                    : ""}
               </div>
             </div>
             <Link
@@ -319,9 +327,13 @@ function Dashboard() {
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <TrendCard
-          label="Deals created — 30 days"
+          label="Deals in motion — 30 days"
           value={String(created30)}
-          sub={`${created30 === 1 ? "1 new deal" : `${created30} new deals`} added`}
+          sub={
+            created30 === 1
+              ? "1 deal moved past To Call"
+              : `${created30} deals moved past To Call`
+          }
           data={d.dailyCreated}
           color="#38bdf8"
         />
@@ -607,10 +619,14 @@ function Dashboard() {
 // Friendly competition: everyone's calls, emails, and wins since Monday, ranked.
 // Goals are deliberately simple and team-wide — hit the bar, top the board.
 const WEEKLY_GOALS = { calls: 50, emails: 15, wins: 1 };
+// A winnable daily slice of the call pool for the Today card.
+const DAILY_CALL_TARGET = 20;
 
 function Leaderboard({ rows }: { rows: LeaderboardRow[] }) {
-  const active = rows.filter((r) => r.calls + r.emails + r.wins > 0);
-  const list = active.length > 0 ? active : rows;
+  // Only rank reps who've done something — a wall of 0-0-0 rows is dead
+  // weight. The quiet ones roll up into one line below the board.
+  const list = rows.filter((r) => r.calls + r.emails + r.wins > 0);
+  const idle = rows.length - list.length;
   const medals = ["🥇", "🥈", "🥉"];
   return (
     <Card className="mt-5 p-4">
@@ -656,6 +672,11 @@ function Leaderboard({ rows }: { rows: LeaderboardRow[] }) {
           })}
         </div>
       )}
+      {list.length > 0 && idle > 0 ? (
+        <p className="mt-3 text-xs text-faint">
+          {idle} {idle === 1 ? "rep hasn't" : "reps haven't"} logged anything yet this week.
+        </p>
+      ) : null}
     </Card>
   );
 }

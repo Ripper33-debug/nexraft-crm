@@ -154,8 +154,21 @@ function PipelinePage() {
     const prevStage = (deal?.stage as string) || "";
     const won = stage === "Launched" && prevStage !== "Launched";
     const wonName = won ? ((deal?.company_name as string) || (deal?.name as string)) : "";
+    // A win with no price is invisible on the revenue chart — ask for the
+    // number right at the moment of celebration, when the rep knows it cold.
+    let wonValue: number | undefined;
+    if (won && !Number(deal?.value)) {
+      const raw = window.prompt(
+        `Nice — what did ${wonName || "this deal"} close for? (build price in $)`,
+        "",
+      );
+      if (raw) {
+        const parsed = Number(raw.replace(/[^0-9.]/g, ""));
+        if (isFinite(parsed) && parsed > 0) wonValue = parsed;
+      }
+    }
     try {
-      await setDealStage({ data: { id, stage } });
+      await setDealStage({ data: { id, stage, value: wonValue } });
       await refresh();
       if (won) {
         fireConfetti();

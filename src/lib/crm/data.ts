@@ -679,7 +679,15 @@ async function logStageChange(
 }
 
 export const setDealStage = createServerFn({ method: "POST" })
-  .validator(z.object({ id: z.string(), stage: z.string() }))
+  .validator(
+    z.object({
+      id: z.string(),
+      stage: z.string(),
+      // Optional price set alongside the move — used when a rep marks an
+      // unpriced deal as won so revenue actually lands on the dashboard.
+      value: z.number().positive().optional(),
+    }),
+  )
   .handler(async ({ data }) => {
     const user = await requireUser();
     await ensureExtraSchema();
@@ -693,10 +701,11 @@ export const setDealStage = createServerFn({ method: "POST" })
     await db()
       .prepare(
         `UPDATE deals SET stage=?, updated_at=?, stage_changed_at=?,
+           value = COALESCE(?, value),
            lost_reason = CASE WHEN ? = '${LOST_STAGE}' THEN lost_reason ELSE NULL END
          WHERE id=?`,
       )
-      .bind(data.stage, now, now, data.stage, data.id)
+      .bind(data.stage, now, now, data.value ?? null, data.stage, data.id)
       .run();
     if (prev && prev.stage !== data.stage) {
       await logStageChange(user, data.id, prev.name, prev.stage, data.stage);
@@ -2208,11 +2217,15 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(async () =
     )
     .all<RenewalRow>();
 
-  // 30-day daily sparklines: deals created per day and won value per day.
+  // 30-day daily sparklines: real deals per day and won value per day.
+  // "Real" = a human moved it past the auto-entry "To Call" stage. Every
+  // imported lead lands in To Call as a deal, so counting raw creations
+  // inflated this into the thousands and made the number meaningless.
   const { results: createdRows } = await database
     .prepare(
-      `SELECT to_char(created_at::timestamptz, 'YYYY-MM-DD') AS d, COUNT(*)::int AS n
-       FROM deals WHERE created_at::timestamptz >= now() - INTERVAL '30 days'
+      `SELECT to_char(stage_changed_at::timestamptz, 'YYYY-MM-DD') AS d, COUNT(*)::int AS n
+       FROM deals WHERE stage <> 'To Call' AND archived_at IS NULL
+         AND stage_changed_at::timestamptz >= now() - INTERVAL '30 days'
        GROUP BY d`,
     )
     .all<{ d: string; n: number }>();
