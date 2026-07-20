@@ -1,5 +1,5 @@
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import {
   getTeamOverview,
@@ -57,29 +57,56 @@ type Detail = Awaited<ReturnType<typeof getUserDetail>>;
 // a selectable window. State (pipeline size) lives in the table above; this
 // panel measures MOTION: calls triaged, emails sent, records created, stage
 // moves, notes. The Total column ranks the hustle.
-// Admin lever for the research engine: each click researches the next batch
-// of un-researched companies (newest first) — the exact code path the nightly
-// cron uses, just on demand. Click until the queue reads zero.
+// Admin lever for the research engine: one click walks the ENTIRE backlog —
+// it keeps requesting batches until every company has a dossier (or you click
+// again to stop). Progress lives in the button label; the tab must stay open
+// while it works. Each batch is its own serverless call, so stopping midway
+// loses nothing — everything already researched is saved.
 function ResearchBatchButton() {
-  const [busy, setBusy] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [left, setLeft] = useState<number | null>(null);
+  // Ref, not state: the running loop's closure must see the stop click even
+  // though re-renders have replaced the component's locals since it started.
+  const stopRef = useRef(false);
   const run = async () => {
-    setBusy(true);
+    if (running) {
+      stopRef.current = true;
+      setRunning(false);
+      toast("⏸ Research stopped — everything done so far is saved.");
+      return;
+    }
+    setRunning(true);
+    stopRef.current = false;
+    let total = 0;
     try {
-      const res = await runResearchBatch();
+      // Loop until the queue is empty. Hard ceiling of 200 batches (1,200
+      // companies) so a bug can never leave this spinning forever.
+      for (let i = 0; i < 200; i++) {
+        const res = await runResearchBatch();
+        total += res.enriched;
+        setLeft(res.remaining);
+        if (stopRef.current) return;
+        if (res.remaining === 0 || res.enriched === 0) break;
+      }
       toast(
-        res.enriched === 0 && res.remaining === 0
-          ? "🔎 All caught up — every lead with a website has a dossier."
-          : `🔎 Researched ${res.enriched} lead${res.enriched === 1 ? "" : "s"} — ${res.remaining} still in the queue.`,
+        total === 0
+          ? "🔎 All caught up — every company already has a dossier."
+          : `🔎 Done — researched ${total} compan${total === 1 ? "y" : "ies"}. Selling points are on each company page.`,
       );
     } catch {
-      toast("Research batch failed — try again in a moment.");
+      toast(
+        total > 0
+          ? `Research hit a snag after ${total} companies — click again to continue.`
+          : "Research failed to start — try again in a moment.",
+      );
     } finally {
-      setBusy(false);
+      setRunning(false);
+      setLeft(null);
     }
   };
   return (
-    <Button variant="outline" onClick={run} disabled={busy}>
-      {busy ? "Digging…" : "🔎 Research leads"}
+    <Button variant="outline" onClick={run}>
+      {running ? (left !== null ? `Digging… ${left} left (click to stop)` : "Digging… (click to stop)") : "🔎 Research all"}
     </Button>
   );
 }

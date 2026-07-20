@@ -3929,38 +3929,41 @@ export const researchCompany = createServerFn({ method: "POST" })
     return { ok: true as const, dossier };
   });
 
-// Cron half of "auto on import": every sweep hit enriches a small batch of
-// the NEWEST never-researched companies with a website, so fresh leads have
-// intel waiting by the time a rep opens them. Capped hard — research is
-// multi-fetch work and the cron shares a serverless time budget.
+// Batch enrichment: research the newest never-researched companies so reps
+// open them to ready-made intel. Includes companies WITHOUT a website — they
+// get the "no website at all" selling point plus a ratings lookup, which is
+// exactly the pitch. Companies run in parallel (they're independent sites)
+// so a batch's wall time is roughly its slowest crawl, not the sum — that's
+// what keeps a batch inside the 60s serverless window.
 async function enrichNewLeads(cap = 5): Promise<number> {
   const { results } = await db()
     .prepare(
       `SELECT id, name, website, city FROM companies
        WHERE research IS NULL AND archived_at IS NULL
-         AND website IS NOT NULL AND website <> ''
        ORDER BY created_at DESC
        LIMIT ?`,
     )
     .bind(cap)
     .all<{ id: string; name: string; website: string | null; city: string | null }>();
   let enriched = 0;
-  for (const c of results ?? []) {
-    try {
-      const dossier = await researchCompanyCore(c);
-      await saveDossier(c.id, dossier, null);
-      enriched++;
-    } catch {
-      /* per-company best effort — a broken site must not stall the batch */
-    }
-  }
+  await Promise.allSettled(
+    (results ?? []).map(async (c) => {
+      try {
+        const dossier = await researchCompanyCore(c);
+        await saveDossier(c.id, dossier, null);
+        enriched++;
+      } catch {
+        /* per-company best effort — a broken site must not stall the batch */
+      }
+    }),
+  );
   return enriched;
 }
 
 // Admin trigger for the same batch the cron runs: research a chunk of the
-// un-researched backlog right now instead of waiting for tonight. Clicking
-// again simply continues — enrichNewLeads always takes the newest still-blank
-// companies, so repeated clicks walk the whole backlog.
+// un-researched backlog right now instead of waiting for tonight. The Team
+// page loops this until remaining hits zero, so "Research all" is just this
+// called repeatedly — each call is one serverless invocation, safely sized.
 export const runResearchBatch = createServerFn({ method: "POST" }).handler(async () => {
   await requireAdmin();
   await ensureExtraSchema();
@@ -3968,8 +3971,7 @@ export const runResearchBatch = createServerFn({ method: "POST" }).handler(async
   const r = await db()
     .prepare(
       `SELECT COUNT(*)::int AS n FROM companies
-       WHERE research IS NULL AND archived_at IS NULL
-         AND website IS NOT NULL AND website <> ''`,
+       WHERE research IS NULL AND archived_at IS NULL`,
     )
     .first<{ n: number }>();
   return { ok: true as const, enriched, remaining: r?.n ?? 0 };
