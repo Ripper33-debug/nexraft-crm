@@ -306,13 +306,21 @@ function Dashboard() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-bone">
-            {greeting}, {firstName}
+          <h1 className="font-display text-3xl font-extrabold uppercase leading-none tracking-[0.01em]">
+            <span className="text-sheen">
+              {greeting}, {firstName}
+            </span>
+            <span className="text-signal">.</span>
           </h1>
-          <p className="mt-1 text-sm text-mute">Here's how your team's pipeline is tracking.</p>
+          {/* Terminal-style system line with a blinking caret — Command Deck. */}
+          <p className="nx-caret mt-2 font-mono text-xs tracking-wide text-faint">
+            <span className="text-signal">{"// "}</span>
+            here's how your team's pipeline is tracking
+          </p>
         </div>
+        <Radar />
       </div>
 
       <LiveTicker feed={d.feed as FeedRow[]} />
@@ -621,6 +629,34 @@ function Dashboard() {
 const WEEKLY_GOALS = { calls: 50, emails: 15, wins: 1 };
 // A winnable daily slice of the call pool for the Today card.
 const DAILY_CALL_TARGET = 20;
+
+// Command Deck radar: decorative sweep with lead "blips" — pure theatre, but
+// it sells the mission-control feel the moment the dashboard opens.
+function Radar() {
+  const blips: [string, string][] = [
+    ["30%", "60%"],
+    ["62%", "38%"],
+    ["48%", "72%"],
+    ["70%", "58%"],
+  ];
+  return (
+    <div
+      aria-hidden="true"
+      className="relative hidden h-28 w-28 shrink-0 overflow-hidden rounded-full border border-signal/25 bg-[radial-gradient(circle,rgba(255,77,28,0.07),transparent_70%)] md:block"
+    >
+      <span className="absolute inset-[25%] rounded-full border border-signal/15" />
+      <span className="absolute inset-[45%] rounded-full border border-signal/10" />
+      <span className="nx-radar-sweep" />
+      {blips.map(([top, left], i) => (
+        <span
+          key={i}
+          className="absolute h-1 w-1 rounded-full bg-signal shadow-[0_0_6px_rgba(255,77,28,0.9)]"
+          style={{ top, left }}
+        />
+      ))}
+    </div>
+  );
+}
 
 function Leaderboard({ rows }: { rows: LeaderboardRow[] }) {
   // Only rank reps who've done something — a wall of 0-0-0 rows is dead

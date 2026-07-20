@@ -159,15 +159,14 @@ function NavLink({
       to={item.to}
       onClick={onNavigate}
       className={
-        "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150 md:py-2 " +
+        // Command Deck nav: mono uppercase readouts with a hard orange rail on
+        // the active item — mission control, not a consumer app.
+        "group relative flex items-center gap-3 rounded-r-md border-l-2 px-3 py-2.5 font-mono text-[11px] font-medium uppercase tracking-[0.1em] transition-all duration-150 md:py-2 " +
         (active
-          ? "bg-gradient-to-r from-signal-soft to-signal-soft/30 text-signal shadow-[inset_0_0_0_1px_rgba(255,77,28,0.18)]"
-          : "text-mute hover:bg-surface-2 hover:text-bone")
+          ? "border-signal bg-gradient-to-r from-signal-soft/70 to-transparent text-signal"
+          : "border-transparent text-faint hover:bg-surface-2 hover:text-bone")
       }
     >
-      {active ? (
-        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-signal shadow-[0_0_8px_rgba(255,77,28,0.7)]" />
-      ) : null}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d={item.icon} />
       </svg>

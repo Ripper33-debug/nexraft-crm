@@ -1,9 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { getDeals, getActivities, getCompanies, getContacts } from "../../lib/crm/data";
+import {
+  getDeals,
+  getActivities,
+  getCompanies,
+  getContacts,
+  setCompanyCallOutcome,
+} from "../../lib/crm/data";
 import {
   Card,
+  cx,
   Eyebrow,
   PageHeader,
   Pill,
@@ -11,6 +18,7 @@ import {
   SummaryCard,
   PageSkeleton,
 } from "../../components/crm/ui";
+import { toast } from "../../components/crm/toast";
 import {
   daysBetween,
   formatMoney,
@@ -259,6 +267,13 @@ function TodayPage() {
         subtitle="Everything with your name on it that needs a nudge today — follow-ups, deals going cold, renewals, and hot leads up for grabs."
       />
 
+      <ArcadeDeck
+        leads={myLeads}
+        activities={activities as Row[]}
+        meId={meId}
+        repFirst={firstName}
+      />
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <SummaryCard
           label="Leads to work"
@@ -490,5 +505,191 @@ function TodayPage() {
         })}
       </Section>
     </div>
+  );
+}
+
+// ---- Arcade deck -------------------------------------------------------------
+// One company at a time, three big buttons, a mission bar and a streak flame.
+// Command Deck styling, card-game feel: a rep can't get lost because there's
+// only ever one thing to do. Outcomes hit the same triage backend as the Calls
+// board (setCompanyCallOutcome), so stats and the leaderboard stay honest.
+const ARCADE_DAILY_TARGET = 20;
+
+function ArcadeDeck({
+  leads,
+  activities,
+  meId,
+  repFirst,
+}: {
+  leads: { row: Row; outcome: string }[];
+  activities: Row[];
+  meId: string | null;
+  repFirst: string;
+}) {
+  // Companies triaged in this session — removed from the deck locally so we
+  // never re-shuffle mid-run, plus they bump the mission bar instantly.
+  const [handled, setHandled] = useState<Set<string>>(() => new Set());
+  const [phase, setPhase] = useState<"in" | "out-left" | "out-up">("in");
+  const [busy, setBusy] = useState(false);
+
+  // Calls already logged today + streak, from my Call activities. Computed
+  // after mount so SSR and client agree on "today".
+  const [baseToday, setBaseToday] = useState(0);
+  const [streak, setStreak] = useState(0);
+  useEffect(() => {
+    if (!meId) return;
+    const days = new Set<string>();
+    for (const a of activities) {
+      if (a.type !== "Call" || a.owner_id !== meId || !a.completed_at) continue;
+      days.add(String(a.completed_at).slice(0, 10));
+    }
+    const key = (d: Date) => d.toISOString().slice(0, 10);
+    const today = new Date();
+    setBaseToday(days.has(key(today)) ? 1 : 0);
+    let s = 0;
+    const cursor = new Date(today);
+    if (!days.has(key(cursor))) cursor.setDate(cursor.getDate() - 1); // streak survives until today ends
+    while (days.has(key(cursor))) {
+      s += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    setStreak(s);
+    // Count today's actual call volume, not just "did they call at all".
+    let n = 0;
+    for (const a of activities) {
+      if (a.type === "Call" && a.owner_id === meId && String(a.completed_at ?? "").slice(0, 10) === key(today)) n += 1;
+    }
+    setBaseToday(n);
+  }, [activities, meId]);
+
+  const deck = leads.filter((l) => !handled.has(l.row.id as string));
+  const current = deck[0];
+  const done = baseToday + handled.size;
+  const pct = Math.min(100, Math.round((done / ARCADE_DAILY_TARGET) * 100));
+
+  async function play(outcome: "no_answer" | "maybe" | "interested") {
+    if (!current || busy) return;
+    const id = current.row.id as string;
+    const name = (current.row.name as string) || "Company";
+    setBusy(true);
+    setPhase(outcome === "interested" ? "out-up" : "out-left");
+    try {
+      await setCompanyCallOutcome({ data: { id, outcome } });
+      setTimeout(() => {
+        setHandled((prev) => new Set(prev).add(id));
+        setPhase("in");
+        setBusy(false);
+      }, 320);
+      if (outcome === "interested") toast(`🔥 ${name} is interested — deal created!`);
+      else if (outcome === "maybe") toast(`${name} → callback pile`, "info");
+      else toast(`${name} → no answer, we'll retry`, "info");
+    } catch {
+      setPhase("in");
+      setBusy(false);
+      toast("Couldn't save that — try again", "error");
+    }
+  }
+
+  if (leads.length === 0) return null;
+
+  return (
+    <Card className="overflow-hidden border-signal/25">
+      {/* Mission strip */}
+      <div className="flex flex-wrap items-center gap-3 border-b border-line bg-signal-soft/20 px-4 py-3">
+        <Eyebrow>🎮 Today's mission</Eyebrow>
+        <div className="h-2 min-w-[120px] flex-1 overflow-hidden rounded-full bg-surface-2 shadow-[inset_0_1px_3px_rgba(0,0,0,0.5)]">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-signal-strong via-signal to-[#ff8a5c] shadow-[0_0_12px_rgba(255,77,28,0.7)] transition-[width] duration-500"
+            style={{ width: `${Math.max(2, pct)}%` }}
+          />
+        </div>
+        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-mute">
+          <span className="font-bold text-signal">{done}</span>/{ARCADE_DAILY_TARGET} calls
+        </span>
+        {streak > 0 ? (
+          <span className="font-mono text-[11px] text-mute" title="Days in a row with at least one call">
+            <span className="animate-pulse">🔥</span> {streak}-day streak
+          </span>
+        ) : null}
+      </div>
+
+      {current ? (
+        <>
+          {/* The card */}
+          <div className="px-4 py-5 sm:px-6" style={{ perspective: "1200px" }}>
+            <div
+              className={cx(
+                "relative mx-auto max-w-xl rounded-2xl border border-line-strong bg-gradient-to-br from-[#16161d] to-surface p-6 shadow-[0_30px_70px_-30px_rgba(0,0,0,0.9),0_0_50px_-30px_rgba(255,77,28,0.6)] transition-all duration-300",
+                phase === "out-left" && "-translate-x-[120%] rotate-[-6deg] opacity-0",
+                phase === "out-up" && "-translate-y-16 rotate-[3deg] scale-105 opacity-0",
+              )}
+            >
+              <span className="pointer-events-none absolute right-0 top-0 h-3 w-3 rounded-tr-2xl border-r-2 border-t-2 border-signal" />
+              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-faint">
+                Card {handled.size + 1} of {leads.length}
+                {current.outcome === "no_answer" ? " · callback" : current.outcome === "maybe" ? " · warm" : " · fresh"}
+              </div>
+              <div className="font-display mt-2 text-2xl font-extrabold leading-tight text-bone sm:text-3xl">
+                {(current.row.name as string) || "Untitled company"}
+              </div>
+              <div className="mt-2 font-mono text-[11px] uppercase tracking-[0.08em] text-faint">
+                {[(current.row.industry as string) || null, (current.row.city as string) || null]
+                  .filter(Boolean)
+                  .join(" · ") || "No details on file"}
+              </div>
+              <div className="mt-4 rounded-r-lg border-l-2 border-signal bg-signal-soft/30 px-4 py-3 text-sm leading-relaxed text-mute">
+                "Hi, this is {repFirst || "..."} from Nexraft — we build websites for local
+                businesses. I'd love to show you what we'd do with{" "}
+                {(current.row.name as string) || "your business"}…"
+              </div>
+              <div className="font-display mt-4 text-xl font-extrabold tracking-wide text-signal">
+                {(current.row.phone as string) ? `☎ ${current.row.phone as string}` : "No phone on file — try Discover"}
+              </div>
+            </div>
+          </div>
+
+          {/* The three buttons */}
+          <div className="flex justify-center gap-3 px-4 pb-5">
+            <button
+              onClick={() => play("no_answer")}
+              disabled={busy}
+              className="flex w-36 flex-col items-center gap-1 rounded-xl border border-line bg-surface-2/60 py-3 text-sm font-semibold text-mute transition-all hover:-translate-y-0.5 hover:border-line-strong hover:text-bone disabled:opacity-50"
+            >
+              <span className="text-xl">📵</span>No answer
+            </button>
+            <button
+              onClick={() => play("maybe")}
+              disabled={busy}
+              className="flex w-36 flex-col items-center gap-1 rounded-xl border border-line bg-surface-2/60 py-3 text-sm font-semibold text-mute transition-all hover:-translate-y-0.5 hover:border-line-strong hover:text-bone disabled:opacity-50"
+            >
+              <span className="text-xl">📅</span>Callback
+            </button>
+            <button
+              onClick={() => play("interested")}
+              disabled={busy}
+              className="flex w-36 flex-col items-center gap-1 rounded-xl bg-gradient-to-b from-[#ff6a3c] to-signal-strong py-3 text-sm font-bold text-white shadow-[0_8px_30px_rgba(255,77,28,0.45)] transition-all hover:-translate-y-0.5 hover:shadow-[0_12px_40px_rgba(255,77,28,0.6)] disabled:opacity-50"
+            >
+              <span className="text-xl">🔥</span>Interested!
+            </button>
+          </div>
+          <div className="pb-4 text-center">
+            <Link to="/calls" className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint hover:text-signal">
+              Need the full script + notes? Open call mode →
+            </Link>
+          </div>
+        </>
+      ) : (
+        <div className="flex items-center justify-center gap-3 px-4 py-8">
+          <span className="text-2xl">🏆</span>
+          <div>
+            <div className="text-sm font-semibold text-bone">Deck cleared — {handled.size} triaged this run</div>
+            <div className="text-xs text-mute">
+              Grab more from <Link to="/opportunities" className="text-signal hover:underline">Opportunities</Link> or{" "}
+              <Link to="/discover" className="text-signal hover:underline">Discover</Link>.
+            </div>
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }

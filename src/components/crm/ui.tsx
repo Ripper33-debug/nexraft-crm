@@ -236,13 +236,21 @@ export function SummaryCard({
       onPointerMove={onMove}
       onPointerLeave={onLeave}
       className={cx(
-        "nx-spot group relative overflow-hidden rounded-xl border p-4 transition-[border-color,box-shadow,transform] duration-300 will-change-transform",
+        "nx-spot group relative overflow-hidden rounded-md border p-4 transition-[border-color,box-shadow,transform] duration-300 will-change-transform",
         accent
           ? "border-signal/25 bg-gradient-to-br from-signal-soft/50 via-surface to-surface shadow-[0_8px_30px_-18px_rgba(255,77,28,0.6)] hover:shadow-[0_14px_36px_-16px_rgba(255,77,28,0.7)]"
           : "border-line bg-gradient-to-br from-[#14141a] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.3)] hover:border-line-strong hover:shadow-[0_12px_30px_-16px_rgba(0,0,0,0.7)]",
       )}
     >
       <span className="nx-edge" aria-hidden="true" />
+      {/* Command Deck corner bracket — the "instrument panel" tell. */}
+      <span
+        aria-hidden="true"
+        className={cx(
+          "pointer-events-none absolute right-0 top-0 h-2.5 w-2.5 border-r-2 border-t-2",
+          accent ? "border-signal" : "border-line-strong",
+        )}
+      />
       {accent ? (
         <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-signal/20 blur-2xl" />
       ) : null}
@@ -252,7 +260,7 @@ export function SummaryCard({
       </Eyebrow>
       <div
         className={cx(
-          "tnum font-display mt-2 text-[1.7rem] font-semibold leading-none tracking-tight",
+          "tnum mt-2 font-mono text-[1.55rem] font-semibold leading-none tracking-tight",
           accent ? "nx-molten" : "text-bone",
         )}
       >
