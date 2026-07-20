@@ -225,14 +225,39 @@ function buildScript(opts: {
   }
   sections.push({ heading: "Ask about them", lines: ask });
 
-  // --- Handling pushback (only when money is on the table) -----------------
+  // --- Closer mode (only when money is on the table) -----------------------
+  // Proposal/Negotiation calls are a different sport: the pitch is done, the
+  // number is out there, and the only job is getting to a yes. This section
+  // reads the deal itself — value, whether they've opened the proposal — and
+  // arms the rep with price justification and a concrete close.
   if (stage === "Proposal" || stage === "Negotiation") {
+    const closer: Line[] = [];
+    const viewed = deal ? String(deal.proposal_status ?? "") === "viewed" || Boolean(deal.proposal_viewed_at) : false;
+    const sentNotViewed = deal ? String(deal.proposal_status ?? "") === "sent" && !viewed : false;
+    if (viewed) {
+      closer.push({ kind: "tip", text: `🔥 They HAVE opened the proposal${deal?.proposal_viewed_at ? ` (${relativeTime(String(deal.proposal_viewed_at))})` : ""} — don't re-pitch. Ask what stood out.` });
+      closer.push({ kind: "ask", text: `I saw you had a chance to look things over — what stood out to you?` });
+    } else if (sentNotViewed) {
+      closer.push({ kind: "tip", text: `They haven't opened the proposal yet — walk them through it live on this call instead of waiting.` });
+    }
+    const value = deal ? Number(deal.value) || 0 : 0;
+    if (value > 0) {
+      const perDay = Math.max(1, Math.round(value / 365));
+      closer.push({ kind: "say", text: `The ${formatMoney(value)} build works out to about ${formatMoney(perDay)} a day over the first year — one extra customer a month covers it.` });
+    } else {
+      closer.push({ kind: "say", text: `Most clients land between ${formatMoney(1500)} and ${formatMoney(4000)} for the build — one or two extra jobs a month covers it.` });
+    }
+    closer.push({ kind: "tip", text: `On price: never discount first. Trade instead — "I can't move the price, but I can add a page / start sooner."` });
+    closer.push({ kind: "tip", text: `Silence is your friend. Ask for the business, then stop talking.` });
+    sections.push({ heading: "Closer mode", lines: closer });
+
     sections.push({
       heading: "If they hesitate",
       lines: [
         { kind: "tip", text: `On price: steer to value — the site pays for itself in leads, not the sticker.` },
         { kind: "tip", text: `On timing: offer to lock the slot now and start when they're ready.` },
         { kind: "tip", text: `On trust: point to the portfolio and offer a reference from a similar client.` },
+        { kind: "tip", text: `Before hanging up: get a yes, a no, or a date. "Maybe" with no date is a slow no.` },
       ],
     });
   }

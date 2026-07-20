@@ -197,6 +197,28 @@ function TodayPage() {
     chip: string;
     tone: "danger" | "warn" | "signal" | "neutral";
   };
+  // Proposals gone quiet: sent (or even opened!) 3+ days ago with no movement.
+  // These outrank everything except broken promises — money is already on the
+  // table, the prospect just needs a nudge before the excitement cools off.
+  const myQuietProposals = useMemo(() => {
+    return (deals as Row[])
+      .filter((d) => {
+        if (!meId || d.owner_id !== meId) return false;
+        const stage = d.stage as string;
+        if (stage !== "Proposal" && stage !== "Negotiation") return false;
+        const status = String(d.proposal_status ?? "none");
+        if (status !== "sent" && status !== "viewed") return false;
+        const sent = d.proposal_sent_at as string | null;
+        return Boolean(sent) && daysBetween(sent as string) >= 3;
+      })
+      .map((d) => ({
+        row: d,
+        days: daysBetween(d.proposal_sent_at as string),
+        viewed: String(d.proposal_status) === "viewed" || Boolean(d.proposal_viewed_at),
+      }))
+      .sort((a, b) => Number(b.viewed) - Number(a.viewed) || b.days - a.days);
+  }, [deals, meId]);
+
   const plan = useMemo<PlanItem[]>(() => {
     const items: PlanItem[] = [];
     for (const f of myFollowups.filter((x) => x.overdue)) {
@@ -207,6 +229,19 @@ function TodayPage() {
         to: "/activities",
         chip: "Overdue",
         tone: "danger",
+      });
+    }
+    for (const p of myQuietProposals) {
+      items.push({
+        key: `pr-${p.row.id as string}`,
+        title: (p.row.name as string) || "Untitled deal",
+        reason: p.viewed
+          ? `They OPENED your proposal and went quiet — call today, they're deciding right now`
+          : `Proposal out ${p.days}d with no reply — chase it before it goes cold`,
+        to: "/deals/$dealId",
+        params: { dealId: p.row.id as string },
+        chip: p.viewed ? "🔥 Opened" : "Chase proposal",
+        tone: p.viewed ? "danger" : "warn",
       });
     }
     for (const l of myLeads.filter((x) => x.outcome === "no_answer")) {
@@ -251,7 +286,7 @@ function TodayPage() {
       });
     }
     return items.slice(0, 8);
-  }, [myFollowups, myLeads, myStale]);
+  }, [myFollowups, myLeads, myStale, myQuietProposals]);
 
   const nothing =
     myLeads.length === 0 &&

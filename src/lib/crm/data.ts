@@ -5450,6 +5450,165 @@ export const getSharedProject = createServerFn({ method: "GET" })
     return row ?? null;
   });
 
+// ---- Instant proposal pages --------------------------------------------------
+// A rep clicks "Send proposal" on a deal → gets an unguessable public link to a
+// branded proposal page (packages, pricing, why-us, their pitch angles). The
+// FIRST time the prospect opens it we stamp proposal_viewed_at, flip the deal
+// to 'viewed', and drop a notification in the rep's tray — so the rep knows the
+// exact moment their proposal is being read and can call while it's warm.
+
+export const getProposalLink = createServerFn({ method: "POST" })
+  .validator(z.object({ dealId: z.string() }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    const row = await db()
+      .prepare(`SELECT proposal_token, proposal_status FROM deals WHERE id = ? AND archived_at IS NULL`)
+      .bind(data.dealId)
+      .first<{ proposal_token: string | null; proposal_status: string | null }>();
+    if (!row) throw new Error("NOT_FOUND");
+    let token = row.proposal_token;
+    if (!token) {
+      token = `${uid()}${uid()}`;
+      await db().prepare(`UPDATE deals SET proposal_token = ? WHERE id = ?`).bind(token, data.dealId).run();
+    }
+    // Creating/copying the link counts as sending (unless it's already further
+    // along) so the chaser + closer cues have a real clock to run off.
+    if (!row.proposal_status || row.proposal_status === "none") {
+      const now = new Date().toISOString();
+      await db()
+        .prepare(`UPDATE deals SET proposal_status = 'sent', proposal_sent_at = ?, updated_at = ? WHERE id = ?`)
+        .bind(now, now, data.dealId)
+        .run();
+      await logEvent({
+        actorId: user.id,
+        verb: "sent proposal",
+        entityType: "deal",
+        entityId: data.dealId,
+        summary: `${user.name} sent a proposal link`,
+      });
+    }
+    return { token };
+  });
+
+export type SharedProposal = {
+  deal_name: string;
+  value: number;
+  monthly_value: number;
+  company_name: string | null;
+  company_city: string | null;
+  company_industry: string | null;
+  company_website: string | null;
+  research: string | null;
+  rep_name: string | null;
+  proposal_sent_at: string | null;
+};
+
+// PUBLIC by design (token IS the credential — same contract as getSharedProject).
+// Side effect: first open marks the proposal viewed + notifies the deal owner.
+export const getSharedProposal = createServerFn({ method: "GET" })
+  .validator(z.object({ token: z.string().min(10) }))
+  .handler(async ({ data }) => {
+    await ensureExtraSchema();
+    const row = await db()
+      .prepare(
+        `SELECT d.id, d.name AS deal_name, d.value, d.monthly_value, d.owner_id,
+                d.proposal_status, d.proposal_viewed_at, d.proposal_sent_at,
+                c.name AS company_name, c.city AS company_city, c.industry AS company_industry,
+                c.website AS company_website, c.research,
+                u.name AS rep_name
+           FROM deals d
+           LEFT JOIN companies c ON c.id = d.company_id
+           LEFT JOIN users u ON u.id = d.owner_id
+          WHERE d.proposal_token = ? AND d.archived_at IS NULL`,
+      )
+      .bind(data.token)
+      .first<SharedProposal & { id: string; owner_id: string | null; proposal_status: string | null; proposal_viewed_at: string | null }>();
+    if (!row) return null;
+    if (!row.proposal_viewed_at) {
+      const now = new Date().toISOString();
+      // Don't downgrade a signed deal back to 'viewed'.
+      const flip = !row.proposal_status || row.proposal_status === "none" || row.proposal_status === "sent";
+      await db()
+        .prepare(
+          flip
+            ? `UPDATE deals SET proposal_viewed_at = ?, proposal_status = 'viewed' WHERE id = ?`
+            : `UPDATE deals SET proposal_viewed_at = ? WHERE id = ?`,
+        )
+        .bind(now, row.id)
+        .run();
+      if (row.owner_id) {
+        await notify({
+          userId: row.owner_id,
+          actorId: null,
+          kind: "proposal_viewed",
+          entityType: "deal",
+          entityId: row.id,
+          summary: `🔥 ${row.company_name ?? "A prospect"} just opened your proposal — call while it's warm`,
+        });
+      }
+    }
+    return {
+      deal_name: row.deal_name,
+      value: Number(row.value) || 0,
+      monthly_value: Number(row.monthly_value) || 0,
+      company_name: row.company_name,
+      company_city: row.company_city,
+      company_industry: row.company_industry,
+      company_website: row.company_website,
+      research: row.research,
+      rep_name: row.rep_name,
+      proposal_sent_at: row.proposal_sent_at,
+    } satisfies SharedProposal;
+  });
+
+// ---- Sneak-peek teaser pages -------------------------------------------------
+// Per-company public page that renders a designed "what your new homepage could
+// look like" mock built from the research dossier. Reps drop the link in an
+// email — a prospect seeing their OWN business looking expensive closes deals.
+
+export const getTeaserLink = createServerFn({ method: "POST" })
+  .validator(z.object({ companyId: z.string() }))
+  .handler(async ({ data }) => {
+    await requireUser();
+    await ensureExtraSchema();
+    const row = await db()
+      .prepare(`SELECT teaser_token FROM companies WHERE id = ? AND archived_at IS NULL`)
+      .bind(data.companyId)
+      .first<{ teaser_token: string | null }>();
+    if (!row) throw new Error("NOT_FOUND");
+    let token = row.teaser_token;
+    if (!token) {
+      token = `${uid()}${uid()}`;
+      await db().prepare(`UPDATE companies SET teaser_token = ? WHERE id = ?`).bind(token, data.companyId).run();
+    }
+    return { token };
+  });
+
+export type SharedTeaser = {
+  name: string;
+  industry: string | null;
+  city: string | null;
+  phone: string | null;
+  website: string | null;
+  research: string | null;
+};
+
+// PUBLIC by design (token IS the credential). Client-safe fields only.
+export const getSharedTeaser = createServerFn({ method: "GET" })
+  .validator(z.object({ token: z.string().min(10) }))
+  .handler(async ({ data }) => {
+    await ensureExtraSchema();
+    const row = await db()
+      .prepare(
+        `SELECT name, industry, city, phone, website, research
+           FROM companies WHERE teaser_token = ? AND archived_at IS NULL`,
+      )
+      .bind(data.token)
+      .first<SharedTeaser>();
+    return row ?? null;
+  });
+
 // ---- Weekly rep leaderboard --------------------------------------------------
 // Friendly competition for the dashboard: everyone's calls, emails, and wins
 // since Monday. Calls = logged call activities + calls-board triages (each path

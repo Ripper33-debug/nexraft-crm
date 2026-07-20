@@ -75,6 +75,14 @@ export function ensureExtraSchema(): Promise<void> {
       // Proposal tracking on deals: 'none' | 'sent' | 'viewed' | 'signed' (+ sent date).
       `ALTER TABLE deals ADD COLUMN IF NOT EXISTS proposal_status TEXT`,
       `ALTER TABLE deals ADD COLUMN IF NOT EXISTS proposal_sent_at TEXT`,
+      // Shareable proposal pages: a public token per deal (lazy-created when the
+      // rep clicks "Send proposal") + when the prospect first opened the page.
+      // Opening it flips proposal_status to 'viewed' and notifies the deal owner.
+      `ALTER TABLE deals ADD COLUMN IF NOT EXISTS proposal_token TEXT`,
+      `ALTER TABLE deals ADD COLUMN IF NOT EXISTS proposal_viewed_at TEXT`,
+      // Sneak-peek teaser pages: a public token per company that renders a
+      // "what your new site could look like" mock homepage from the dossier.
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS teaser_token TEXT`,
       // Per-user notifications (record handed off / shared with you).
       `CREATE TABLE IF NOT EXISTS notifications (
          id TEXT PRIMARY KEY,

@@ -1,6 +1,8 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { useState } from "react";
 
-import { getDeals } from "../../lib/crm/data";
+import { getDeals, getProposalLink } from "../../lib/crm/data";
+import { toast } from "../../components/crm/toast";
 import {
   Button,
   Card,
@@ -46,6 +48,39 @@ function parseLinks(raw: unknown): { label: string; url: string }[] {
   }
 }
 
+// Copies the public /proposal/<token> link. First click also flips the deal to
+// proposal 'sent' server-side, which starts the 3-day chaser clock in My Day.
+function SendProposalButton({ dealId, status, viewedAt }: { dealId: string; status: string; viewedAt: string | null }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const sent = status !== "none";
+
+  async function run() {
+    setBusy(true);
+    try {
+      const { token } = await getProposalLink({ data: { dealId } });
+      const url = `${window.location.origin}/proposal/${token}`;
+      try {
+        await navigator.clipboard.writeText(url);
+        toast("📋 Proposal link copied — paste it into your email. You'll get pinged the moment they open it.", "success");
+      } catch {
+        prompt("Copy your proposal link:", url);
+      }
+      router.invalidate();
+    } catch {
+      toast("Couldn't create the proposal link — try again.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Button size="sm" onClick={run} disabled={busy} variant={sent ? "outline" : undefined}>
+      {busy ? "Working…" : viewedAt ? "Copy proposal link" : sent ? "Copy proposal link" : "📨 Send proposal"}
+    </Button>
+  );
+}
+
 function DealDetail() {
   const { deal } = Route.useLoaderData();
   const { dealId } = Route.useParams();
@@ -87,10 +122,20 @@ function DealDetail() {
             {proposal !== "none" ? <Pill tone="signal">Proposal {proposal}</Pill> : null}
           </div>
         </div>
-        <Link to="/pipeline" search={{ focus: dealId, new: undefined }}>
-          <Button size="sm" variant="outline">Edit</Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <SendProposalButton dealId={dealId} status={proposal} viewedAt={d.proposal_viewed_at as string | null} />
+          <Link to="/pipeline" search={{ focus: dealId, new: undefined }}>
+            <Button size="sm" variant="outline">Edit</Button>
+          </Link>
+        </div>
       </div>
+
+      {d.proposal_viewed_at ? (
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-signal/40 bg-signal-soft px-3 py-2 text-xs text-bone">
+          <span className="h-1.5 w-1.5 rounded-full bg-signal shadow-[0_0_8px_rgba(255,77,28,0.9)]" />
+          They opened the proposal {relativeTime(d.proposal_viewed_at as string)} — that&apos;s your window. Call and ask what stood out.
+        </div>
+      ) : null}
 
       <div className="mt-5 grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">

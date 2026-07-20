@@ -153,6 +153,25 @@ Nexraft`,
     }),
   },
   {
+    id: "proposal_chase",
+    label: "Proposal chase",
+    hint: "Proposal out 3+ days, no reply",
+    build: ({ company, firstName, repName }) => ({
+      subject: `Any questions on the proposal, ${company}?`,
+      body: `${greet(firstName)}
+
+${repFirst(repName)} from Nexraft — I wanted to check in on the proposal I sent over for ${company}'s new website. No rush at all, I just don't want it sitting in limbo if you had questions.
+
+Most people have one or two things they'd like adjusted — pages, timing, budget — and that's exactly the conversation I'd love to have. If something's not sitting right, tell me straight and I'll rework it.
+
+Would a quick 10-minute call this week help? Just reply with a time. And if you're ready to go, even easier — say the word and I'll get your kickoff scheduled.
+
+Best,
+${repName || "The Nexraft team"}
+Nexraft`,
+    }),
+  },
+  {
     id: "launched",
     label: "Site is live",
     hint: "Celebrate a launch with the client",
