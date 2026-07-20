@@ -11,6 +11,7 @@ import {
   importCompanies,
   verifyCompanyWebsites,
   claimCompany,
+  backfillResearchEmails,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, PageSkeleton } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
@@ -83,6 +84,7 @@ function CompaniesPage() {
   const [callFilter, setCallFilter] = useState<string>("");
   const [calling, setCalling] = useState<Row | null>(null);
   const [checkingSites, setCheckingSites] = useState(false);
+  const [pullingEmails, setPullingEmails] = useState(false);
 
   // Deep-link: a global-search result routes here with ?focus=<id> to auto-open.
   useEffect(() => {
@@ -146,7 +148,7 @@ function CompaniesPage() {
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
       <PageHeader
         title="Companies"
-        subtitle={`${(companies as Row[]).length} accounts · each has one owner to avoid overlap`}
+        subtitle={`${(companies as Row[]).length} accounts · ${(companies as Row[]).filter((c) => Number(c.email_contacts ?? 0) > 0).length} with an email on file · each has one owner`}
         actions={
           <>
             <ImportCsvButton
@@ -166,6 +168,31 @@ function CompaniesPage() {
             {isAdmin ? (
               <Button variant="outline" onClick={() => exportCompanies(companies as Row[])}>
                 Export CSV
+              </Button>
+            ) : null}
+            {isAdmin ? (
+              <Button
+                variant="outline"
+                disabled={pullingEmails}
+                onClick={async () => {
+                  setPullingEmails(true);
+                  try {
+                    const res = await backfillResearchEmails();
+                    toast(
+                      res.created > 0
+                        ? `Found ${res.created} email${res.created === 1 ? "" : "s"} in research notes and saved them as contacts — they're usable in Outreach now.`
+                        : `Checked ${res.scanned} researched companies — no new emails to pull.`,
+                      res.created > 0 ? "success" : "info",
+                    );
+                    void router.invalidate();
+                  } catch {
+                    toast("Couldn't pull emails from research — try again.", "error");
+                  } finally {
+                    setPullingEmails(false);
+                  }
+                }}
+              >
+                {pullingEmails ? "Pulling emails…" : "Pull emails from research"}
               </Button>
             ) : null}
             <Button
@@ -296,6 +323,11 @@ function CompaniesPage() {
                       >
                         {c.name as string}
                       </Link>
+                      {Number(c.email_contacts ?? 0) > 0 ? (
+                        <span className="ml-1.5 align-middle text-[11px] text-faint" title="Has an email on file — reachable from Outreach">
+                          ✉
+                        </span>
+                      ) : null}
                       {c.call_outcome === "signed" ? (
                         <span className="ml-2 align-middle rounded-full bg-signal px-1.5 py-0.5 text-[10px] font-semibold text-ink">Signed</span>
                       ) : c.call_outcome === "interested" ? (

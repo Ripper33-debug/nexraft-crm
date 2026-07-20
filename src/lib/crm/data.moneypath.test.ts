@@ -122,3 +122,21 @@ describe("claiming from the pool stays safe", () => {
     expect(body).toContain("UPDATE deals");
   });
 });
+
+describe("research-email backfill is safe to rerun", () => {
+  const body = fnBody("backfillResearchEmails");
+  it("is admin-only and logged", () => {
+    expect(body).toContain("requireAdmin(");
+    expect(body).toContain("logEvent(");
+  });
+  it("only targets companies that have NO emailable contact yet", () => {
+    expect(body).toContain("NOT EXISTS");
+    expect(body).toContain("research IS NOT NULL");
+  });
+  it("never duplicates an address already in the book", () => {
+    expect(body).toContain("lower(email) = ?");
+  });
+  it("validates the address shape before creating a contact", () => {
+    expect(body).toContain("emailShape");
+  });
+});

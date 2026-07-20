@@ -83,6 +83,7 @@ export type CompanyRow = {
   owner_name: string | null;
   deal_count: number;
   won_deals: number;
+  email_contacts: number;
 };
 
 export type ContactRow = {
@@ -240,7 +241,8 @@ export const getCompanies = createServerFn({ method: "GET" }).handler(async () =
   const stmt = db().prepare(
     `SELECT c.*, u.name AS owner_name,
         (SELECT COUNT(*)::int FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL) AS deal_count,
-        (SELECT COUNT(*)::int FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL AND d.stage = '${WON_STAGE}') AS won_deals
+        (SELECT COUNT(*)::int FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL AND d.stage = '${WON_STAGE}') AS won_deals,
+        (SELECT COUNT(*)::int FROM contacts e WHERE e.company_id = c.id AND e.archived_at IS NULL AND e.email IS NOT NULL AND e.email <> '') AS email_contacts
        FROM companies c LEFT JOIN users u ON u.id = c.owner_id
        WHERE c.archived_at IS NULL ${scope}
        ORDER BY c.name`,
@@ -4014,6 +4016,81 @@ export const researchCompany = createServerFn({ method: "POST" })
     await saveDossier(company.id, dossier, user.id);
     return { ok: true as const, dossier };
   });
+
+// One-click rescue for emails the research engine already scraped: dossiers
+// store every address found on a prospect's website, but until now nothing
+// turned them into contacts, so Outreach couldn't send to them. This walks
+// every researched company that has NO emailable contact yet and promotes the
+// best scraped address into a real contact. Idempotent — rerunning skips
+// companies that now have an email, and a global dupe check stops the same
+// address landing on two companies.
+export const backfillResearchEmails = createServerFn({ method: "POST" }).handler(async () => {
+  const me = await requireAdmin();
+  await ensureExtraSchema();
+  const { results } = await db()
+    .prepare(
+      `SELECT c.id, c.name, c.owner_id, c.research FROM companies c
+        WHERE c.archived_at IS NULL AND c.research IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM contacts ct
+             WHERE ct.company_id = c.id AND ct.archived_at IS NULL
+               AND ct.email IS NOT NULL AND ct.email <> ''
+          )`,
+    )
+    .all<{ id: string; name: string; owner_id: string | null; research: string }>();
+  const candidates = results ?? [];
+  let created = 0;
+  const emailShape = /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i;
+  for (const c of candidates) {
+    let intel: CompanyIntel;
+    try {
+      intel = JSON.parse(c.research) as CompanyIntel;
+    } catch {
+      continue;
+    }
+    const email = (intel.emails ?? []).find((e) => emailShape.test((e ?? "").trim()));
+    if (!email) continue;
+    const clean = email.trim().toLowerCase();
+    // Never duplicate an address that already exists anywhere in the book.
+    const dupe = await db()
+      .prepare(
+        "SELECT 1 AS x FROM contacts WHERE lower(email) = ? AND archived_at IS NULL LIMIT 1",
+      )
+      .bind(clean)
+      .first<{ x: number }>();
+    if (dupe) continue;
+    // Use the owner/founder name the research found when there is one,
+    // otherwise a clearly-labelled office contact for the company.
+    const person = (intel.people?.[0] ?? "").trim();
+    const first = person ? person.split(/\s+/)[0] : "Office";
+    const last = person ? person.split(/\s+/).slice(1).join(" ") || null : c.name;
+    await db()
+      .prepare(
+        `INSERT INTO contacts (id, first_name, last_name, company_id, title, email, phone, owner_id, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        uid(),
+        first,
+        last,
+        c.id,
+        person ? null : "Main inbox",
+        clean,
+        null,
+        c.owner_id,
+        "Email found on their website by company research.",
+      )
+      .run();
+    created += 1;
+  }
+  await logEvent({
+    actorId: me.id,
+    verb: "backfilled",
+    entityType: "contacts",
+    summary: `${me.name} pulled ${created} email${created === 1 ? "" : "s"} out of research dossiers into contacts`,
+  });
+  return { ok: true as const, scanned: candidates.length, created };
+});
 
 // Batch enrichment: research the newest never-researched companies so reps
 // open them to ready-made intel. Includes companies WITHOUT a website — they
