@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter, useRouteContext } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { getCompanies, getContacts, getDeals, researchCompany, getTeaserLink, type ResearchDossier } from "../../lib/crm/data";
@@ -48,6 +48,7 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 // whatever came back and refreshes the route so the note thread catches up.
 function ResearchPanel({ company }: { company: Row }) {
   const router = useRouter();
+  const { user } = useRouteContext({ from: "/_app" }) as { user?: { name?: string; role?: string } };
   const [busy, setBusy] = useState(false);
   const [dossier, setDossier] = useState<ResearchDossier | null>(() => {
     try {
@@ -151,6 +152,41 @@ function ResearchPanel({ company }: { company: Row }) {
                 ))}
               </ul>
             </div>
+          ) : null}
+          {d.ai ? (
+            <div className="rounded-lg border border-signal/25 bg-signal-soft/40 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-signal">AI call brief</div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    const body = (d.ai?.email_body ?? "").replace(/\{\{REP_NAME\}\}/g, user?.name ?? "");
+                    const text = `Subject: ${d.ai?.email_subject ?? ""}\n\n${body}`;
+                    try {
+                      await navigator.clipboard.writeText(text);
+                      toast("✉ Email draft copied — paste it into Outreach or Gmail.", "success");
+                    } catch {
+                      prompt("Copy the drafted email:", text);
+                    }
+                  }}
+                >
+                  Copy email draft
+                </Button>
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-bone">{d.ai.brief}</p>
+              <div className="mt-3 border-t border-line/60 pt-2">
+                <div className="text-xs text-faint">Drafted email · {d.ai.email_subject}</div>
+                <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-mute">
+                  {d.ai.email_body.replace(/\{\{REP_NAME\}\}/g, user?.name ?? "")}
+                </p>
+              </div>
+            </div>
+          ) : user?.role === "admin" ? (
+            <p className="text-xs text-faint">
+              No AI brief on this dossier — add ANTHROPIC_API_KEY in Vercel and hit ↻ Re-research to get a
+              call-ready brief and a drafted email written about this business.
+            </p>
           ) : null}
         </div>
       )}

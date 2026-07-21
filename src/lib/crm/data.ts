@@ -33,6 +33,7 @@ import {
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
 import { isStripeConfigured, stripeFetch } from "./stripe.server";
+import { aiResearchBrief, isAiConfigured, type AiBrief } from "./ai.server";
 import { isPlacesConfigured, fetchPlaceRatings } from "./places.server";
 import { isYelpConfigured, fetchYelpRatings } from "./yelp.server";
 
@@ -3856,6 +3857,10 @@ export type ResearchDossier = CompanyIntel & {
   reviews: number | null;
   ratingSource: "google" | "yelp" | null;
   researched_at: string;
+  // AI pass (config-gated on ANTHROPIC_API_KEY): a call-ready brief plus a
+  // drafted first-contact email, written about THIS business. Absent/null when
+  // the key isn't set or the call failed — everything above works without it.
+  ai?: AiBrief | null;
 };
 
 const EMPTY_INTEL: CompanyIntel = {
@@ -3963,7 +3968,12 @@ async function researchCompanyCore(company: {
   } catch {
     /* reputation is a bonus, never a blocker */
   }
-  return { ...intel, siteStatus, rating, reviews, ratingSource, researched_at };
+  const dossier: ResearchDossier = { ...intel, siteStatus, rating, reviews, ratingSource, researched_at };
+  // AI pass on top — same "bonus, never blocker" rule. aiResearchBrief never
+  // throws and returns null unless ANTHROPIC_API_KEY is set and the call
+  // succeeded inside its 15s deadline, so the rule-based dossier always ships.
+  dossier.ai = await aiResearchBrief({ name: company.name, city: company.city }, dossier);
+  return dossier;
 }
 
 // Human-readable digest of the dossier for the notes thread.
@@ -3979,6 +3989,7 @@ function dossierNoteBody(d: ResearchDossier): string {
   if (d.socials.length) lines.push(`Socials: ${d.socials.join(" · ")}`);
   if (d.rating !== null) lines.push(`Reputation: ${d.rating}★ (${d.reviews ?? 0} reviews, ${d.ratingSource})`);
   if (d.angles.length) lines.push(`Pitch angles: ${d.angles.map((a) => `\n  • ${a}`).join("")}`);
+  if (d.ai?.brief) lines.push(`AI brief: ${d.ai.brief}`);
   if (lines.length === 1) lines.push("Nothing notable found — site had little to go on.");
   return lines.join("\n");
 }

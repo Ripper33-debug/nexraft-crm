@@ -157,6 +157,29 @@ describe("COO briefing is boss-only and read-only", () => {
   });
 });
 
+describe("AI research layer is a bonus, never a blocker", () => {
+  const aiSource = readFileSync(join(__dirname, "ai.server.ts"), "utf8");
+  it("is config-gated on ANTHROPIC_API_KEY and returns null when unset", () => {
+    expect(aiSource).toContain("ANTHROPIC_API_KEY");
+    expect(aiSource).toContain("if (!isAiConfigured()) return null");
+  });
+  it("has a hard timeout so a slow AI call can't stall a research batch", () => {
+    expect(aiSource).toContain("AbortController");
+    expect(aiSource).toContain("timeoutMs");
+  });
+  it("swallows every failure into null instead of throwing", () => {
+    expect(aiSource).toMatch(/catch\s*\{\s*\n?\s*return null/);
+  });
+  it("sends distilled dossier facts, never raw crawled HTML", () => {
+    expect(aiSource).toContain("dossierFacts(");
+    expect(aiSource).not.toContain("html");
+  });
+  it("is wired into the research pipeline and the note digest", () => {
+    expect(helperBody("researchCompanyCore")).toContain("aiResearchBrief(");
+    expect(helperBody("dossierNoteBody")).toContain("d.ai");
+  });
+});
+
 describe("good-site archive protects the money", () => {
   const body = fnBody("archiveGoodSiteCompanies");
   it("is admin-only and logged", () => {
