@@ -587,3 +587,24 @@ describe("outreach uses the AI-tailored email for each business", () => {
     expect(source).toMatch(/EmailTargetRow = \{[\s\S]*?research: string \| null;[\s\S]*?\};/);
   });
 });
+
+describe("the company edit form's email box syncs to the primary contact", () => {
+  it("upsertCompany syncs the email on both create and update", () => {
+    const body = fnBody("upsertCompany");
+    const calls = body.match(/syncCompanyEmail\(/g) ?? [];
+    expect(calls.length).toBe(2);
+  });
+  it("edits the same contact Outreach would send to (email-having contacts first)", () => {
+    const body = helperBody("syncCompanyEmail");
+    expect(body).toContain("WHEN email IS NOT NULL AND email <> '' THEN 0");
+    expect(body).toContain("UPDATE contacts SET email = ?");
+  });
+  it("creates a bare office contact when the company has none, skips when field untouched", () => {
+    const body = helperBody("syncCompanyEmail");
+    expect(body).toContain("INSERT INTO contacts");
+    expect(body).toContain("if (raw === undefined) return;");
+  });
+  it("getCompanies ships contact_email so the form can prefill it", () => {
+    expect(fnBody("getCompanies")).toContain("AS contact_email");
+  });
+});

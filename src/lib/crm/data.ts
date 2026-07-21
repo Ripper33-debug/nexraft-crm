@@ -88,6 +88,7 @@ export type CompanyRow = {
   deal_count: number;
   won_deals: number;
   email_contacts: number;
+  contact_email: string | null;
   referred_by_name: string | null;
   referrals_made: number;
   ai_fit: number | null;
@@ -239,7 +240,50 @@ const companySchema = z.object({
   notes: z.string().optional().nullable(),
   tags: z.string().optional().nullable(),
   owner_id: z.string().optional().nullable(),
+  // The company's outreach email. Emails really live on CONTACTS (that's what
+  // Outreach sends to), so this is synced into the primary contact on save —
+  // reps get one obvious box on the edit form instead of a two-step dance.
+  email: z.string().trim().max(200).optional().nullable(),
 });
+
+// Keep the edit form's email box in sync with the primary contact. undefined =
+// field not submitted (old callers), leave contacts alone. Otherwise: update
+// the primary contact's email, or create a bare office contact if the company
+// has none yet. Clearing the box clears the contact email (drops the company
+// out of the Outreach queue — that's what the rep asked for).
+async function syncCompanyEmail(
+  companyId: string,
+  companyName: string,
+  raw: string | null | undefined,
+): Promise<void> {
+  if (raw === undefined) return;
+  const email = (raw ?? "").trim().toLowerCase();
+  // Primary = the same contact Outreach would pick: has an email first, then
+  // alphabetical — so the box edits the address that actually gets used.
+  const existing = await db()
+    .prepare(
+      `SELECT id, email FROM contacts
+        WHERE company_id = ? AND archived_at IS NULL
+        ORDER BY (CASE WHEN email IS NOT NULL AND email <> '' THEN 0 ELSE 1 END), first_name
+        LIMIT 1`,
+    )
+    .bind(companyId)
+    .first<{ id: string; email: string | null }>();
+  if (existing) {
+    if ((existing.email ?? "").trim().toLowerCase() !== email) {
+      await db().prepare(`UPDATE contacts SET email = ? WHERE id = ?`).bind(email || null, existing.id).run();
+    }
+    return;
+  }
+  if (!email) return;
+  await db()
+    .prepare(
+      `INSERT INTO contacts (id, first_name, last_name, email, phone, title, company_id, owner_id, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(uid(), "Office /", companyName, email, null, null, companyId, null, "Email added from the company edit form.")
+    .run();
+}
 
 export const getCompanies = createServerFn({ method: "GET" }).handler(async () => {
   const me = await requireUser();
@@ -256,6 +300,7 @@ export const getCompanies = createServerFn({ method: "GET" }).handler(async () =
         (SELECT COUNT(*)::int FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL) AS deal_count,
         (SELECT COUNT(*)::int FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL AND d.stage = '${WON_STAGE}') AS won_deals,
         (SELECT COUNT(*)::int FROM contacts e WHERE e.company_id = c.id AND e.archived_at IS NULL AND e.email IS NOT NULL AND e.email <> '') AS email_contacts,
+        (SELECT e.email FROM contacts e WHERE e.company_id = c.id AND e.archived_at IS NULL AND e.email IS NOT NULL AND e.email <> '' ORDER BY e.first_name LIMIT 1) AS contact_email,
         (SELECT r.name FROM companies r WHERE r.id = c.referred_by_company_id) AS referred_by_name,
         (SELECT COUNT(*)::int FROM companies r WHERE r.referred_by_company_id = c.id AND r.archived_at IS NULL) AS referrals_made
        FROM companies c LEFT JOIN users u ON u.id = c.owner_id
@@ -290,6 +335,7 @@ export const upsertCompany = createServerFn({ method: "POST" })
           data.id,
         )
         .run();
+      await syncCompanyEmail(data.id, data.name, data.email);
       await logEvent({
         actorId: user.id,
         verb: "updated",
@@ -318,6 +364,7 @@ export const upsertCompany = createServerFn({ method: "POST" })
         data.owner_id ?? user.id,
       )
       .run();
+    await syncCompanyEmail(id, data.name, data.email);
     await logEvent({
       actorId: user.id,
       verb: "created",

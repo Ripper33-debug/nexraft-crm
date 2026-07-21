@@ -812,6 +812,7 @@ function CompanyModal({
           industry: (fd.get("industry") as string) || null,
           website: (fd.get("website") as string) || null,
           phone: (fd.get("phone") as string) || null,
+          email: (fd.get("email") as string) ?? null,
           city: (fd.get("city") as string) || null,
           source: (fd.get("source") as string) || null,
           owner_id: (fd.get("owner_id") as string) || null,
@@ -873,11 +874,19 @@ function CompanyModal({
           <Field label="Phone">
             <Input name="phone" defaultValue={(company?.phone as string) || ""} />
           </Field>
-          <Field label="City / Region">
-            <Input name="city" defaultValue={(company?.city as string) || ""} />
+          <Field label="Email">
+            <Input
+              name="email"
+              type="email"
+              defaultValue={(company?.contact_email as string) || ""}
+              placeholder="owner@theirbusiness.com"
+            />
           </Field>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="City / Region">
+            <Input name="city" defaultValue={(company?.city as string) || ""} />
+          </Field>
           <Field label="Lead source">
             <Select name="source" defaultValue={(company?.source as string) || ""}>
               <option value="">—</option>
@@ -888,17 +897,17 @@ function CompanyModal({
               ))}
             </Select>
           </Field>
-          <Field label="Owner">
-            <Select name="owner_id" defaultValue={(company?.owner_id as string) || ""}>
-              <option value="">—</option>
-              {users.map((u) => (
-                <option key={u.id as string} value={u.id as string}>
-                  {u.name as string}
-                </option>
-              ))}
-            </Select>
-          </Field>
         </div>
+        <Field label="Owner">
+          <Select name="owner_id" defaultValue={(company?.owner_id as string) || ""}>
+            <option value="">—</option>
+            {users.map((u) => (
+              <option key={u.id as string} value={u.id as string}>
+                {u.name as string}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <Field label="Tags">
           <div className="flex flex-wrap gap-1.5 pt-0.5">
             {COMPANY_TAGS.map((t) => {
