@@ -223,6 +223,40 @@ describe("dead-site alerts catch the live→dead flip", () => {
   });
 });
 
+describe("new-business feed is a bonus, never a blocker", () => {
+  const sunbizSource = readFileSync(join(__dirname, "sunbiz.server.ts"), "utf8");
+  it("is config-gated on SUNBIZ_DAILY_API_KEY and returns [] when unset", () => {
+    expect(sunbizSource).toContain("SUNBIZ_DAILY_API_KEY");
+    expect(sunbizSource).toContain("if (!key) return []");
+  });
+  it("swallows every failure into [] instead of throwing", () => {
+    expect(sunbizSource).toMatch(/catch\s*\{\s*\n?\s*return \[\]/);
+  });
+  it("has a hard timeout so a slow feed can't stall the cron", () => {
+    expect(sunbizSource).toContain("AbortController");
+    expect(sunbizSource).toContain("timeoutMs");
+  });
+  const core = helperBody("importNewBusinessesCore");
+  it("goes through the shared import path (dedupe + auto-assign)", () => {
+    expect(core).toContain("importLeadCore(");
+  });
+  it("respects the config gate and the daily cap", () => {
+    expect(core).toContain("isSunbizConfigured()");
+    expect(core).toContain("cap");
+  });
+  it("the on-demand pull is admin-only", () => {
+    expect(fnBody("runNewBusinessImport")).toContain("requireAdmin(");
+  });
+  it("runs from the daily cron and respects the pause gate", () => {
+    const sweeps = fnBody("runDueSweeps");
+    expect(sweeps).toContain("importNewBusinessesCore(15)");
+    const pauseIdx = sweeps.indexOf("readLeadEnginePaused()");
+    const importIdx = sweeps.indexOf("importNewBusinessesCore(15)");
+    expect(pauseIdx).toBeGreaterThan(-1);
+    expect(importIdx).toBeGreaterThan(pauseIdx);
+  });
+});
+
 describe("good-site archive protects the money", () => {
   const body = fnBody("archiveGoodSiteCompanies");
   it("is admin-only and logged", () => {

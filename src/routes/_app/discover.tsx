@@ -1,6 +1,8 @@
 import { createFileRoute, useRouter, useRouteContext } from "@tanstack/react-router";
 
-import { getUsers, getLeadEngineState, setLeadEnginePaused } from "../../lib/crm/data";
+import { useState } from "react";
+
+import { getUsers, getLeadEngineState, setLeadEnginePaused, runNewBusinessImport } from "../../lib/crm/data";
 import { toast } from "../../components/crm/toast";
 import { useAutoConfig, useAutoStatus, setConfig } from "../../lib/crm/autodiscover";
 import { OrbStage } from "../../components/crm/orbstage";
@@ -28,6 +30,32 @@ function DiscoverPage() {
   const st = useAutoStatus();
   const on = !engine.paused && config.on;
   const live = on && !st.paused;
+  const [pulling, setPulling] = useState(false);
+
+  // On-demand pull of yesterday's brand-new Florida registrations (the cron
+  // does this every morning too — this button is for "show me right now").
+  async function pullNewBusinesses() {
+    if (!isAdmin || pulling) return;
+    setPulling(true);
+    try {
+      const res = await runNewBusinessImport();
+      if (!res.configured) {
+        toast(
+          "New-business feed isn't set up yet — add SUNBIZ_DAILY_API_KEY in Vercel (free key from sunbizdaily.com).",
+          "error",
+        );
+      } else if (res.imported === 0) {
+        toast(`Scanned ${res.scanned} fresh filings — nothing new for your areas today.`, "info");
+      } else {
+        toast(`🏢 Imported ${res.imported} brand-new businesses from yesterday's state filings.`, "info");
+        void router.invalidate();
+      }
+    } catch {
+      toast("Couldn't pull the new-business feed — try again.", "error");
+    } finally {
+      setPulling(false);
+    }
+  }
 
   // One switch does everything: flipping it on lifts the master pause (the
   // admin-only kill switch stored in the database) AND arms the local radar;
@@ -121,6 +149,19 @@ function DiscoverPage() {
                 }
               />
             </span>
+          </button>
+        ) : null}
+
+        {/* New-business feed — below the switch, admin only. Brand-new state
+            registrations = the highest-intent cold lead there is. */}
+        {isAdmin ? (
+          <button
+            type="button"
+            onClick={() => void pullNewBusinesses()}
+            disabled={pulling}
+            className="absolute right-5 top-[3.9rem] rounded-full border border-line-strong bg-surface/80 px-4 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-mute transition-all duration-300 hover:border-signal/40 hover:text-bone disabled:opacity-60"
+          >
+            {pulling ? "Pulling filings…" : "🏢 New businesses"}
           </button>
         ) : null}
       </div>

@@ -34,6 +34,7 @@ import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
 import { isStripeConfigured, stripeFetch } from "./stripe.server";
 import { aiResearchBrief, isAiConfigured, type AiBrief } from "./ai.server";
+import { fetchNewFilings, isSunbizConfigured, titleCaseBusiness } from "./sunbiz.server";
 import { isPlacesConfigured, fetchPlaceRatings } from "./places.server";
 import { isYelpConfigured, fetchYelpRatings } from "./yelp.server";
 
@@ -5429,6 +5430,87 @@ async function recycleStaleLeads(): Promise<{ nudged: number; recycled: number }
   return { nudged, recycled };
 }
 
+// New-business feed: import yesterday's brand-new Florida registrations as
+// leads. A business that registered this week has no website, no agency, and
+// no one else calling — reps get there first. Rides importLeadCore so it gets
+// the same dedupe (incl. trash), auto-assign roll, and $0 pipeline deal as
+// radar leads. When the team has enabled sweeps, only filings in those cities
+// come in (statewide would be 1,000+/day); with no sweeps it takes the first
+// handful. Config-gated on SUNBIZ_DAILY_API_KEY.
+async function importNewBusinessesCore(cap = 15): Promise<{ configured: boolean; imported: number; scanned: number }> {
+  if (!isSunbizConfigured()) return { configured: false, imported: 0, scanned: 0 };
+  const filings = await fetchNewFilings();
+  if (filings.length === 0) return { configured: true, imported: 0, scanned: 0 };
+  const areas = (await loadSweeps())
+    .filter((s) => s.enabled)
+    .map((s) => s.area.split(",")[0].trim().toLowerCase())
+    .filter(Boolean);
+  const targeted =
+    areas.length > 0 ? filings.filter((f) => f.city && areas.includes(f.city.trim().toLowerCase())) : filings;
+  let imported = 0;
+  for (const f of targeted) {
+    if (imported >= cap) break;
+    try {
+      const name = titleCaseBusiness(f.name);
+      const res = await importLeadCore(
+        { name, city: f.city ? titleCaseBusiness(f.city) : null, autoAssign: true },
+        null,
+      );
+      if (res.duplicate) continue;
+      imported++;
+      await db()
+        .prepare("UPDATE companies SET source = 'New business', tags = 'new-business', notes = ? WHERE id = ?")
+        .bind(
+          `Registered with the State of Florida${f.fileDate ? ` on ${f.fileDate}` : " this week"} — brand new business, almost certainly no website yet. Pitch: "every new business needs to show up on Google."`,
+          res.id,
+        )
+        .run();
+      // The filing usually names the owner — hand the rep a real person to ask for.
+      if (f.person) {
+        const person = titleCaseBusiness(f.person);
+        const [first, ...restName] = person.split(" ");
+        await db()
+          .prepare(
+            `INSERT INTO contacts (id, first_name, last_name, email, phone, title, company_id, owner_id, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            uid(),
+            first,
+            restName.join(" ") || null,
+            null,
+            null,
+            "Owner (from state filing)",
+            res.id,
+            null,
+            "Listed on the new-business filing with the State of Florida.",
+          )
+          .run();
+      }
+    } catch {
+      /* one bad filing must not stall the feed */
+    }
+  }
+  if (imported > 0) {
+    await logEvent({
+      actorId: null,
+      verb: "radar",
+      entityType: "company",
+      summary: `New-business feed: imported ${imported} freshly registered Florida business${imported === 1 ? "" : "es"}`,
+    });
+  }
+  return { configured: true, imported, scanned: targeted.length };
+}
+
+// Admin trigger for the same feed the cron runs — pull yesterday's new
+// registrations right now from the Discover page.
+export const runNewBusinessImport = createServerFn({ method: "POST" }).handler(async () => {
+  await requireAdmin();
+  await ensureExtraSchema();
+  const res = await importNewBusinessesCore(15);
+  return { ok: true as const, ...res };
+});
+
 // Entry point for the Vercel cron (/api/cron/sweep): run the enabled sweep
 // that's waited longest, skipping any that already ran in the last 20 hours —
 // which doubles as abuse protection if the endpoint is hit repeatedly.
@@ -5466,14 +5548,23 @@ export const runDueSweeps = createServerOnlyFn(
     // Master pause: housekeeping and research above still ran, but no new
     // companies get imported while the lead engine is switched off.
     if (await readLeadEnginePaused()) return { ran: 0, imported: 0, nudged, recycled };
+    // New-business feed first (config-gated, respects the pause above): the
+    // freshest registrations are the hottest, so never let a slow sweep starve
+    // them out of the day's budget.
+    let imported = 0;
+    try {
+      imported += (await importNewBusinessesCore(15)).imported;
+    } catch {
+      /* the feed is a bonus, never a blocker */
+    }
     const sweeps = (await loadSweeps()).filter((s) => s.enabled);
     const cutoff = Date.now() - 20 * 3600_000;
     const due = sweeps
       .filter((s) => !s.last_run_at || new Date(s.last_run_at).getTime() < cutoff)
       .sort((a, b) => (a.last_run_at ?? "").localeCompare(b.last_run_at ?? ""));
-    if (due.length === 0) return { ran: 0, imported: 0, nudged, recycled };
+    if (due.length === 0) return { ran: 0, imported, nudged, recycled };
     const res = await runSweepOnce(due[0]);
-    return { ran: 1, imported: res.imported, nudged, recycled };
+    return { ran: 1, imported: imported + res.imported, nudged, recycled };
   },
 );
 
