@@ -30,6 +30,14 @@ type Row = Record<string, unknown>;
 // A company whose researched website came back live with ZERO pitch angles is
 // one the audit couldn't fault — modern, working, nothing to sell against.
 // These are the hardest calls in the book, so they get flagged and filterable.
+// A site that flipped live→dead within the last week — the owner knows
+// they're broken RIGHT NOW, which makes this the warmest cold call there is.
+function isRecentlyDown(c: Row): boolean {
+  const at = c.site_down_at as string | null | undefined;
+  if (!at) return false;
+  return Date.now() - new Date(at).getTime() < 7 * 24 * 3600_000;
+}
+
 function isGoodSite(c: Row): boolean {
   const raw = c.research as string | null;
   if (!raw) return false;
@@ -431,9 +439,18 @@ function CompaniesPage() {
                           ) : null}
                           <span className="truncate">{c.website as string}</span>
                           {c.website_status === "dead" ? (
-                            <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-300">
-                              Site down
-                            </span>
+                            isRecentlyDown(c) ? (
+                              <span
+                                className="animate-pulse rounded-full bg-red-500/25 px-1.5 py-0.5 text-[10px] font-semibold text-red-300"
+                                title="Their site was LIVE last week and is down NOW — they know it's broken. Hottest call on the board."
+                              >
+                                🚨 Just went down
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-300">
+                                Site down
+                              </span>
+                            )
                           ) : null}
                         </div>
                       ) : null}

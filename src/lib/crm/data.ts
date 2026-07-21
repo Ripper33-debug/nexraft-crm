@@ -4287,12 +4287,10 @@ export const runFullReResearchBatch = createServerFn({ method: "POST" })
 // probes them concurrently, and stamps website_status / website_checked_at.
 // Runs in small batches so a click never risks the serverless time budget —
 // clicking again simply continues where the last sweep left off.
-export const verifyCompanyWebsites = createServerFn({ method: "POST" }).handler(async () => {
-  const user = await requireUser();
-  await ensureExtraSchema();
+async function verifyWebsitesCore(actorId: string | null): Promise<{ checked: number; down: number; hot: number }> {
   const { results } = await db()
     .prepare(
-      `SELECT id, name, website FROM companies
+      `SELECT id, name, website, website_status FROM companies
         WHERE archived_at IS NULL
           AND website IS NOT NULL AND btrim(website) <> ''
           AND (website_checked_at IS NULL
@@ -4300,35 +4298,69 @@ export const verifyCompanyWebsites = createServerFn({ method: "POST" }).handler(
         ORDER BY website_checked_at NULLS FIRST
         LIMIT 12`,
     )
-    .all<{ id: string; name: string; website: string }>();
+    .all<{ id: string; name: string; website: string; website_status: string | null }>();
   const targets = results ?? [];
-  if (targets.length === 0) return { ok: true as const, checked: 0, down: 0, remaining: 0 };
+  if (targets.length === 0) return { checked: 0, down: 0, hot: 0 };
 
   const statuses = await probeWebsitesBatch(targets.map((t) => t.website), 15000);
   let down = 0;
+  let hot = 0;
   for (const t of targets) {
     const status = statuses.get(t.website) ?? null;
     if (!status) continue; // deadline hit or junk URL — try again next sweep
     if (status === "dead") down++;
+    // THE hot-lead moment: a site that was LIVE last check and is dead now.
+    // Unlike a site that's always been dead, this owner just found out (or is
+    // about to) — stamp it, jump the follow-up queue, and leave a note so the
+    // rep opens the company to a "call now" story. Recovery clears the stamp.
+    const wentDown = status === "dead" && t.website_status === "live";
     await db()
       .prepare(
         `UPDATE companies
             SET website_status = ?,
-                website_checked_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+                website_checked_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+                site_down_at = CASE
+                  WHEN ? = 'live' THEN NULL
+                  WHEN ? = 'yes' THEN to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+                  ELSE site_down_at END,
+                next_followup_at = CASE WHEN ? = 'yes' THEN NULL ELSE next_followup_at END
           WHERE id = ?`,
       )
-      .bind(status, t.id)
+      .bind(status, status, wentDown ? "yes" : "no", wentDown ? "yes" : "no", t.id)
       .run();
+    if (wentDown) {
+      hot++;
+      await db()
+        .prepare("INSERT INTO notes (id, entity_type, entity_id, author_id, body) VALUES (?, ?, ?, ?, ?)")
+        .bind(
+          uid(),
+          "company",
+          t.id,
+          actorId,
+          `🚨 Their website (${t.website}) just went DOWN — it was live on the last check. They know something's broken. Best call of the week: lead with "noticed your site is offline, want it back up fast?"`,
+        )
+        .run();
+    }
     if (status === "dead") {
       await logEvent({
-        actorId: user.id,
+        actorId,
         verb: "flagged",
         entityType: "company",
         entityId: t.id,
-        summary: `Website check: ${t.name}'s site (${t.website}) is down — redesign opening`,
+        summary: wentDown
+          ? `🚨 ${t.name}'s site (${t.website}) JUST went down — hot lead, call today`
+          : `Website check: ${t.name}'s site (${t.website}) is down — redesign opening`,
       });
     }
   }
+  return { checked: statuses.size, down, hot };
+}
+
+export const verifyCompanyWebsites = createServerFn({ method: "POST" }).handler(async () => {
+  const user = await requireUser();
+  await ensureExtraSchema();
+  const { checked, down, hot } = await verifyWebsitesCore(user.id);
+  if (checked === 0) return { ok: true as const, checked: 0, down: 0, hot: 0, remaining: 0 };
   const remainingRow = await db()
     .prepare(
       `SELECT COUNT(*)::int AS n FROM companies
@@ -4340,8 +4372,9 @@ export const verifyCompanyWebsites = createServerFn({ method: "POST" }).handler(
     .first<{ n: number }>();
   return {
     ok: true as const,
-    checked: statuses.size,
+    checked,
     down,
+    hot,
     remaining: remainingRow?.n ?? 0,
   };
 });
@@ -5422,6 +5455,14 @@ export const runDueSweeps = createServerOnlyFn(
     } catch {
       /* research is a bonus, never a blocker */
     }
+    // Dead-site watch: re-probe the stalest checked websites so a prospect
+    // whose site just went down gets flagged within a day — the hottest lead
+    // there is. Best-effort like the rest of housekeeping.
+    try {
+      await verifyWebsitesCore(null);
+    } catch {
+      /* liveness watch is a bonus, never a blocker */
+    }
     // Master pause: housekeeping and research above still ran, but no new
     // companies get imported while the lead engine is switched off.
     if (await readLeadEnginePaused()) return { ran: 0, imported: 0, nudged, recycled };
@@ -6017,6 +6058,24 @@ export const getCooBriefing = createServerFn({ method: "GET" }).handler(async ()
       kind: "hot_lead",
       severity: "red",
       text: `${hot!.n} interested lead${hot!.n === 1 ? "" : "s"} untouched for 3+ days — these are the closest to money.`,
+    });
+  }
+
+  // 2b) Sites that JUST went down — the owner knows they're broken right now,
+  //     so every day these sit uncalled is money walking to a competitor.
+  const justDown = await db()
+    .prepare(
+      `SELECT COUNT(*)::int AS n FROM companies
+        WHERE archived_at IS NULL AND site_down_at IS NOT NULL
+          AND site_down_at >= ${isoDaysAgo(7)}
+          AND COALESCE(call_outcome, '') NOT IN ('signed', 'interested')`,
+    )
+    .first<{ n: number }>();
+  if ((justDown?.n ?? 0) > 0) {
+    flags.push({
+      kind: "hot_lead",
+      severity: "red",
+      text: `${justDown!.n} prospect${justDown!.n === 1 ? "'s" : "s'"} website${justDown!.n === 1 ? "" : "s"} JUST went down this week — they know they're broken. Call before someone else does.`,
     });
   }
 

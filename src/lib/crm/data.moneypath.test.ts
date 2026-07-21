@@ -200,6 +200,29 @@ describe("AI research layer is a bonus, never a blocker", () => {
   });
 });
 
+describe("dead-site alerts catch the live→dead flip", () => {
+  const core = helperBody("verifyWebsitesCore");
+  it("only treats a LIVE site going dead as the hot moment, not always-dead ones", () => {
+    expect(core).toContain(`status === "dead" && t.website_status === "live"`);
+  });
+  it("stamps site_down_at on the flip and clears it when the site recovers", () => {
+    expect(core).toContain("site_down_at = CASE");
+    expect(core).toContain("WHEN ? = 'live' THEN NULL");
+  });
+  it("jumps the follow-up queue and leaves a call-now note for the rep", () => {
+    expect(core).toContain("next_followup_at = CASE");
+    expect(core).toContain("INSERT INTO notes");
+  });
+  it("runs from the daily cron as best-effort housekeeping", () => {
+    expect(fnBody("runDueSweeps")).toContain("verifyWebsitesCore(null)");
+  });
+  it("surfaces on the boss briefing but never for signed/interested companies", () => {
+    const body = fnBody("getCooBriefing");
+    expect(body).toContain("site_down_at IS NOT NULL");
+    expect(body).toContain(`NOT IN ('signed', 'interested')`);
+  });
+});
+
 describe("good-site archive protects the money", () => {
   const body = fnBody("archiveGoodSiteCompanies");
   it("is admin-only and logged", () => {

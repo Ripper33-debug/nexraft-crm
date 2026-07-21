@@ -85,8 +85,14 @@ describe("website liveness sweep stays authenticated and bounded", () => {
   it("verifyCompanyWebsites requires a signed-in user", () => {
     expect(fnBody("verifyCompanyWebsites")).toContain("requireUser(");
   });
-  it("verifyCompanyWebsites sweeps a bounded batch (LIMIT)", () => {
-    expect(fnBody("verifyCompanyWebsites")).toContain("LIMIT 12");
+  it("the sweep core (shared by button and cron) stays bounded (LIMIT)", () => {
+    // The batch SELECT lives in the verifyWebsitesCore helper since the cron
+    // started sharing it; extract that function and check the bound there.
+    const start = source.indexOf("async function verifyWebsitesCore");
+    expect(start, "verifyWebsitesCore should exist in data.ts").toBeGreaterThan(-1);
+    const rest = source.slice(start);
+    const body = rest.slice(0, rest.indexOf("export const "));
+    expect(body).toContain("LIMIT 12");
   });
 });
 

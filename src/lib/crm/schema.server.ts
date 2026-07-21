@@ -62,6 +62,10 @@ export function ensureExtraSchema(): Promise<void> {
       // redesign target, so this feeds prospect scoring and the companies list.
       `ALTER TABLE companies ADD COLUMN IF NOT EXISTS website_status TEXT`,
       `ALTER TABLE companies ADD COLUMN IF NOT EXISTS website_checked_at TEXT`,
+      // Hot-lead moment: stamped when a site FLIPS live→dead (the owner now
+      // KNOWS they have a problem), cleared when it comes back. Recent stamps
+      // surface as red alerts on the dashboard and jump the call queue.
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS site_down_at TEXT`,
       // Follow-up scheduling: when the next nudge for a 'no_answer' company is
       // due. NULL = due now (never emailed / legacy rows). Set automatically to
       // a few days out each time a nudge is sent, so the Follow-ups badge counts
