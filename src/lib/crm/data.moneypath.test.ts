@@ -253,6 +253,37 @@ describe("prune weak leads archives, never deletes, and can't touch a real prosp
   });
 });
 
+describe("undo last bulk archive is the safety hatch for the bulk archivers", () => {
+  const body = fnBody("undoLastBulkArchive");
+  it("is admin-only", () => {
+    expect(body).toContain("requireAdmin()");
+  });
+  it("targets only a shared bulk stamp — a solo archive is never a 'bulk pass'", () => {
+    expect(body).toContain("HAVING COUNT(*) >= 2");
+    expect(body).toContain("ORDER BY archived_at DESC LIMIT 1");
+  });
+  it("restores companies AND their cascade-archived deals, no DELETE anywhere", () => {
+    expect(body).toContain("UPDATE companies SET archived_at=NULL WHERE archived_at=?");
+    expect(body).toContain("UPDATE deals SET archived_at=NULL WHERE archived_at=?");
+    expect(body).not.toContain("DELETE FROM");
+  });
+  it("supports a dry run so the UI can preview before restoring, and logs the real run", () => {
+    expect(body).toContain("if (data.dryRun)");
+    expect(body).toContain("logEvent(");
+  });
+});
+
+describe("auto-assign rotation includes every rep except Barry", () => {
+  it("Michael is no longer excluded from the rotation (owner's call, 2026-07-21)", () => {
+    expect(helperBody("loadAutoAssignees")).not.toContain("michael");
+    expect(helperBody("pickAutoAssignee")).not.toContain("michael");
+  });
+  it("Barry (owner) stays out of the rotation by email and name", () => {
+    expect(source).toContain(`AUTO_ASSIGN_EXCLUDE_EMAIL = "barry@nexraft.com"`);
+    expect(source).toContain(`AUTO_ASSIGN_EXCLUDE_NAME_LIKE_2 = "barry castelli%"`);
+  });
+});
+
 describe("AI lead qualification rates real research, never invents leads", () => {
   const body = fnBody("aiQualifyLeadsBatch");
   it("is admin-only and config-gated like every AI feature", () => {

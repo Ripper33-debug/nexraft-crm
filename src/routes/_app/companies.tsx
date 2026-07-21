@@ -15,6 +15,7 @@ import {
   tagFacebookOnlyCompanies,
   archiveGoodSiteCompanies,
   pruneWeakLeads,
+  undoLastBulkArchive,
   aiQualifyLeadsBatch,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, PageSkeleton } from "../../components/crm/ui";
@@ -115,6 +116,7 @@ function CompaniesPage() {
   const [taggingFb, setTaggingFb] = useState(false);
   const [clearingGoodSites, setClearingGoodSites] = useState(false);
   const [pruning, setPruning] = useState(false);
+  const [undoing, setUndoing] = useState(false);
   const [aiRating, setAiRating] = useState(false);
 
   // Deep-link: a global-search result routes here with ?focus=<id> to auto-open.
@@ -293,6 +295,40 @@ function CompaniesPage() {
                 }}
               >
                 {pruning ? "Scoring the book…" : "🧹 Prune weak leads"}
+              </Button>
+            ) : null}
+            {isAdmin ? (
+              <Button
+                variant="outline"
+                disabled={undoing}
+                onClick={async () => {
+                  setUndoing(true);
+                  try {
+                    // Preview first: finds the most recent bulk pass (prune or
+                    // good-site sweep) by its shared archive timestamp.
+                    const preview = await undoLastBulkArchive({ data: { dryRun: true } });
+                    if (!preview.found) {
+                      toast("No bulk archive to undo — single archived companies are restorable from the Archived drawer.", "info");
+                      return;
+                    }
+                    const go = window.confirm(
+                      `This will restore the last bulk archive: ${preview.count} compan${preview.count === 1 ? "y" : "ies"} (plus their deals) archived in one pass.\n\nBring ${preview.count === 1 ? "it" : "them"} back?`,
+                    );
+                    if (!go) return;
+                    const res = await undoLastBulkArchive({ data: { dryRun: false } });
+                    toast(
+                      `Restored ${res.restored} compan${res.restored === 1 ? "y" : "ies"} — they're back in the book.`,
+                      "success",
+                    );
+                    void router.invalidate();
+                  } catch {
+                    toast("Couldn't undo the bulk archive — try again.", "error");
+                  } finally {
+                    setUndoing(false);
+                  }
+                }}
+              >
+                {undoing ? "Restoring…" : "↩️ Undo last bulk archive"}
               </Button>
             ) : null}
             {isAdmin ? (

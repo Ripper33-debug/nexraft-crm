@@ -1226,9 +1226,9 @@ export function explainSiteIssue(issue: string): string {
 }
 
 // ---------- Lead engine master switch ----------
-// Barry's call (2026-07-20): the team has enough companies to work for now,
-// so ALL automatic lead intake is paused — the Discover radar won't import
-// and the nightly cron skips its sweeps. Housekeeping (follow-up nudges,
-// stale-lead recycling, research enrichment) keeps running. Flip to false
-// and redeploy to turn the intake back on.
-export const LEAD_ENGINE_PAUSED = true;
+// Barry paused all automatic lead intake on 2026-07-20 (team had enough to
+// work), then turned it back ON on 2026-07-21 after the weak-lead prune
+// thinned the book. This constant is only the DEFAULT — once an admin uses
+// the Discover-page toggle, the app_settings row wins, so flipping intake
+// on/off day-to-day is a UI click, not a deploy.
+export const LEAD_ENGINE_PAUSED = false;

@@ -968,7 +968,7 @@ export const claimCompany = createServerFn({ method: "POST" })
 // Admin one-click pool cleanup: take every unclaimed lead sitting in the open
 // pool and either hand it to a rep or junk it. Leads WITH a phone number get
 // assigned round-robin to the least-loaded eligible rep (same balancer the radar
-// uses — excludes Barry & Michael). Leads with NO phone number get junked to the
+// uses — excludes Barry). Leads with NO phone number get junked to the
 // trash (soft-delete, fully reversible) since there's no way to call them.
 // Admin only. Returns how many were assigned vs. junked.
 export const redistributePool = createServerFn({ method: "POST" }).handler(async () => {
@@ -4305,6 +4305,43 @@ export const pruneWeakLeads = createServerFn({ method: "POST" })
     };
   });
 
+// ==================== Undo last bulk archive ====================
+// Safety hatch for the bulk archivers (prune, good-site sweep): every bulk
+// pass stamps ALL its rows with one identical archived_at, so "undo" is just
+// "restore everything wearing the newest shared stamp". Built 2026-07-21
+// after a prune emptied the claimable pool out from under a rep mid-day.
+export const undoLastBulkArchive = createServerFn({ method: "POST" })
+  .validator(z.object({ dryRun: z.boolean().default(true) }))
+  .handler(async ({ data }) => {
+    const me = await requireAdmin();
+    await ensureExtraSchema();
+    // The newest archived_at shared by 2+ companies is, by construction, the
+    // most recent bulk pass — one-at-a-time archives each get a unique stamp.
+    const stamp = await db()
+      .prepare(
+        `SELECT archived_at AS at, COUNT(*)::int AS n FROM companies
+          WHERE archived_at IS NOT NULL
+          GROUP BY archived_at HAVING COUNT(*) >= 2
+          ORDER BY archived_at DESC LIMIT 1`,
+      )
+      .first<{ at: string; n: number }>();
+    if (!stamp) return { ok: true as const, found: false as const, restored: 0, count: 0, at: null };
+    if (data.dryRun) {
+      return { ok: true as const, found: true as const, restored: 0, count: stamp.n, at: stamp.at };
+    }
+    await db().prepare(`UPDATE companies SET archived_at=NULL WHERE archived_at=?`).bind(stamp.at).run();
+    // Deals cascade-archived in the same pass wear the same stamp — restore
+    // them together, exactly like restoreCompany does for a single company.
+    await db().prepare(`UPDATE deals SET archived_at=NULL WHERE archived_at=?`).bind(stamp.at).run();
+    await logEvent({
+      actorId: me.id,
+      verb: "restored",
+      entityType: "companies",
+      summary: `${me.name} un-archived ${stamp.n} compan${stamp.n === 1 ? "y" : "ies"} from the last bulk archive`,
+    });
+    return { ok: true as const, found: true as const, restored: stamp.n, count: stamp.n, at: stamp.at };
+  });
+
 // ==================== AI lead qualification (owner's ask, 2026-07-21) ====================
 // "Use the API key to help us get better leads." The model can't FIND
 // businesses (it would invent them) — but it can read the real research
@@ -5131,12 +5168,13 @@ async function discoverLeadsCore(
     return { ok: true as const, leads };
 }
 
-// Reps who stay OUT of the auto-assign rotation: Barry (the owner) and Michael.
-// Everyone else on the team shares the auto-assigned half of discovered leads.
-// Matched by a stable rule (email / name) so it works no matter who's running the
-// radar in their browser.
+// Reps who stay OUT of the auto-assign rotation: Barry (the owner) only.
+// Michael was excluded while he was build-crew only; Barry put him in the
+// lead rotation on 2026-07-21, so he now gets his share of discovered leads
+// (he stays on the build crew too — that's a separate check, requireBuilder).
+// Matched by a stable rule (email / name) so it works no matter who's running
+// the radar in their browser.
 const AUTO_ASSIGN_EXCLUDE_EMAIL = "barry@nexraft.com";
-const AUTO_ASSIGN_EXCLUDE_NAME_LIKE = "%michael%";
 const AUTO_ASSIGN_EXCLUDE_NAME_LIKE_2 = "barry castelli%";
 
 // Share of radar-discovered leads that get auto-assigned to a rep; the rest stay
@@ -5155,10 +5193,9 @@ async function loadAutoAssignees(): Promise<AssigneeLoad[]> {
          LEFT JOIN deals d ON d.owner_id = u.id AND d.archived_at IS NULL
         WHERE lower(u.email) <> ?
           AND lower(u.name) NOT LIKE ?
-          AND lower(u.name) NOT LIKE ?
         GROUP BY u.id, u.name`,
     )
-    .bind(AUTO_ASSIGN_EXCLUDE_EMAIL, AUTO_ASSIGN_EXCLUDE_NAME_LIKE, AUTO_ASSIGN_EXCLUDE_NAME_LIKE_2)
+    .bind(AUTO_ASSIGN_EXCLUDE_EMAIL, AUTO_ASSIGN_EXCLUDE_NAME_LIKE_2)
     .all<AssigneeLoad>();
   return results ?? [];
 }
@@ -5173,21 +5210,20 @@ async function pickAutoAssignee(): Promise<{ id: string; name: string } | null> 
          LEFT JOIN deals d ON d.owner_id = u.id AND d.archived_at IS NULL
         WHERE lower(u.email) <> ?
           AND lower(u.name) NOT LIKE ?
-          AND lower(u.name) NOT LIKE ?
         GROUP BY u.id, u.name
         ORDER BY open_deals ASC, random()
         LIMIT 1`,
     )
-    .bind(AUTO_ASSIGN_EXCLUDE_EMAIL, AUTO_ASSIGN_EXCLUDE_NAME_LIKE, AUTO_ASSIGN_EXCLUDE_NAME_LIKE_2)
+    .bind(AUTO_ASSIGN_EXCLUDE_EMAIL, AUTO_ASSIGN_EXCLUDE_NAME_LIKE_2)
     .first<{ id: string; name: string; open_deals: number }>();
   return row ? { id: row.id, name: row.name } : null;
 }
 
 // Import a discovered lead into the CRM with a $0 "To Call" deal, so it immediately
 // shows in the call queue and Opportunities board. Manual imports land unowned in
-// the open pool for anyone to claim. When called by the radar with autoAssign, it
-// flips a coin: ~half get auto-assigned to a rep (least-loaded, excluding Barry &
-// Michael) and half stay in the pool. Guards against duplicates by name/phone.
+// the open pool for anyone to claim. When called by the radar with autoAssign,
+// AUTO_ASSIGN_RATE of finds go straight to a rep (least-loaded, excluding Barry)
+// and the rest stay in the pool. Guards against duplicates by name/phone.
 export const importDiscoveredLead = createServerFn({ method: "POST" })
   .validator(
     z.object({
