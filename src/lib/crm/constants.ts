@@ -478,6 +478,15 @@ export function opportunityScore(sig: OpportunitySignals): OpportunityScore {
     reasons.push("In a best-fit industry");
   }
 
+  // 3b) High-value trades (law, med spas, roofing, HVAC…) — one customer is
+  // worth thousands to them, so they actually spend on their web presence.
+  // Owner's call (2026-07-21): these float to the top of every call list.
+  // Discover scoring already had this bump; now the main book does too.
+  if (isHighBudgetIndustry(sig.industry)) {
+    score += 10;
+    reasons.push("High-value trade — real web budget");
+  }
+
   // 4) Reachability — full contact info means a rep can actually work it.
   if (sig.hasPhone && sig.hasEmail) {
     score += 14;

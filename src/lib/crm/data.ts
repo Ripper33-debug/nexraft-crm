@@ -90,6 +90,9 @@ export type CompanyRow = {
   email_contacts: number;
   referred_by_name: string | null;
   referrals_made: number;
+  ai_fit: number | null;
+  ai_fit_reason: string | null;
+  ai_fit_at: string | null;
 };
 
 export type ContactRow = {
@@ -4300,6 +4303,110 @@ export const pruneWeakLeads = createServerFn({ method: "POST" })
       matched: weak.length,
       archived,
     };
+  });
+
+// ==================== AI lead qualification (owner's ask, 2026-07-21) ====================
+// "Use the API key to help us get better leads." The model can't FIND
+// businesses (it would invent them) — but it can read the real research
+// dossier we crawled and judge, better than keyword rules, how likely this
+// specific business is to buy a $100/mo website. The 0-100 verdict + one-line
+// why land on the company row (ai_fit / ai_fit_reason) so the best bets are
+// visible at a glance and reps call them first. Config-gated like every AI
+// feature; the rule-based opportunityScore keeps working without it.
+const AI_FIT_SYSTEM = `You qualify sales leads for Nexraft, a web design agency selling websites to local businesses: one-time build plus a ~$100/month plan where everything is handled for them. Given verified facts about one business, judge how likely they are to BUY.
+
+Respond with ONLY a JSON object, no markdown fences, exactly: {"fit": <integer 0-100>, "why": "<one sentence>"}
+
+Consider: Do they clearly need a site (none, dead, or visibly bad)? Can they afford $100/mo (trade where one customer is worth a lot scores higher)? Signs they already invest in marketing (active socials, many reviews)? Signs they'd never buy (site is already modern and flawless, or business looks inactive).
+- fit: 85+ only when need AND budget are both obvious. 50-84 solid prospect. Below 50 weak. Below 25 basically never buying.
+- why: one concrete sentence a sales rep reads before dialing. Reference their actual situation. No fluff.
+- Judge ONLY from the facts given. Never assume facts not present.`;
+
+// Needs qualifying: researched, live, not yet rated — or re-researched since
+// the last rating (research_at newer than ai_fit_at), so verdicts track reality.
+const NEEDS_AI_FIT_SQL = `research IS NOT NULL AND archived_at IS NULL
+  AND COALESCE(call_outcome, '') <> 'signed'
+  AND (ai_fit IS NULL OR (research_at IS NOT NULL AND ai_fit_at IS NOT NULL AND ai_fit_at < research_at))`;
+
+export const aiQualifyLeadsBatch = createServerFn({ method: "POST" })
+  .validator(z.object({ limit: z.number().int().min(1).max(10).default(6) }))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    await ensureExtraSchema();
+    if (!isAiConfigured()) {
+      return { ok: true as const, configured: false as const, rated: 0, remaining: 0 };
+    }
+    const { results } = await db()
+      .prepare(
+        `SELECT id, name, industry, city, website, phone, source, call_outcome, research
+           FROM companies WHERE ${NEEDS_AI_FIT_SQL}
+          ORDER BY created_at DESC LIMIT ?`,
+      )
+      .bind(data.limit)
+      .all<{
+        id: string;
+        name: string;
+        industry: string | null;
+        city: string | null;
+        website: string | null;
+        phone: string | null;
+        source: string | null;
+        call_outcome: string | null;
+        research: string;
+      }>();
+    const rows = results ?? [];
+    let rated = 0;
+    // Companies are independent — rate the batch in parallel so wall time is
+    // one model call, not six, and the loop stays inside the serverless window.
+    await Promise.all(
+      rows.map(async (c) => {
+        try {
+          const d = JSON.parse(c.research) as {
+            siteStatus?: string;
+            summary?: string;
+            services?: string[];
+            established?: string;
+            rating?: number | null;
+            reviews?: number | null;
+            ratingSource?: string;
+            socials?: string[];
+            angles?: string[];
+          };
+          const facts = [
+            `Business: ${c.name}${c.city ? ` (${c.city})` : ""}`,
+            c.industry ? `Industry: ${c.industry}` : null,
+            `Website: ${d.siteStatus === "none" || !c.website ? "none at all" : d.siteStatus === "dead" ? "dead/gone" : "live"}`,
+            d.summary ? `What they do: ${d.summary}` : null,
+            (d.services ?? []).length ? `Services: ${(d.services ?? []).slice(0, 6).join(", ")}` : null,
+            d.established ? `In business since: ${d.established}` : null,
+            d.rating != null ? `Rating: ${d.rating}★ (${d.reviews ?? 0} reviews on ${d.ratingSource ?? "the web"})` : null,
+            (d.socials ?? []).length ? `Active social profiles: ${(d.socials ?? []).length}` : null,
+            (d.angles ?? []).length ? `Site problems we found: ${(d.angles ?? []).join("; ")}` : null,
+            `Reachable: ${c.phone ? "has phone" : "no phone on file"}`,
+            c.call_outcome ? `Call status so far: ${c.call_outcome}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n");
+          const text = await aiComplete({ system: AI_FIT_SYSTEM, user: facts, maxTokens: 200 });
+          const raw = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+          const parsed = JSON.parse(raw) as { fit?: number; why?: string };
+          const fit = Math.max(0, Math.min(100, Math.round(Number(parsed.fit))));
+          if (!Number.isFinite(fit) || !parsed.why) return;
+          await db()
+            .prepare(`UPDATE companies SET ai_fit=?, ai_fit_reason=?, ai_fit_at=? WHERE id=?`)
+            .bind(fit, String(parsed.why).slice(0, 300), new Date().toISOString(), c.id)
+            .run();
+          rated += 1;
+        } catch {
+          // One bad row (unparseable research, model hiccup) never stops the
+          // batch — it just stays unrated and gets retried next click.
+        }
+      }),
+    );
+    const left = await db()
+      .prepare(`SELECT COUNT(*)::int AS n FROM companies WHERE ${NEEDS_AI_FIT_SQL}`)
+      .first<{ n: number }>();
+    return { ok: true as const, configured: true as const, rated, remaining: left?.n ?? 0 };
   });
 
 // Batch enrichment: research the newest never-researched companies so reps

@@ -92,6 +92,12 @@ export function ensureExtraSchema(): Promise<void> {
       // source flips to 'Referral' (+25 opportunity score) and the referrer
       // builds up a thank-them tally on their page.
       `ALTER TABLE companies ADD COLUMN IF NOT EXISTS referred_by_company_id TEXT`,
+      // AI lead qualification (owner's ask, 2026-07-21): the model reads the
+      // research dossier and rates 0-100 how likely this business is to buy a
+      // $100/mo website, with a one-line why. Feeds call-list prioritization.
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS ai_fit INTEGER`,
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS ai_fit_reason TEXT`,
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS ai_fit_at TEXT`,
       // Per-user notifications (record handed off / shared with you).
       `CREATE TABLE IF NOT EXISTS notifications (
          id TEXT PRIMARY KEY,

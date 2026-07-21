@@ -15,6 +15,7 @@ import {
   tagFacebookOnlyCompanies,
   archiveGoodSiteCompanies,
   pruneWeakLeads,
+  aiQualifyLeadsBatch,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, PageSkeleton } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
@@ -114,6 +115,7 @@ function CompaniesPage() {
   const [taggingFb, setTaggingFb] = useState(false);
   const [clearingGoodSites, setClearingGoodSites] = useState(false);
   const [pruning, setPruning] = useState(false);
+  const [aiRating, setAiRating] = useState(false);
 
   // Deep-link: a global-search result routes here with ?focus=<id> to auto-open.
   useEffect(() => {
@@ -291,6 +293,42 @@ function CompaniesPage() {
                 }}
               >
                 {pruning ? "Scoring the book…" : "🧹 Prune weak leads"}
+              </Button>
+            ) : null}
+            {isAdmin ? (
+              <Button
+                variant="outline"
+                disabled={aiRating}
+                onClick={async () => {
+                  setAiRating(true);
+                  let total = 0;
+                  try {
+                    // Small batches in a loop so each call stays well inside
+                    // the serverless window; stops when the pool is empty.
+                    for (let i = 0; i < 100; i++) {
+                      const res = await aiQualifyLeadsBatch({ data: { limit: 6 } });
+                      if (!res.configured) {
+                        toast("AI isn't set up yet — add OPENROUTER_API_KEY (or ANTHROPIC_API_KEY) in Vercel first, then run this.", "error");
+                        return;
+                      }
+                      total += res.rated;
+                      if (res.remaining === 0 || res.rated === 0) break;
+                    }
+                    toast(
+                      total > 0
+                        ? `AI rated ${total} lead${total === 1 ? "" : "s"} — the 🎯 badge shows how likely each is to buy. Green ones first.`
+                        : "Every researched company is already rated — research new leads to grow the pool.",
+                      total > 0 ? "success" : "info",
+                    );
+                    void router.invalidate();
+                  } catch {
+                    toast(total > 0 ? `Rated ${total} before hitting an error — click again to continue.` : "Couldn't run AI ratings — try again.", "error");
+                  } finally {
+                    setAiRating(false);
+                  }
+                }}
+              >
+                {aiRating ? "AI is rating leads…" : "🎯 AI-rate leads"}
               </Button>
             ) : null}
             <Button
@@ -489,6 +527,20 @@ function CompaniesPage() {
                         <span className="ml-2 align-middle rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">No answer</span>
                       ) : !c.call_outcome ? (
                         <span className="ml-2 align-middle rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Need to call</span>
+                      ) : null}
+                      {typeof c.ai_fit === "number" ? (
+                        <span
+                          className={`ml-2 align-middle rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                            (c.ai_fit as number) >= 70
+                              ? "bg-emerald-500/15 text-emerald-300"
+                              : (c.ai_fit as number) >= 40
+                                ? "bg-amber-500/15 text-amber-300"
+                                : "bg-surface-2 text-faint"
+                          }`}
+                          title={`AI read their research and rated how likely they are to buy: ${c.ai_fit}/100. ${(c.ai_fit_reason as string) ?? ""}`}
+                        >
+                          🎯 {c.ai_fit as number}
+                        </span>
                       ) : null}
                       {c.website ? (
                         <div className="flex items-center gap-1.5 text-xs text-faint">

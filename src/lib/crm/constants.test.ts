@@ -231,6 +231,21 @@ describe("opportunityScore", () => {
     const s = opportunityScore({ hasEmail: true });
     expect(s.reasons.length).toBeGreaterThan(0);
   });
+
+  it("boosts high-value trades (owner's 2026-07-21 call: law, roofing, med spas float up)", () => {
+    const roofer = opportunityScore({ industry: "Roofing contractor", hasPhone: true });
+    const generic = opportunityScore({ industry: "Vending machines", hasPhone: true });
+    expect(roofer.score).toBeGreaterThan(generic.score);
+    expect(roofer.reasons).toContain("High-value trade — real web budget");
+  });
+
+  it("high-value stacks on best-fit so a law firm outranks a plain best-fit lead", () => {
+    // "law" is in both BEST_FIT_INDUSTRIES and HIGH_BUDGET_INDUSTRIES; a cafe
+    // is best-fit only. Same signals otherwise → the law firm must score higher.
+    const lawFirm = opportunityScore({ industry: "Law firm", hasPhone: true });
+    const cafe = opportunityScore({ industry: "Cafe", hasPhone: true });
+    expect(lawFirm.score).toBe(cafe.score + 10);
+  });
 });
 
 describe("discoveryScore", () => {

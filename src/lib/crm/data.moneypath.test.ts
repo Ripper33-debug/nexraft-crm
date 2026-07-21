@@ -253,6 +253,32 @@ describe("prune weak leads archives, never deletes, and can't touch a real prosp
   });
 });
 
+describe("AI lead qualification rates real research, never invents leads", () => {
+  const body = fnBody("aiQualifyLeadsBatch");
+  it("is admin-only and config-gated like every AI feature", () => {
+    expect(body).toContain("requireAdmin()");
+    expect(body).toContain("if (!isAiConfigured())");
+    expect(body).toContain("configured: false");
+  });
+  it("only rates companies that HAVE a research dossier — no dossier, no verdict", () => {
+    expect(source).toContain("NEEDS_AI_FIT_SQL = `research IS NOT NULL AND archived_at IS NULL");
+  });
+  it("re-rates after fresh research so verdicts track reality", () => {
+    expect(source).toContain("ai_fit_at < research_at");
+  });
+  it("clamps the model's number to 0-100 and requires a why before saving", () => {
+    expect(body).toContain("Math.max(0, Math.min(100, Math.round(Number(parsed.fit))))");
+    expect(body).toContain("!parsed.why");
+  });
+  it("one bad row never stops the batch", () => {
+    expect(body).toMatch(/catch\s*\{/);
+  });
+  it("tells the model to judge only from given facts (anti-hallucination contract)", () => {
+    expect(source).toContain("Judge ONLY from the facts given");
+    expect(source).toContain(`{"fit": <integer 0-100>, "why": "<one sentence>"}`);
+  });
+});
+
 describe("dead-site alerts catch the live→dead flip", () => {
   const core = helperBody("verifyWebsitesCore");
   it("only treats a LIVE site going dead as the hot moment, not always-dead ones", () => {
