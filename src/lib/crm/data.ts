@@ -3148,7 +3148,7 @@ export const getArchived = createServerFn({ method: "GET" })
 // degrades gracefully: nothing crashes, and the UI shows a "needs a key" note.
 
 // Model is env-overridable so it can be swapped without a code change. The
-// default follows the configured provider (Haiku on Anthropic direct, Sonnet
+// default follows the configured provider (Haiku on Anthropic direct, Grok 4.5
 // on OpenRouter — see ai.server.ts) so switching providers re-fingerprints
 // and regenerates cached briefs with the model actually in use.
 const AI_BRIEF_MODEL = process.env.AI_BRIEF_MODEL || aiDefaultModel();

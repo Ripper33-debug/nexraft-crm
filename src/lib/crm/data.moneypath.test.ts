@@ -171,8 +171,12 @@ describe("AI research layer is a bonus, never a blocker", () => {
   it("routes an OpenRouter key pasted into ANTHROPIC_API_KEY correctly (sk-or- prefix)", () => {
     expect(aiSource).toContain(`startsWith("sk-or-")`);
   });
-  it("uses a Claude model that actually exists on OpenRouter (no Haiku there)", () => {
-    expect(aiSource).toContain("anthropic/claude-sonnet-5");
+  it("runs Grok 4.5 on OpenRouter (owner's pick), swappable via AI_MODEL env", () => {
+    expect(aiSource).toContain("x-ai/grok-4.5-20260708");
+    expect(aiSource).toContain("process.env.AI_MODEL");
+    // A bare model name without a vendor prefix would 404 on OpenRouter, so
+    // the override is only honored when it looks like a real slug.
+    expect(aiSource).toContain(`AI_MODEL_OVERRIDE.includes("/")`);
   });
   it("board briefs share the same provider layer instead of a second inline fetch", () => {
     expect(helperBody("generateBriefText")).toContain("aiComplete(");

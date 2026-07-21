@@ -8,8 +8,9 @@
 //   - OpenRouter (openrouter.ai) — set OPENROUTER_API_KEY. Also used if the
 //     ANTHROPIC_API_KEY value starts with "sk-or-" (that prefix means it's an
 //     OpenRouter key pasted into the wrong variable — we route it correctly
-//     instead of failing). OpenRouter doesn't offer Haiku, so this path runs
-//     Claude Sonnet — a bit pricier per company but still small.
+//     instead of failing). This path runs Grok 4.5 by default (owner's pick,
+//     and cheaper than the Claude options there — OpenRouter has no Haiku);
+//     swap models any time by setting AI_MODEL to a full OpenRouter slug.
 //   - Anthropic direct — set ANTHROPIC_API_KEY (a real "sk-ant-" key). Runs
 //     Haiku, roughly a cent per company.
 //
@@ -23,8 +24,16 @@ import type { ResearchDossier } from "./data";
 const ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
 const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
-// Cheapest recent Claude on OpenRouter (no Haiku models are listed there).
-const OPENROUTER_MODEL = "anthropic/claude-sonnet-5";
+// Which model runs on OpenRouter. Grok 4.5 per the owner's pick — it's also
+// cheaper per token than the Claude options there. Overridable via AI_MODEL
+// in Vercel (must be a full OpenRouter slug with a vendor prefix, e.g.
+// "x-ai/grok-4.5-20260708" or "anthropic/claude-sonnet-5") so the model can
+// be swapped without a code change.
+const AI_MODEL_OVERRIDE = process.env.AI_MODEL?.trim();
+const OPENROUTER_MODEL =
+  AI_MODEL_OVERRIDE && AI_MODEL_OVERRIDE.includes("/")
+    ? AI_MODEL_OVERRIDE
+    : "x-ai/grok-4.5-20260708";
 
 type AiProvider = { kind: "anthropic" | "openrouter"; key: string };
 
