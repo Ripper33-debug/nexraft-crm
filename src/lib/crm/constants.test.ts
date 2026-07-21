@@ -38,6 +38,9 @@ import {
   SALES_BONUS_THRESHOLD,
   OPPORTUNITY_HOT_MIN,
   OPPORTUNITY_WARM_MIN,
+  gradeSiteReport,
+  gradeLetter,
+  explainSiteIssue,
 } from "./constants";
 
 // These are the numbers that turn into money on someone's paycheck and into the
@@ -767,5 +770,74 @@ describe("pickResearchLinks", () => {
 
   it("returns nothing for an unusable base URL", () => {
     expect(pickResearchLinks(html, "not a url")).toEqual([]);
+  });
+});
+
+describe("gradeSiteReport (the public report card)", () => {
+  it("a clean live site earns an A", () => {
+    const g = gradeSiteReport("live", [], false);
+    expect(g.letter).toBe("A");
+    expect(g.score).toBe(95);
+  });
+
+  it("a dead site is an F with a 'down right now' headline", () => {
+    const g = gradeSiteReport("dead", [], false);
+    expect(g.letter).toBe("F");
+    expect(g.headline).toMatch(/down right now/i);
+  });
+
+  it("an expired domain gets its own harsher headline", () => {
+    const g = gradeSiteReport("dead", [], true);
+    expect(g.letter).toBe("F");
+    expect(g.headline).toMatch(/domain has expired/i);
+  });
+
+  it("weights the defects that cost the most customers", () => {
+    const mobile = gradeSiteReport("live", ["Not mobile-friendly — no viewport tag"], false);
+    const builder = gradeSiteReport("live", ["Built on Wix — DIY template site"], false);
+    expect(mobile.score).toBeLessThan(builder.score);
+  });
+
+  it("stacked defects sink the grade but the score never leaves 0-100", () => {
+    const g = gradeSiteReport(
+      "live",
+      [
+        "Placeholder page — no real site behind the domain",
+        "Not mobile-friendly — no viewport tag",
+        "No HTTPS — browsers show \u201cNot secure\u201d",
+        "Built on Wix — DIY template site",
+        "Copyright stuck in 2019 — site looks abandoned",
+      ],
+      false,
+    );
+    expect(g.letter).toBe("F");
+    expect(g.score).toBeGreaterThanOrEqual(0);
+    expect(g.score).toBeLessThanOrEqual(100);
+  });
+
+  it("letter boundaries land where the copy promises", () => {
+    expect(gradeLetter(90)).toBe("A");
+    expect(gradeLetter(89)).toBe("B");
+    expect(gradeLetter(75)).toBe("B");
+    expect(gradeLetter(74)).toBe("C");
+    expect(gradeLetter(60)).toBe("C");
+    expect(gradeLetter(59)).toBe("D");
+    expect(gradeLetter(40)).toBe("D");
+    expect(gradeLetter(39)).toBe("F");
+  });
+
+  it("every audit issue maps to owner-friendly language, with a fallback", () => {
+    for (const issue of [
+      "Placeholder page — no real site behind the domain",
+      "Not mobile-friendly — no viewport tag",
+      "No HTTPS — browsers show \u201cNot secure\u201d",
+      "Built on Squarespace — DIY template site",
+      "Copyright stuck in 2020 — site looks abandoned",
+      "Something brand new we've never seen",
+    ]) {
+      const text = explainSiteIssue(issue);
+      expect(text.length).toBeGreaterThan(20);
+      expect(text).not.toMatch(/viewport|meta tag/i); // owner-speak, not dev-speak
+    }
   });
 });

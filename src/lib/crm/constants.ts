@@ -1140,6 +1140,82 @@ export function pickResearchLinks(homeHtml: string, baseUrl: string, max = 3): s
   return out;
 }
 
+// ---------- Public site report card ----------
+// The free "grade my website" tool on /report: a business owner types in their
+// own URL and email, and gets an honest letter grade built from the same audit
+// engine the reps use. Pure and deterministic so it's unit-testable — the
+// server passes in the audit result, this just turns it into a grade.
+
+export type SiteReportGrade = {
+  score: number; // 0-100
+  letter: "A" | "B" | "C" | "D" | "F";
+  headline: string;
+};
+
+export function gradeLetter(score: number): SiteReportGrade["letter"] {
+  if (score >= 90) return "A";
+  if (score >= 75) return "B";
+  if (score >= 60) return "C";
+  if (score >= 40) return "D";
+  return "F";
+}
+
+export function gradeSiteReport(
+  status: "live" | "dead",
+  issues: string[],
+  domainExpired: boolean,
+): SiteReportGrade {
+  if (status === "dead") {
+    return {
+      score: 5,
+      letter: "F",
+      headline: domainExpired
+        ? "Your domain has expired — your website is gone."
+        : "Your website is down right now — customers can't see it.",
+    };
+  }
+  // Live: start near-perfect and deduct per defect. Weights mirror how much
+  // each one actually costs a local business in lost customers.
+  let score = 95;
+  for (const issue of issues) {
+    const l = issue.toLowerCase();
+    if (l.includes("placeholder")) score -= 50;
+    else if (l.includes("mobile")) score -= 30;
+    else if (l.includes("https")) score -= 20;
+    else if (l.includes("built on")) score -= 15;
+    else if (l.includes("copyright")) score -= 15;
+    else score -= 10;
+  }
+  score = Math.max(15, Math.min(95, score));
+  const letter = gradeLetter(score);
+  const headline =
+    letter === "A"
+      ? "Looking sharp — your website is in good shape."
+      : letter === "B"
+        ? "Solid foundation, but a few things are costing you customers."
+        : letter === "C"
+          ? "Your website is working against you in a few important ways."
+          : "Your website is likely losing you customers every week.";
+  return { score, letter, headline };
+}
+
+// Plain-English explanation of what each defect costs the owner — shown on the
+// public report card, so it has to speak to a business owner, not a developer.
+export function explainSiteIssue(issue: string): string {
+  const l = issue.toLowerCase();
+  if (l.includes("placeholder"))
+    return "Visitors see an empty placeholder instead of your business. Every click that lands here is wasted.";
+  if (l.includes("mobile"))
+    return "Most people find local businesses on their phone. A site that doesn't adapt to phones sends them straight to a competitor.";
+  if (l.includes("https"))
+    return "Browsers stamp your site \u201cNot secure\u201d before anyone sees it. That warning alone turns visitors away.";
+  if (l.includes("built on"))
+    return "Template builders look like templates. Customers comparing you against a professionally built competitor can tell.";
+  if (l.includes("copyright"))
+    return "An old copyright year signals nobody's home. Customers wonder if you're still in business.";
+  return "This is hurting how your site performs for real customers.";
+}
+
 // ---------- Lead engine master switch ----------
 // Barry's call (2026-07-20): the team has enough companies to work for now,
 // so ALL automatic lead intake is paused — the Discover radar won't import

@@ -29,6 +29,8 @@ import {
   pickResearchLinks,
   type CompanyIntel,
   LEAD_ENGINE_PAUSED,
+  gradeSiteReport,
+  type SiteReportGrade,
 } from "./constants";
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
@@ -5997,6 +5999,121 @@ export const getSharedProposal = createServerFn({ method: "GET" })
       rep_name: row.rep_name,
       proposal_sent_at: row.proposal_sent_at,
     } satisfies SharedProposal;
+  });
+
+// ---- Free site report card ---------------------------------------------------
+// The inbound magnet: a public /report page (linked from nexraft.com) where a
+// business owner types their OWN website + email and gets an honest letter
+// grade from the same audit engine the reps use. Anyone who does that has
+// told us two things at once — they suspect their site is bad AND here's how
+// to reach them. The submission drops straight into the CRM as the hottest
+// kind of lead: one that came to us.
+
+// A public endpoint that fetches URLs on request needs a fence: only real
+// public hostnames, never localhost / private ranges / bare IPs.
+function isPublicHttpHost(raw: string): boolean {
+  const url = normalizeProbeUrl(raw);
+  if (!url) return false;
+  try {
+    const h = new URL(url).hostname.toLowerCase();
+    if (!h.includes(".") || h.includes("[")) return false;
+    if (h === "localhost" || h.endsWith(".local") || h.endsWith(".internal") || h.endsWith(".lan")) return false;
+    const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (v4) {
+      const [a, b] = [Number(v4[1]), Number(v4[2])];
+      if (a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export type PublicSiteReport = {
+  ok: boolean;
+  grade: SiteReportGrade | null;
+  issues: string[];
+  status: "live" | "dead" | "unknown";
+};
+
+// PUBLIC by design — no login, this IS the lead magnet. Bounded against abuse:
+// strict input shapes, public-host fence, one audit fetch with a hard timeout,
+// and a daily cap on how many report-card leads can be created (past the cap
+// the visitor still gets their report; we just stop inserting rows).
+export const runPublicSiteReport = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      business: z.string().min(2).max(120),
+      url: z.string().min(4).max(200),
+      email: z.string().email().max(120),
+    }),
+  )
+  .handler(async ({ data }): Promise<PublicSiteReport> => {
+    await ensureExtraSchema();
+    if (!isPublicHttpHost(data.url)) {
+      return { ok: false, grade: null, issues: [], status: "unknown" };
+    }
+    const audit = await auditWebsite(data.url, 8000);
+    if (!audit) return { ok: false, grade: null, issues: [], status: "unknown" };
+    const grade = gradeSiteReport(audit.status, audit.issues, audit.domainExpired);
+
+    // Lead capture — best-effort, never blocks the report. Daily cap keeps a
+    // bot from flooding the book overnight.
+    try {
+      const capRow = await db()
+        .prepare(`SELECT COUNT(*) AS n FROM companies WHERE source = 'Report card' AND created_at >= ?`)
+        .bind(isoDaysAgo(1))
+        .first<{ n: number }>();
+      if (Number(capRow?.n ?? 0) < 25) {
+        const res = await importLeadCore(
+          { name: data.business.trim(), website: data.url.trim(), email: data.email.trim(), autoAssign: true },
+          null,
+        );
+        if (!res.duplicate) {
+          const now = new Date().toISOString();
+          await db()
+            .prepare(
+              `UPDATE companies SET source = 'Report card', tags = 'report-card', next_followup_at = ?, notes = ? WHERE id = ?`,
+            )
+            .bind(
+              now,
+              `Graded their own site ${grade.letter} (${grade.score}/100) on the free report card — THEY came to US. Email: ${data.email.trim()}. Call today.`,
+              res.id,
+            )
+            .run();
+          await db()
+            .prepare(
+              `INSERT INTO contacts (id, first_name, last_name, email, phone, title, company_id, owner_id, notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .bind(
+              uid(),
+              "Office /",
+              data.business.trim(),
+              data.email.trim().toLowerCase(),
+              null,
+              "Ran the free site report card",
+              res.id,
+              null, // contact stays unowned; the company row carries the assignment
+              `Submitted their site on the report card page — grade ${grade.letter}.`,
+            )
+            .run();
+          await logEvent({
+            actorId: null,
+            verb: "radar",
+            entityType: "company",
+            entityId: res.id,
+            summary: `📥 ${data.business.trim()} ran the free site report card (grade ${grade.letter}) — inbound lead`,
+          });
+        }
+      }
+    } catch {
+      // Lead capture failing must never break the visitor's report.
+    }
+
+    return { ok: true, grade, issues: audit.issues, status: audit.status };
   });
 
 // ---- Sneak-peek teaser pages -------------------------------------------------

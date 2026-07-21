@@ -257,6 +257,29 @@ describe("new-business feed is a bonus, never a blocker", () => {
   });
 });
 
+describe("public site report card stays fenced and capped", () => {
+  const body = fnBody("runPublicSiteReport");
+  it("refuses non-public hosts before fetching anything", () => {
+    expect(body).toContain("isPublicHttpHost(");
+    const fence = helperBody("isPublicHttpHost");
+    expect(fence).toContain("localhost");
+    expect(fence).toContain("192");
+  });
+  it("lead capture goes through the shared import path (dedupe + auto-assign)", () => {
+    expect(body).toContain("importLeadCore(");
+  });
+  it("caps report-card lead creation per day so bots can't flood the book", () => {
+    expect(body).toContain("'Report card'");
+    expect(body).toContain("< 25");
+  });
+  it("lead-capture failures never break the visitor's report", () => {
+    expect(body).toMatch(/catch\s*\{/);
+  });
+  it("inbound leads jump the follow-up queue", () => {
+    expect(body).toContain("next_followup_at");
+  });
+});
+
 describe("good-site archive protects the money", () => {
   const body = fnBody("archiveGoodSiteCompanies");
   it("is admin-only and logged", () => {
