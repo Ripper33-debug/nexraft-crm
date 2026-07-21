@@ -87,6 +87,11 @@ export function ensureExtraSchema(): Promise<void> {
       // Sneak-peek teaser pages: a public token per company that renders a
       // "what your new site could look like" mock homepage from the dossier.
       `ALTER TABLE companies ADD COLUMN IF NOT EXISTS teaser_token TEXT`,
+      // Referral engine: which existing company (usually a signed client) sent
+      // this lead our way. Referrals are the strongest close signal there is —
+      // source flips to 'Referral' (+25 opportunity score) and the referrer
+      // builds up a thank-them tally on their page.
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS referred_by_company_id TEXT`,
       // Per-user notifications (record handed off / shared with you).
       `CREATE TABLE IF NOT EXISTS notifications (
          id TEXT PRIMARY KEY,

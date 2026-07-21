@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useRouter, useRouteContext } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { getCompanies, getContacts, getDeals, researchCompany, getTeaserLink, type ResearchDossier } from "../../lib/crm/data";
+import { getCompanies, getContacts, getDeals, researchCompany, getTeaserLink, setCompanyReferredBy, type ResearchDossier } from "../../lib/crm/data";
 import { toast } from "../../components/crm/toast";
 import {
   Button,
@@ -28,7 +28,13 @@ export const Route = createFileRoute("/_app/companies_/$companyId")({
     const company = (companies as Row[]).find((c) => c.id === params.companyId) ?? null;
     const theirContacts = (contacts as Row[]).filter((c) => c.company_id === params.companyId);
     const theirDeals = (deals as Row[]).filter((d) => d.company_id === params.companyId);
-    return { company, contacts: theirContacts, deals: theirDeals };
+    // Referral picker candidates: signed clients + won-deal companies — the
+    // people who would actually send business our way.
+    const referrers = (companies as Row[])
+      .filter((c) => c.id !== params.companyId && (c.call_outcome === "signed" || Number(c.won_deals) > 0))
+      .map((c) => ({ id: c.id as string, name: c.name as string }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { company, contacts: theirContacts, deals: theirDeals, referrers };
   },
   component: CompanyDetail,
   pendingComponent: () => <PageSkeleton cards={0} rows={6} />,
@@ -225,8 +231,55 @@ function SneakPeekButton({ companyId }: { companyId: string }) {
   );
 }
 
+// "Referred by" control inside the Details card: pick which existing client
+// sent this lead. Setting it flips source to Referral server-side and the
+// referrer's page starts showing a thank-them tally.
+function ReferredByRow({ company, referrers }: { company: Row; referrers: { id: string; name: string }[] }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const current = (company.referred_by_company_id as string | null) ?? "";
+
+  async function change(value: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await setCompanyReferredBy({
+        data: { companyId: company.id as string, referredById: value || null },
+      });
+      toast(value ? "🤝 Marked as a referral — source updated." : "Referral link removed.");
+      void router.invalidate();
+    } catch {
+      toast("Couldn't save the referral — try again.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (referrers.length === 0 && !current) return null;
+  return (
+    <DetailRow label="Referred by">
+      <select
+        value={current}
+        disabled={busy}
+        onChange={(e) => void change(e.target.value)}
+        className="max-w-[220px] rounded-md border border-line bg-ink px-2 py-1 text-sm text-bone focus:border-signal/60 focus:outline-none disabled:opacity-60"
+      >
+        <option value="">— nobody / unknown —</option>
+        {referrers.map((r) => (
+          <option key={r.id} value={r.id}>
+            {r.name}
+          </option>
+        ))}
+        {current && !referrers.some((r) => r.id === current) ? (
+          <option value={current}>{(company.referred_by_name as string) ?? "Unknown company"}</option>
+        ) : null}
+      </select>
+    </DetailRow>
+  );
+}
+
 function CompanyDetail() {
-  const { company, contacts, deals } = Route.useLoaderData();
+  const { company, contacts, deals, referrers } = Route.useLoaderData();
   const { companyId } = Route.useParams();
 
   if (!company) {
@@ -297,7 +350,14 @@ function CompanyDetail() {
             </DetailRow>
             <DetailRow label="Phone">{(c.phone as string) || <span className="text-faint">—</span>}</DetailRow>
             <DetailRow label="Source">{(c.source as string) || <span className="text-faint">—</span>}</DetailRow>
+            <ReferredByRow company={c} referrers={referrers} />
             <DetailRow label="Added">{c.created_at ? relativeTime(c.created_at as string) : "—"}</DetailRow>
+            {Number(c.referrals_made) > 0 ? (
+              <p className="mt-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-400">
+                🤝 Has sent {Number(c.referrals_made)} referral{Number(c.referrals_made) === 1 ? "" : "s"} our
+                way — worth a thank-you (free month?).
+              </p>
+            ) : null}
           </Card>
 
           <ResearchPanel key={companyId} company={c} />

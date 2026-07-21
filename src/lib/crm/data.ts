@@ -88,6 +88,8 @@ export type CompanyRow = {
   deal_count: number;
   won_deals: number;
   email_contacts: number;
+  referred_by_name: string | null;
+  referrals_made: number;
 };
 
 export type ContactRow = {
@@ -246,7 +248,9 @@ export const getCompanies = createServerFn({ method: "GET" }).handler(async () =
     `SELECT c.*, u.name AS owner_name,
         (SELECT COUNT(*)::int FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL) AS deal_count,
         (SELECT COUNT(*)::int FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL AND d.stage = '${WON_STAGE}') AS won_deals,
-        (SELECT COUNT(*)::int FROM contacts e WHERE e.company_id = c.id AND e.archived_at IS NULL AND e.email IS NOT NULL AND e.email <> '') AS email_contacts
+        (SELECT COUNT(*)::int FROM contacts e WHERE e.company_id = c.id AND e.archived_at IS NULL AND e.email IS NOT NULL AND e.email <> '') AS email_contacts,
+        (SELECT r.name FROM companies r WHERE r.id = c.referred_by_company_id) AS referred_by_name,
+        (SELECT COUNT(*)::int FROM companies r WHERE r.referred_by_company_id = c.id AND r.archived_at IS NULL) AS referrals_made
        FROM companies c LEFT JOIN users u ON u.id = c.owner_id
        WHERE c.archived_at IS NULL ${scope}
        ORDER BY c.name`,
@@ -6114,6 +6118,53 @@ export const runPublicSiteReport = createServerFn({ method: "POST" })
     }
 
     return { ok: true, grade, issues: audit.issues, status: audit.status };
+  });
+
+// ---- Referral engine ---------------------------------------------------------
+// Word-of-mouth is the strongest close signal a local studio gets, so it's
+// tracked as a first-class link: a lead can be marked "referred by" an existing
+// company (usually a signed client). Setting it flips source to 'Referral'
+// (+25 opportunity score) and the referrer accrues a visible thank-them tally —
+// the standing offer Barry can honor with a free month.
+
+export const setCompanyReferredBy = createServerFn({ method: "POST" })
+  .validator(z.object({ companyId: z.string(), referredById: z.string().nullable() }))
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    await assertCanEdit(user, "companies", data.companyId);
+    if (data.referredById === data.companyId) throw new Error("SELF_REFERRAL");
+    let refName: string | null = null;
+    if (data.referredById) {
+      const ref = await db()
+        .prepare(`SELECT name FROM companies WHERE id = ? AND archived_at IS NULL`)
+        .bind(data.referredById)
+        .first<{ name: string }>();
+      if (!ref) throw new Error("NOT_FOUND");
+      refName = ref.name;
+    }
+    if (data.referredById) {
+      // Flipping source to 'Referral' is what feeds the +25 opportunity boost.
+      await db()
+        .prepare(`UPDATE companies SET referred_by_company_id = ?, source = 'Referral' WHERE id = ?`)
+        .bind(data.referredById, data.companyId)
+        .run();
+    } else {
+      await db()
+        .prepare(`UPDATE companies SET referred_by_company_id = NULL WHERE id = ?`)
+        .bind(data.companyId)
+        .run();
+    }
+    if (refName) {
+      await logEvent({
+        actorId: user.id,
+        verb: "referral",
+        entityType: "company",
+        entityId: data.companyId,
+        summary: `🤝 ${user.name} marked this lead as referred by ${refName}`,
+      });
+    }
+    return { ok: true as const };
   });
 
 // ---- Sneak-peek teaser pages -------------------------------------------------

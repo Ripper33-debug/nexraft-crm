@@ -280,6 +280,25 @@ describe("public site report card stays fenced and capped", () => {
   });
 });
 
+describe("referral engine keeps its guards", () => {
+  const body = fnBody("setCompanyReferredBy");
+  it("keeps record-level permissions on the lead", () => {
+    expect(body).toContain("assertCanEdit(");
+  });
+  it("refuses self-referrals", () => {
+    expect(body).toContain("SELF_REFERRAL");
+  });
+  it("flips source to Referral so the +25 opportunity boost kicks in", () => {
+    expect(body).toContain("source = 'Referral'");
+  });
+  it("only accepts live (unarchived) companies as referrers", () => {
+    expect(body).toContain("archived_at IS NULL");
+  });
+  it("is event-logged so the timeline shows who linked it", () => {
+    expect(body).toContain("logEvent(");
+  });
+});
+
 describe("good-site archive protects the money", () => {
   const body = fnBody("archiveGoodSiteCompanies");
   it("is admin-only and logged", () => {
