@@ -4092,6 +4092,53 @@ export const backfillResearchEmails = createServerFn({ method: "POST" }).handler
   return { ok: true as const, scanned: candidates.length, created };
 });
 
+// Bulk clean-up Barry asked for after eyeballing the "Good site" filter: get
+// the companies whose website the research audit couldn't fault OUT of the
+// working pool, so reps stop cold-pitching businesses with nothing to sell
+// against. Soft-archive only (same cascade + shared timestamp per company as
+// archiveCompany, so each one restores cleanly from the Archived panel).
+// Signed clients, interested leads, and anyone with a won deal are never
+// touched, no matter what their site looks like.
+export const archiveGoodSiteCompanies = createServerFn({ method: "POST" }).handler(async () => {
+  const me = await requireAdmin();
+  await ensureExtraSchema();
+  const { results } = await db()
+    .prepare(
+      `SELECT c.id, c.research FROM companies c
+        WHERE c.archived_at IS NULL AND c.research IS NOT NULL
+          AND COALESCE(c.call_outcome, '') NOT IN ('signed', 'interested')
+          AND NOT EXISTS (
+            SELECT 1 FROM deals d
+             WHERE d.company_id = c.id AND d.archived_at IS NULL AND d.stage = '${WON_STAGE}'
+          )`,
+    )
+    .all<{ id: string; research: string }>();
+  let archived = 0;
+  const now = new Date().toISOString();
+  for (const c of results ?? []) {
+    let r: { siteStatus?: string; angles?: string[] };
+    try {
+      r = JSON.parse(c.research) as { siteStatus?: string; angles?: string[] };
+    } catch {
+      continue;
+    }
+    if (r.siteStatus !== "live" || (r.angles ?? []).length > 0) continue;
+    await db().prepare("UPDATE companies SET archived_at=? WHERE id=? AND archived_at IS NULL").bind(now, c.id).run();
+    await db()
+      .prepare("UPDATE deals SET archived_at=? WHERE company_id=? AND archived_at IS NULL")
+      .bind(now, c.id)
+      .run();
+    archived += 1;
+  }
+  await logEvent({
+    actorId: me.id,
+    verb: "archived",
+    entityType: "companies",
+    summary: `${me.name} archived ${archived} compan${archived === 1 ? "y" : "ies"} that already have a good website`,
+  });
+  return { ok: true as const, archived };
+});
+
 // Batch enrichment: research the newest never-researched companies so reps
 // open them to ready-made intel. Includes companies WITHOUT a website — they
 // get the "no website at all" selling point plus a ratings lookup, which is

@@ -156,3 +156,23 @@ describe("COO briefing is boss-only and read-only", () => {
     }
   });
 });
+
+describe("good-site archive protects the money", () => {
+  const body = fnBody("archiveGoodSiteCompanies");
+  it("is admin-only and logged", () => {
+    expect(body).toContain("requireAdmin(");
+    expect(body).toContain("logEvent(");
+  });
+  it("never touches signed clients, interested leads, or won-deal companies", () => {
+    expect(body).toContain("'signed', 'interested'");
+    expect(body).toContain("WON_STAGE");
+  });
+  it("soft-archives with the cascade stamp instead of deleting", () => {
+    expect(body).toContain("SET archived_at");
+    expect(body).not.toMatch(/DELETE FROM/);
+  });
+  it("only archives sites the audit graded live with zero angles", () => {
+    expect(body).toContain('siteStatus !== "live"');
+    expect(body).toContain("angles");
+  });
+});

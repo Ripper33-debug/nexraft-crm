@@ -12,6 +12,7 @@ import {
   verifyCompanyWebsites,
   claimCompany,
   backfillResearchEmails,
+  archiveGoodSiteCompanies,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, PageSkeleton } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
@@ -100,6 +101,7 @@ function CompaniesPage() {
   const [calling, setCalling] = useState<Row | null>(null);
   const [checkingSites, setCheckingSites] = useState(false);
   const [pullingEmails, setPullingEmails] = useState(false);
+  const [clearingGoodSites, setClearingGoodSites] = useState(false);
 
   // Deep-link: a global-search result routes here with ?focus=<id> to auto-open.
   useEffect(() => {
@@ -326,6 +328,39 @@ function CompaniesPage() {
           </Select>
         </div>
       </div>
+
+      {isAdmin && siteFilter === "good" && rows.length > 0 ? (
+        <div className="mt-3 flex items-center justify-between rounded-xl border border-signal/25 bg-signal-soft px-4 py-3">
+          <span className="text-sm text-bone">
+            These {rows.length} companies already have a good website — the hardest pitch in the book.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={clearingGoodSites}
+            onClick={async () => {
+              if (!window.confirm(`Archive all good-site companies? Signed clients and interested leads are never touched, and everything is restorable from the Archived panel below.`)) return;
+              setClearingGoodSites(true);
+              try {
+                const res = await archiveGoodSiteCompanies();
+                toast(
+                  res.archived > 0
+                    ? `Archived ${res.archived} good-site compan${res.archived === 1 ? "y" : "ies"} — the pool is all weak-site leads now.`
+                    : "Nothing to archive — no eligible good-site companies.",
+                  res.archived > 0 ? "success" : "info",
+                );
+                void router.invalidate();
+              } catch {
+                toast("Couldn't archive them — try again.", "error");
+              } finally {
+                setClearingGoodSites(false);
+              }
+            }}
+          >
+            {clearingGoodSites ? "Archiving…" : "Archive all of these"}
+          </Button>
+        </div>
+      ) : null}
 
       <Card className="mt-3 overflow-hidden">
         <div className="overflow-x-auto">
