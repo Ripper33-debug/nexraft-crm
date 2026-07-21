@@ -178,6 +178,17 @@ describe("AI research layer is a bonus, never a blocker", () => {
     expect(helperBody("researchCompanyCore")).toContain("aiResearchBrief(");
     expect(helperBody("dossierNoteBody")).toContain("d.ai");
   });
+  it("re-research refresh is admin-only and refuses to run without the key", () => {
+    const body = fnBody("runReResearchBatch");
+    expect(body).toContain("requireAdmin()");
+    expect(body).toContain("if (!isAiConfigured())");
+  });
+  it("re-research only targets dossiers missing an AI brief, never archived companies", () => {
+    expect(source).toContain(
+      `NEEDS_AI_REFRESH_SQL = \`research IS NOT NULL AND research NOT LIKE '%"ai":%' AND archived_at IS NULL\``,
+    );
+    expect(fnBody("runReResearchBatch")).toContain("NEEDS_AI_REFRESH_SQL");
+  });
 });
 
 describe("good-site archive protects the money", () => {

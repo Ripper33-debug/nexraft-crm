@@ -12,6 +12,7 @@ import {
   adminDeleteUser,
   adminReassignBook,
   runResearchBatch,
+  runReResearchBatch,
   type TeamMemberRow,
   type RepActivityRow,
 } from "../../lib/crm/data";
@@ -107,6 +108,59 @@ function ResearchBatchButton() {
   return (
     <Button variant="outline" onClick={run}>
       {running ? (left !== null ? `Digging… ${left} left (click to stop)` : "Digging… (click to stop)") : "🔎 Research all"}
+    </Button>
+  );
+}
+
+// Same loop, different pool: refreshes dossiers written before the AI layer
+// existed so every company gets a call brief + drafted email. The server
+// refuses to run without ANTHROPIC_API_KEY (no point re-crawling for nothing),
+// and this surfaces that as a plain-language toast instead of a silent no-op.
+function ReResearchButton() {
+  const [running, setRunning] = useState(false);
+  const [left, setLeft] = useState<number | null>(null);
+  const stopRef = useRef(false);
+  const run = async () => {
+    if (running) {
+      stopRef.current = true;
+      setRunning(false);
+      toast("⏸ Refresh stopped — every brief written so far is saved.");
+      return;
+    }
+    setRunning(true);
+    stopRef.current = false;
+    let total = 0;
+    try {
+      for (let i = 0; i < 200; i++) {
+        const res = await runReResearchBatch();
+        if (!res.configured) {
+          toast("AI isn't set up yet — add ANTHROPIC_API_KEY in Vercel first, then run this.", "error");
+          return;
+        }
+        total += res.refreshed;
+        setLeft(res.remaining);
+        if (stopRef.current) return;
+        if (res.remaining === 0 || res.refreshed === 0) break;
+      }
+      toast(
+        total === 0
+          ? "✨ All caught up — every dossier already has an AI brief."
+          : `✨ Done — refreshed ${total} compan${total === 1 ? "y" : "ies"} with AI briefs and email drafts.`,
+      );
+    } catch {
+      toast(
+        total > 0
+          ? `Refresh hit a snag after ${total} companies — click again to continue.`
+          : "Refresh failed to start — try again in a moment.",
+      );
+    } finally {
+      setRunning(false);
+      setLeft(null);
+    }
+  };
+  return (
+    <Button variant="outline" onClick={run}>
+      {running ? (left !== null ? `Refreshing… ${left} left (click to stop)` : "Refreshing… (click to stop)") : "✨ Add AI briefs"}
     </Button>
   );
 }
@@ -293,6 +347,7 @@ function TeamPage() {
         actions={
           <div className="flex flex-wrap gap-2">
             <ResearchBatchButton />
+            <ReResearchButton />
             <Button onClick={() => setAddOpen(true)}>+ Add teammate</Button>
           </div>
         }

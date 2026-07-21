@@ -4198,6 +4198,48 @@ export const runResearchBatch = createServerFn({ method: "POST" }).handler(async
   return { ok: true as const, enriched, remaining: r?.n ?? 0 };
 });
 
+// Refresh pass for dossiers written BEFORE the AI layer existed: they have no
+// "ai" key in their JSON, so this walks exactly those companies and re-runs
+// the full dig (which now attaches the brief + drafted email). Refuses to run
+// when ANTHROPIC_API_KEY isn't set — re-crawling every site just to stamp
+// "ai": null would burn the backlog for nothing. Idempotent: once refreshed,
+// a dossier carries the key and leaves the pool, so the Team-page loop
+// naturally walks the whole book once and then reports all caught up. The
+// LIKE check is safe against user text because JSON string content escapes
+// quotes — a literal "ai": can only appear as a top-level key.
+const NEEDS_AI_REFRESH_SQL = `research IS NOT NULL AND research NOT LIKE '%"ai":%' AND archived_at IS NULL`;
+export const runReResearchBatch = createServerFn({ method: "POST" }).handler(async () => {
+  await requireAdmin();
+  await ensureExtraSchema();
+  if (!isAiConfigured()) {
+    return { ok: true as const, configured: false as const, refreshed: 0, remaining: 0 };
+  }
+  const { results } = await db()
+    .prepare(
+      `SELECT id, name, website, city FROM companies
+       WHERE ${NEEDS_AI_REFRESH_SQL}
+       ORDER BY created_at DESC
+       LIMIT 6`,
+    )
+    .all<{ id: string; name: string; website: string | null; city: string | null }>();
+  let refreshed = 0;
+  await Promise.allSettled(
+    (results ?? []).map(async (c) => {
+      try {
+        const dossier = await researchCompanyCore(c);
+        await saveDossier(c.id, dossier, null);
+        refreshed++;
+      } catch {
+        /* per-company best effort — a broken site must not stall the batch */
+      }
+    }),
+  );
+  const r = await db()
+    .prepare(`SELECT COUNT(*)::int AS n FROM companies WHERE ${NEEDS_AI_REFRESH_SQL}`)
+    .first<{ n: number }>();
+  return { ok: true as const, configured: true as const, refreshed, remaining: r?.n ?? 0 };
+});
+
 // On-demand verification for companies already in the CRM. Sweeps up to 12 of
 // the stalest unchecked websites (never checked, or checked > 7 days ago),
 // probes them concurrently, and stamps website_status / website_checked_at.
