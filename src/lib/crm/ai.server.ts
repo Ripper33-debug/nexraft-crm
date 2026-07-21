@@ -171,10 +171,10 @@ Respond with ONLY a JSON object, no markdown fences, in this exact shape:
 
 Rules:
 - brief: 2-3 sentences. What the business is, the single strongest reason their current web presence is costing them customers, and the opening angle the rep should lead with. Concrete, no fluff.
-- email_subject: under 8 words, specific to THIS business, no clickbait.
-- email_body: 90-130 words, plain text. Written about their specific situation (their industry, their rating, their site's actual problems). Anchor value in what one new customer is worth in their trade, never defend the price. Friendly, human, zero corporate speak. Sign off with just "{{REP_NAME}}" on its own line — the CRM fills the name in.
+- email_subject: 2-6 words, lowercase and casual, like a note from someone in town ("your google reviews", "question about the shop"). Specific to THIS business. Never salesy, never Title Case, no clickbait.
+- email_body: 50-90 words, plain text, written to be read on a phone. Its only job is to get a REPLY, not to close a sale. Structure: (1) open with the single most specific TRUE observation about this business — their rating, their broken or missing site, how they show up when locals search — one sentence; (2) one sentence on the fix ($100/month, everything handled, one new customer usually covers it); (3) end with ONE question they can answer in a word or two ("worth a look?", "want me to send it over?") plus an easy out ("if not, just say so and I'll leave you be"). Short sentences. No "hope this finds you well", no "I'd love to connect", no bullet points, zero corporate speak. Sign off with just "{{REP_NAME}}" on its own line — the CRM fills the name in.
 - If the facts include an owner name, address them by first name in the email.
-- Never invent facts that are not in the input.`;
+- Never invent facts that are not in the input. If the facts are thin, stay plain rather than making details up.`;
 
 // One company in, one brief out. Hard 15s deadline so a slow/failed AI call
 // can never stall a research batch — the dossier just ships without the brief.

@@ -10,55 +10,58 @@ function firstName(repName: string): string {
   return (repName || "").split(" ")[0] || "the Nexraft team";
 }
 
-// Nudge 1 — right after a missed call. Warm, low-pressure "sorry we missed you".
+// The copy below is tuned for one thing: getting a REPLY from a busy owner
+// reading on their phone. That means short (under ~90 words), one specific
+// point, one easy question — and an out ("just say no thanks") that
+// paradoxically makes people answer. No pitch walls, no "I'd love to connect".
+
+// Nudge 1 — right after a missed call. Reference the call, make replying easy.
 function nudge1(company: string, rep: string, repName: string): EmailDraft {
   return {
-    subject: `Sorry we missed you — ${company} & Nexraft`,
-    body: `Hi there,
+    subject: `tried calling — ${company}`,
+    body: `Hi,
 
-This is ${rep} from Nexraft — I just tried giving you a quick call about your website but couldn't reach you. No worries at all!
+${rep} here — I tried calling about ${company}'s website but didn't catch you.
 
-We build clean, professional websites for local businesses, and I'd love to show you what we could put together for ${company}. There's no pressure — just a quick chat whenever it suits you.
+Short version: we build and run websites for local businesses. $100/month, everything handled — design, hosting, updates. One new customer usually pays for the year.
 
-You can reply straight to this email or call me back and we'll find a time that works. Looking forward to connecting.
+Worth a look? Reply "sure" and I'll send something over — or "no thanks" and I won't bug you again.
 
-Talk soon,
 ${repName || "The Nexraft team"}
 Nexraft`,
   };
 }
 
-// Nudge 2 — a few days later. Lead with a concrete idea / bit of value.
+// Nudge 2 — a few days later. A concrete reason, a yes/no question.
 function nudge2(company: string, rep: string, repName: string): EmailDraft {
   return {
-    subject: `A quick idea for ${company}'s website`,
-    body: `Hi again,
+    subject: `quick question about ${company}`,
+    body: `Hi,
 
-${rep} from Nexraft here — following up on my note from earlier. I had a look at how ${company} shows up online and I think a clean, modern site could make it a lot easier for new customers to find you and get in touch.
+${rep} again. Quick question and then I'll get out of your inbox:
 
-We handle everything — design, copy, hosting — so it's genuinely hands-off for you. Most of our local clients are up and running in a couple of weeks.
+When someone in town searches for what ${company} does, are you happy with what they find? Most owners we talk to aren't — and it's usually costing them a few customers a month without them ever knowing.
 
-Would you be open to a 10-minute call this week? Just reply with a time that suits and I'll make it work.
+That's the whole thing we fix, for $100/month, done for you. Want me to send over what your site could look like?
 
-Best,
 ${repName || "The Nexraft team"}
 Nexraft`,
   };
 }
 
-// Nudge 3 — final, graceful check-in. Leaves the door open without pestering.
+// Nudge 3 — the breakup email. Consistently the most-replied-to email in any
+// cold sequence: closing the file makes people who were on the fence speak up.
 function nudge3(company: string, rep: string, repName: string): EmailDraft {
   return {
-    subject: `Should I close the loop, ${company}?`,
-    body: `Hi there,
+    subject: `closing your file — ${company}`,
+    body: `Hi,
 
-${rep} from Nexraft — I've reached out a couple of times about building a website for ${company} and don't want to crowd your inbox, so this is my last note for now.
+${rep} from Nexraft — I've reached out a couple of times about ${company}'s website and haven't heard back, so I'm going to close your file and stop emailing.
 
-If a new site isn't a priority right now, no problem at all — just let me know and I'll leave you be. And if the timing is simply off, I'm happy to check back down the road.
+Before I do: if the timing was just bad, one word back ("later") and I'll check in down the road. If you're all set, no reply needed at all.
 
-Either way, I'd love to help whenever you're ready.
+Either way, good luck out there — and if a website ever becomes the thing, you know where I am.
 
-All the best,
 ${repName || "The Nexraft team"}
 Nexraft`,
   };
@@ -104,16 +107,15 @@ export const EMAIL_TEMPLATES: EmailTemplate[] = [
     label: "Intro",
     hint: "First time reaching out",
     build: ({ company, firstName, repName }) => ({
-      subject: `A website idea for ${company}`,
+      subject: `question about ${company}`,
       body: `${greet(firstName)}
 
-I'm ${repFirst(repName)} from Nexraft — we build fast, professional websites for local businesses, and I think ${company} could get a lot out of one.
+${repFirst(repName)} here, from Nexraft. We build and run websites for local businesses — $100/month, everything handled, live in about two weeks.
 
-We handle everything (design, copy, hosting), most clients are live in a couple of weeks, and there's zero pressure — I'd just love 10 minutes to show you what it could look like.
+I think ${company} is exactly the kind of business it works for, but you'd know better than me.
 
-Would sometime this week work for a quick call? Just reply with a time and I'll make it happen.
+Worth a look? Reply "sure" and I'll send over what it'd look like — or "no thanks" and that's the last you'll hear from me.
 
-Best,
 ${repName || "The Nexraft team"}
 Nexraft`,
     }),
@@ -123,14 +125,15 @@ Nexraft`,
     label: "Follow-up",
     hint: "Nudge someone who went quiet",
     build: ({ company, firstName, repName }) => ({
-      subject: `Following up — ${company} & Nexraft`,
+      subject: `re: ${company}'s website`,
       body: `${greet(firstName)}
 
-${repFirst(repName)} from Nexraft here — just circling back on my earlier note about a website for ${company}. I know things get busy, so no worries at all if it slipped by.
+${repFirst(repName)} again — my earlier note about a website for ${company} probably got buried, so bumping it once.
 
-If you're open to it, I'd love a quick 10-minute chat this week. If the timing's off, just say the word and I'll check back later.
+The offer's simple: $100/month, we handle everything, one new customer covers it.
 
-Best,
+Yes, no, or "ask me in the fall" — any one-word reply works and I'll take it from there.
+
 ${repName || "The Nexraft team"}
 Nexraft`,
     }),
