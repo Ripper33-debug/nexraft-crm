@@ -16,7 +16,6 @@ import {
   archiveGoodSiteCompanies,
   pruneWeakLeads,
   undoLastBulkArchive,
-  pullTeamLeadsToRep,
   aiQualifyLeadsBatch,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, PageSkeleton } from "../../components/crm/ui";
@@ -118,7 +117,6 @@ function CompaniesPage() {
   const [clearingGoodSites, setClearingGoodSites] = useState(false);
   const [pruning, setPruning] = useState(false);
   const [undoing, setUndoing] = useState(false);
-  const [dealing, setDealing] = useState(false);
   const [aiRating, setAiRating] = useState(false);
 
   // Deep-link: a global-search result routes here with ?focus=<id> to auto-open.
@@ -331,52 +329,6 @@ function CompaniesPage() {
                 }}
               >
                 {undoing ? "Restoring…" : "↩️ Undo last bulk archive"}
-              </Button>
-            ) : null}
-            {isAdmin ? (
-              <Button
-                variant="outline"
-                disabled={dealing}
-                onClick={async () => {
-                  const rep = window.prompt("Move leads from the rest of the team to which teammate? (name or email)", "Michael");
-                  if (!rep?.trim()) return;
-                  const countRaw = window.prompt("How many leads?", "40");
-                  if (!countRaw) return;
-                  const count = Math.max(1, Math.min(200, Math.round(Number(countRaw)) || 0));
-                  if (!count) {
-                    toast("That's not a number — try again.", "error");
-                    return;
-                  }
-                  setDealing(true);
-                  try {
-                    const preview = await pullTeamLeadsToRep({ data: { rep: rep.trim(), count, dryRun: true } });
-                    if (!preview.ok) {
-                      toast(preview.error, "error");
-                      return;
-                    }
-                    if (preview.taking === 0) {
-                      toast("Nobody else has movable leads — signed, interested/maybe, active deals, and scheduled follow-ups never move.", "info");
-                      return;
-                    }
-                    const go = window.confirm(
-                      `Move ${preview.taking} lead${preview.taking === 1 ? "" : "s"} to ${preview.rep}, taken evenly from teammates:\n\n${preview.breakdown.map((d) => `  • ${d.name}: ${d.giving} of their ${d.movable} movable`).join("\n")}\n\nOnly least-worked leads move — signed clients, interested/maybe, active deals, and anything with a follow-up scheduled stay with their rep.`,
-                    );
-                    if (!go) return;
-                    const res = await pullTeamLeadsToRep({ data: { rep: rep.trim(), count, dryRun: false } });
-                    if (!res.ok) {
-                      toast(res.error, "error");
-                      return;
-                    }
-                    toast(`Moved ${res.moved} lead${res.moved === 1 ? "" : "s"} to ${res.rep} — they're in their book now.`, "success");
-                    void router.invalidate();
-                  } catch {
-                    toast("Couldn't move team leads — try again.", "error");
-                  } finally {
-                    setDealing(false);
-                  }
-                }}
-              >
-                {dealing ? "Moving leads…" : "🤝 Move team leads to a rep"}
               </Button>
             ) : null}
             {isAdmin ? (

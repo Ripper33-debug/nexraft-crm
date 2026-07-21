@@ -374,6 +374,38 @@ describe("team rebalance takes evenly from teammates but never their real work",
   });
 });
 
+describe("the one-time Michael rebalance runs itself exactly once", () => {
+  const body = helperBody("runPendingOneTimeTasks");
+  it("claims a run-once lock in app_settings before touching anything", () => {
+    expect(body).toContain("ON CONFLICT (key) DO NOTHING RETURNING key");
+    expect(body).toContain("if (!row) return");
+  });
+  it("takes at most 40 per donor and never a rep's real work", () => {
+    expect(source).toContain("REBALANCE_PER_DONOR = 40");
+    expect(body).toContain(`NOT IN ('signed', 'interested', 'maybe')`);
+    expect(body).toContain(`d.stage <> 'To Call' OR COALESCE(d.value, 0) > 0`);
+    expect(body).toContain("c.next_followup_at IS NULL OR c.next_followup_at <=");
+  });
+  it("never donates from Michael himself or from Barry the owner", () => {
+    expect(body).toContain("c.owner_id <> ?");
+    expect(body).toContain("AUTO_ASSIGN_EXCLUDE_EMAIL");
+  });
+  it("skips safely unless exactly one Michael exists", () => {
+    expect(body).toContain("michaels.length !== 1");
+  });
+  it("moves with the ownership guard, least-worked leads first, and logs what it did", () => {
+    expect(body).toContain("SET owner_id = ? WHERE id = ? AND owner_id = ?");
+    expect(body).toContain("workRank");
+    expect(body).toContain("logEvent(");
+  });
+  it("fires from both the Companies loader and the cron, and releases the lock on failure", () => {
+    expect(fnBody("getCompanies")).toContain("runPendingOneTimeTasks()");
+    const cron = source.slice(source.indexOf("export const runDueSweeps"));
+    expect(cron).toContain("runPendingOneTimeTasks()");
+    expect(body).toContain(`value='running'`);
+  });
+});
+
 describe("dead-site alerts catch the live→dead flip", () => {
   const core = helperBody("verifyWebsitesCore");
   it("only treats a LIVE site going dead as the hot moment, not always-dead ones", () => {

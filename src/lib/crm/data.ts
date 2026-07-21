@@ -244,6 +244,10 @@ const companySchema = z.object({
 export const getCompanies = createServerFn({ method: "GET" }).handler(async () => {
   const me = await requireUser();
   await ensureExtraSchema();
+  // Self-running one-time tasks (e.g. the 2026-07-21 rebalance to Michael)
+  // fire on the first Companies load after a deploy. Checked once per server
+  // process, run-once-ever via the app_settings lock. Never blocks the list.
+  await runPendingOneTimeTasks();
   // Reps see their own book plus the unowned pool (so they can claim from it);
   // admins see the whole team's companies.
   const scope = me.role === "admin" ? "" : "AND (c.owner_id = ? OR c.owner_id IS NULL)";
@@ -4644,6 +4648,143 @@ export const pullTeamLeadsToRep = createServerFn({ method: "POST" })
     };
   });
 
+// ==================== One-time tasks (self-running, keyed in app_settings) ====================
+// Barry's ask, 2026-07-21: "take 40 from each of the other sales people and
+// give them to Michael" — with no button. So this runs ITSELF, exactly once,
+// on the first Companies-page load (or cron hit) after deploy. The
+// app_settings insert is the run-once lock: whichever server instance claims
+// the key does the work; everyone else sees the conflict and skips. Same
+// protections as every rebalance — a rep's real work never moves.
+const REBALANCE_TASK_KEY = "task_rebalance_michael_2026_07_21";
+const REBALANCE_PER_DONOR = 40;
+let _oneTimeTasksChecked = false;
+
+async function runPendingOneTimeTasks(): Promise<void> {
+  if (_oneTimeTasksChecked) return;
+  _oneTimeTasksChecked = true;
+  let claimed = false;
+  try {
+    const row = await db()
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES (?, 'running')
+         ON CONFLICT (key) DO NOTHING RETURNING key`,
+      )
+      .bind(REBALANCE_TASK_KEY)
+      .first<{ key: string }>();
+    if (!row) return; // already ran (or another instance is on it)
+    claimed = true;
+
+    // Target: exactly one Michael, or the task marks itself skipped rather
+    // than guess at who gets a book of leads.
+    const michaels =
+      (
+        await db()
+          .prepare(`SELECT id, name FROM users WHERE lower(name) LIKE '%michael%'`)
+          .all<{ id: string; name: string }>()
+      ).results ?? [];
+    if (michaels.length !== 1) {
+      await db()
+        .prepare(`UPDATE app_settings SET value=? WHERE key=?`)
+        .bind(`skipped: ${michaels.length} users match "michael"`, REBALANCE_TASK_KEY)
+        .run();
+      return;
+    }
+    const michael = michaels[0];
+
+    // Donors: the other SALES people — every owner except Michael and except
+    // Barry the owner (same email/name rule the auto-assign rotation uses).
+    // Movable = same untouchables as pullTeamLeadsToRep: no signed, no
+    // interested/maybe, no active deals, no scheduled follow-ups.
+    const eligible =
+      (
+        await db()
+          .prepare(
+            `SELECT c.id, c.owner_id, u.name AS owner_name, c.call_outcome, c.created_at
+               FROM companies c
+               JOIN users u ON u.id = c.owner_id
+              WHERE c.archived_at IS NULL
+                AND c.owner_id IS NOT NULL
+                AND c.owner_id <> ?
+                AND lower(u.email) <> ?
+                AND lower(u.name) NOT LIKE ?
+                AND COALESCE(c.call_outcome, '') NOT IN ('signed', 'interested', 'maybe')
+                AND NOT EXISTS (
+                  SELECT 1 FROM deals d
+                   WHERE d.company_id = c.id AND d.archived_at IS NULL
+                     AND (d.stage <> 'To Call' OR COALESCE(d.value, 0) > 0)
+                )
+                AND (c.next_followup_at IS NULL OR c.next_followup_at <= ?)`,
+          )
+          .bind(michael.id, AUTO_ASSIGN_EXCLUDE_EMAIL, AUTO_ASSIGN_EXCLUDE_NAME_LIKE_2, new Date().toISOString())
+          .all<{
+            id: string;
+            owner_id: string;
+            owner_name: string;
+            call_outcome: string | null;
+            created_at: string;
+          }>()
+      ).results ?? [];
+
+    // Up to 40 from EACH donor, least-worked first (never called, then
+    // no-answer, stalest first) so nobody loses a lead they're actively on.
+    const workRank = (o: string | null) => (!o ? 0 : o === "no_answer" ? 1 : 2);
+    const byDonor = new Map<string, { name: string; queue: typeof eligible }>();
+    for (const c of eligible) {
+      const entry = byDonor.get(c.owner_id) ?? { name: c.owner_name, queue: [] };
+      entry.queue.push(c);
+      byDonor.set(c.owner_id, entry);
+    }
+    let moved = 0;
+    const parts: string[] = [];
+    for (const [donorId, entry] of byDonor) {
+      entry.queue.sort(
+        (a, b) => workRank(a.call_outcome) - workRank(b.call_outcome) || a.created_at.localeCompare(b.created_at),
+      );
+      const take = entry.queue.slice(0, REBALANCE_PER_DONOR);
+      for (const c of take) {
+        // Ownership guard: only move it if the donor still owns it.
+        await db()
+          .prepare("UPDATE companies SET owner_id = ? WHERE id = ? AND owner_id = ?")
+          .bind(michael.id, c.id, donorId)
+          .run();
+        await db()
+          .prepare(
+            `UPDATE deals SET owner_id = ? WHERE company_id = ? AND archived_at IS NULL AND (owner_id = ? OR owner_id IS NULL)`,
+          )
+          .bind(michael.id, c.id, donorId)
+          .run();
+        moved += 1;
+      }
+      if (take.length > 0) parts.push(`${entry.name} (${take.length})`);
+    }
+
+    await db()
+      .prepare(`UPDATE app_settings SET value=? WHERE key=?`)
+      .bind(`done: moved ${moved}`, REBALANCE_TASK_KEY)
+      .run();
+    await logEvent({
+      actorId: null,
+      verb: "assigned",
+      entityType: "companies",
+      summary:
+        moved > 0
+          ? `One-time rebalance: ${moved} lead${moved === 1 ? "" : "s"} moved to ${michael.name} — up to ${REBALANCE_PER_DONOR} each from ${parts.join(", ")}`
+          : `One-time rebalance to ${michael.name}: no movable leads found on teammates' books`,
+    });
+  } catch {
+    // Best-effort: if we claimed the lock but blew up mid-run, release it so
+    // the next request retries (re-runs are safe — moved leads leave the
+    // eligible set, so it only ever picks up where it left off).
+    if (claimed) {
+      try {
+        await db().prepare(`DELETE FROM app_settings WHERE key=? AND value='running'`).bind(REBALANCE_TASK_KEY).run();
+      } catch {
+        /* give up quietly — the admin can clear the key */
+      }
+    }
+  }
+}
+
 // ==================== AI lead qualification (owner's ask, 2026-07-21) ====================
 // "Use the API key to help us get better leads." The model can't FIND
 // businesses (it would invent them) — but it can read the real research
@@ -6153,6 +6294,9 @@ export const runDueSweeps = createServerOnlyFn(
     } catch {
       /* research is a bonus, never a blocker */
     }
+    // One-time tasks also fire from the cron, in case nobody opens the app
+    // right after the deploy. Run-once lock makes double-firing harmless.
+    await runPendingOneTimeTasks();
     // AI qualification: the leads researched above (and any backlog) get their
     // 0-100 buy-likelihood verdict overnight, so the engine's own finds show
     // up pre-rated with the 🎯 badge. Config-gated inside (no API key = no-op).
