@@ -35,7 +35,7 @@ import {
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
 import { isStripeConfigured, stripeFetch } from "./stripe.server";
-import { aiResearchBrief, isAiConfigured, type AiBrief } from "./ai.server";
+import { aiComplete, aiDefaultModel, aiResearchBrief, isAiConfigured, type AiBrief } from "./ai.server";
 import { fetchNewFilings, isSunbizConfigured, titleCaseBusiness } from "./sunbiz.server";
 import { isPlacesConfigured, fetchPlaceRatings } from "./places.server";
 import { isYelpConfigured, fetchYelpRatings } from "./yelp.server";
@@ -3147,8 +3147,11 @@ export const getArchived = createServerFn({ method: "GET" })
 // meaningful change — keeping cost tiny. If no API key is configured the feature
 // degrades gracefully: nothing crashes, and the UI shows a "needs a key" note.
 
-// Model is env-overridable so it can be swapped without a code change.
-const AI_BRIEF_MODEL = process.env.AI_BRIEF_MODEL || "claude-haiku-4-5-20251001";
+// Model is env-overridable so it can be swapped without a code change. The
+// default follows the configured provider (Haiku on Anthropic direct, Sonnet
+// on OpenRouter — see ai.server.ts) so switching providers re-fingerprints
+// and regenerates cached briefs with the model actually in use.
+const AI_BRIEF_MODEL = process.env.AI_BRIEF_MODEL || aiDefaultModel();
 
 type BriefRow = {
   company_id: string;
@@ -3205,9 +3208,6 @@ async function generateBriefText(input: {
   band: string;
   reasons: string[];
 }): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("NO_KEY");
-
   const starter = PRICING_PACKAGES.find((p) => p.id === "starter");
   const pro = PRICING_PACKAGES.find((p) => p.id === "pro");
   const priceLine = starter && pro
@@ -3238,33 +3238,10 @@ Watch-outs: any red flags or reasons it could be a harder/lower-value deal (writ
 Facts:
 ${facts}`;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: AI_BRIEF_MODEL,
-      max_tokens: 400,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-  });
-
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(`AI_ERROR_${res.status}: ${detail.slice(0, 300)}`);
-  }
-  const json = (await res.json()) as { content?: { type: string; text?: string }[] };
-  const text = (json.content ?? [])
-    .filter((b) => b.type === "text")
-    .map((b) => b.text ?? "")
-    .join("\n")
-    .trim();
-  if (!text) throw new Error("AI_EMPTY");
-  return text;
+  // Provider-agnostic call — ai.server.ts routes to Anthropic or OpenRouter
+  // based on which key is configured, and throws NO_KEY / AI_ERROR_* / AI_EMPTY
+  // exactly like the old inline fetch did, so callers are unchanged.
+  return aiComplete({ system, user, maxTokens: 400, model: AI_BRIEF_MODEL });
 }
 
 // Return the cached briefs so the board can show them. Cheap read — no API calls.
@@ -3287,7 +3264,7 @@ export const generateMissingBriefs = createServerFn({ method: "POST" })
     await requireUser();
     await ensureExtraSchema();
 
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!isAiConfigured()) {
       return { ok: false as const, error: "NO_KEY", generated: 0, remaining: 0 };
     }
 
@@ -3864,7 +3841,7 @@ export type ResearchDossier = CompanyIntel & {
   reviews: number | null;
   ratingSource: "google" | "yelp" | null;
   researched_at: string;
-  // AI pass (config-gated on ANTHROPIC_API_KEY): a call-ready brief plus a
+  // AI pass (config-gated on an AI key — Anthropic or OpenRouter): a call-ready brief plus a
   // drafted first-contact email, written about THIS business. Absent/null when
   // the key isn't set or the call failed — everything above works without it.
   ai?: AiBrief | null;
@@ -3977,7 +3954,7 @@ async function researchCompanyCore(company: {
   }
   const dossier: ResearchDossier = { ...intel, siteStatus, rating, reviews, ratingSource, researched_at };
   // AI pass on top — same "bonus, never blocker" rule. aiResearchBrief never
-  // throws and returns null unless ANTHROPIC_API_KEY is set and the call
+  // throws and returns null unless an AI key is configured and the call
   // succeeded inside its 15s deadline, so the rule-based dossier always ships.
   dossier.ai = await aiResearchBrief({ name: company.name, city: company.city }, dossier);
   return dossier;
@@ -4250,7 +4227,7 @@ export const runResearchBatch = createServerFn({ method: "POST" }).handler(async
 // Refresh pass for dossiers written BEFORE the AI layer existed: they have no
 // "ai" key in their JSON, so this walks exactly those companies and re-runs
 // the full dig (which now attaches the brief + drafted email). Refuses to run
-// when ANTHROPIC_API_KEY isn't set — re-crawling every site just to stamp
+// when no AI key is set — re-crawling every site just to stamp
 // "ai": null would burn the backlog for nothing. Idempotent: once refreshed,
 // a dossier carries the key and leaves the pool, so the Team-page loop
 // naturally walks the whole book once and then reports all caught up. The

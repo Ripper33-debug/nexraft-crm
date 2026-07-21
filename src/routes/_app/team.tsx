@@ -115,7 +115,8 @@ function ResearchBatchButton() {
 
 // Same loop, different pool: refreshes dossiers written before the AI layer
 // existed so every company gets a call brief + drafted email. The server
-// refuses to run without ANTHROPIC_API_KEY (no point re-crawling for nothing),
+// refuses to run without an AI key — ANTHROPIC_API_KEY or OPENROUTER_API_KEY
+// (no point re-crawling for nothing),
 // and this surfaces that as a plain-language toast instead of a silent no-op.
 function ReResearchButton() {
   const [running, setRunning] = useState(false);
@@ -135,7 +136,7 @@ function ReResearchButton() {
       for (let i = 0; i < 200; i++) {
         const res = await runReResearchBatch();
         if (!res.configured) {
-          toast("AI isn't set up yet — add ANTHROPIC_API_KEY in Vercel first, then run this.", "error");
+          toast("AI isn't set up yet — add OPENROUTER_API_KEY (or ANTHROPIC_API_KEY) in Vercel first, then run this.", "error");
           return;
         }
         total += res.refreshed;

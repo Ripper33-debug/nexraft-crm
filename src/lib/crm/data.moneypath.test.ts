@@ -159,9 +159,25 @@ describe("COO briefing is boss-only and read-only", () => {
 
 describe("AI research layer is a bonus, never a blocker", () => {
   const aiSource = readFileSync(join(__dirname, "ai.server.ts"), "utf8");
-  it("is config-gated on ANTHROPIC_API_KEY and returns null when unset", () => {
+  it("is config-gated on an AI key and returns null when unset", () => {
     expect(aiSource).toContain("ANTHROPIC_API_KEY");
     expect(aiSource).toContain("if (!isAiConfigured()) return null");
+  });
+  it("supports OpenRouter as an alternate provider (Barry's card won't clear on Anthropic)", () => {
+    expect(aiSource).toContain("OPENROUTER_API_KEY");
+    expect(aiSource).toContain("https://openrouter.ai/api/v1/chat/completions");
+    expect(aiSource).toContain("https://api.anthropic.com/v1/messages");
+  });
+  it("routes an OpenRouter key pasted into ANTHROPIC_API_KEY correctly (sk-or- prefix)", () => {
+    expect(aiSource).toContain(`startsWith("sk-or-")`);
+  });
+  it("uses a Claude model that actually exists on OpenRouter (no Haiku there)", () => {
+    expect(aiSource).toContain("anthropic/claude-sonnet-5");
+  });
+  it("board briefs share the same provider layer instead of a second inline fetch", () => {
+    expect(helperBody("generateBriefText")).toContain("aiComplete(");
+    expect(source).not.toContain(`fetch("https://api.anthropic.com`);
+    expect(source).toContain("AI_BRIEF_MODEL = process.env.AI_BRIEF_MODEL || aiDefaultModel()");
   });
   it("has a hard timeout so a slow AI call can't stall a research batch", () => {
     expect(aiSource).toContain("AbortController");

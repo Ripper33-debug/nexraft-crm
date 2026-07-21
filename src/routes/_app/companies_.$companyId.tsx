@@ -190,7 +190,7 @@ function ResearchPanel({ company }: { company: Row }) {
             </div>
           ) : user?.role === "admin" ? (
             <p className="text-xs text-faint">
-              No AI brief on this dossier — add ANTHROPIC_API_KEY in Vercel and hit ↻ Re-research to get a
+              No AI brief on this dossier — add OPENROUTER_API_KEY (or ANTHROPIC_API_KEY) in Vercel and hit ↻ Re-research to get a
               call-ready brief and a drafted email written about this business.
             </p>
           ) : null}

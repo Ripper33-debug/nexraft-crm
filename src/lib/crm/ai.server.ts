@@ -1,27 +1,129 @@
-// AI layer for company research — config-gated on ANTHROPIC_API_KEY, same
-// pattern as Stripe (stripe.server.ts) and Gmail (gmail.server.ts): no SDK,
-// plain fetch against the documented REST endpoint, and every caller treats a
-// null result as "AI not available" so the rule-based research keeps working
-// untouched when the key isn't set (or the call fails).
+// AI layer for company research — config-gated on an API key, same pattern as
+// Stripe (stripe.server.ts) and Gmail (gmail.server.ts): no SDK, plain fetch
+// against the documented REST endpoint, and every caller treats a null result
+// as "AI not available" so the rule-based research keeps working untouched
+// when no key is set (or the call fails).
+//
+// Two providers are supported, picked automatically from the env:
+//   - OpenRouter (openrouter.ai) — set OPENROUTER_API_KEY. Also used if the
+//     ANTHROPIC_API_KEY value starts with "sk-or-" (that prefix means it's an
+//     OpenRouter key pasted into the wrong variable — we route it correctly
+//     instead of failing). OpenRouter doesn't offer Haiku, so this path runs
+//     Claude Sonnet — a bit pricier per company but still small.
+//   - Anthropic direct — set ANTHROPIC_API_KEY (a real "sk-ant-" key). Runs
+//     Haiku, roughly a cent per company.
 //
 // What it produces per company: a plain-English brief a rep can read in ten
 // seconds before dialing, and a first-contact email written ABOUT the company
-// (not a template with the name swapped in). Model is Haiku — this runs in
-// batches inside a 60s serverless window and costs roughly a cent per company.
+// (not a template with the name swapped in). Either way this runs in batches
+// inside a 60s serverless window.
 
 import type { ResearchDossier } from "./data";
 
-const API_ENDPOINT = "https://api.anthropic.com/v1/messages";
-const MODEL = "claude-haiku-4-5-20251001";
+const ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
+const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
+// Cheapest recent Claude on OpenRouter (no Haiku models are listed there).
+const OPENROUTER_MODEL = "anthropic/claude-sonnet-5";
 
-export function isAiConfigured(): boolean {
-  return !!process.env.ANTHROPIC_API_KEY;
+type AiProvider = { kind: "anthropic" | "openrouter"; key: string };
+
+// OpenRouter keys always start with "sk-or-"; Anthropic's own start "sk-ant-".
+function pickProvider(): AiProvider | null {
+  const or = process.env.OPENROUTER_API_KEY;
+  if (or) return { kind: "openrouter", key: or };
+  const ant = process.env.ANTHROPIC_API_KEY;
+  if (!ant) return null;
+  if (ant.startsWith("sk-or-")) return { kind: "openrouter", key: ant };
+  return { kind: "anthropic", key: ant };
 }
 
-function apiKey(): string {
-  const v = process.env.ANTHROPIC_API_KEY;
-  if (!v) throw new Error("ANTHROPIC_API_KEY is not set.");
-  return v;
+export function isAiConfigured(): boolean {
+  return pickProvider() !== null;
+}
+
+// The model an unconfigured caller would get by default — used by data.ts to
+// stamp/fingerprint cached briefs so switching providers regenerates them.
+export function aiDefaultModel(): string {
+  return pickProvider()?.kind === "openrouter" ? OPENROUTER_MODEL : ANTHROPIC_MODEL;
+}
+
+// One prompt in, plain text out — the single place that knows both wire
+// formats. Anthropic's /v1/messages takes the system prompt as its own field
+// and returns content blocks; OpenRouter speaks the OpenAI chat-completions
+// shape (system as a message, text under choices[0].message.content).
+// Throws NO_KEY / AI_ERROR_<status> / AI_EMPTY so callers that want detail
+// (generateBriefText in data.ts) get it; callers that treat AI as a bonus
+// (aiResearchBrief below) just wrap it in try/catch.
+export async function aiComplete(req: {
+  system: string;
+  user: string;
+  maxTokens: number;
+  model?: string;
+  signal?: AbortSignal;
+}): Promise<string> {
+  const provider = pickProvider();
+  if (!provider) throw new Error("NO_KEY");
+  // OpenRouter slugs always carry a vendor prefix ("anthropic/..."). A bare
+  // Anthropic model id (e.g. from AI_BRIEF_MODEL) doesn't exist there, so
+  // fall back to our OpenRouter default instead of a guaranteed 404.
+  const model =
+    provider.kind === "openrouter"
+      ? req.model && req.model.includes("/")
+        ? req.model
+        : OPENROUTER_MODEL
+      : (req.model ?? ANTHROPIC_MODEL);
+  const res =
+    provider.kind === "openrouter"
+      ? await fetch(OPENROUTER_ENDPOINT, {
+          method: "POST",
+          signal: req.signal,
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${provider.key}`,
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: req.maxTokens,
+            messages: [
+              { role: "system", content: req.system },
+              { role: "user", content: req.user },
+            ],
+          }),
+        })
+      : await fetch(ANTHROPIC_ENDPOINT, {
+          method: "POST",
+          signal: req.signal,
+          headers: {
+            "content-type": "application/json",
+            "x-api-key": provider.key,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: req.maxTokens,
+            system: req.system,
+            messages: [{ role: "user", content: req.user }],
+          }),
+        });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`AI_ERROR_${res.status}: ${detail.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as {
+    content?: { type: string; text?: string }[]; // Anthropic shape
+    choices?: { message?: { content?: string } }[]; // OpenRouter shape
+  };
+  const text =
+    provider.kind === "openrouter"
+      ? (data.choices?.[0]?.message?.content ?? "").trim()
+      : (data.content ?? [])
+          .filter((b) => b.type === "text")
+          .map((b) => b.text ?? "")
+          .join("\n")
+          .trim();
+  if (!text) throw new Error("AI_EMPTY");
+  return text;
 }
 
 export type AiBrief = {
@@ -76,24 +178,12 @@ export async function aiResearchBrief(
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(API_ENDPOINT, {
-      method: "POST",
+    const text = await aiComplete({
+      system: SYSTEM,
+      user: dossierFacts(company, dossier),
+      maxTokens: 600,
       signal: ctrl.signal,
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey(),
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 600,
-        system: SYSTEM,
-        messages: [{ role: "user", content: dossierFacts(company, dossier) }],
-      }),
     });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { content?: { type: string; text?: string }[] };
-    const text = (data.content ?? []).find((b) => b.type === "text")?.text ?? "";
     // The model is told "JSON only", but strip fences defensively anyway.
     const raw = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
     const parsed = JSON.parse(raw) as Partial<AiBrief>;
