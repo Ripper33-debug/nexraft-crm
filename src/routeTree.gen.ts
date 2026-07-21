@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
-import { Route as ReportRouteImport } from './routes/report'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
@@ -23,6 +22,7 @@ import { Route as AppTodayRouteImport } from './routes/_app/today'
 import { Route as AppTeamRouteImport } from './routes/_app/team'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
+import { Route as AppReportRouteImport } from './routes/_app/report'
 import { Route as AppProjectsRouteImport } from './routes/_app/projects'
 import { Route as AppPipelineRouteImport } from './routes/_app/pipeline'
 import { Route as AppPayrollRouteImport } from './routes/_app/payroll'
@@ -60,11 +60,6 @@ const SignupRoute = SignupRouteImport.update({
 const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
   id: '/robots.txt',
   path: '/robots.txt',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ReportRoute = ReportRouteImport.update({
-  id: '/report',
-  path: '/report',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -114,6 +109,11 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
 const AppReportsRoute = AppReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppReportRoute = AppReportRouteImport.update({
+  id: '/report',
+  path: '/report',
   getParentRoute: () => AppRoute,
 } as any)
 const AppProjectsRoute = AppProjectsRouteImport.update({
@@ -235,7 +235,6 @@ const AppCompaniesCompanyIdRoute = AppCompaniesCompanyIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
-  '/report': typeof ReportRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -252,6 +251,7 @@ export interface FileRoutesByFullPath {
   '/payroll': typeof AppPayrollRoute
   '/pipeline': typeof AppPipelineRoute
   '/projects': typeof AppProjectsRoute
+  '/report': typeof AppReportRoute
   '/reports': typeof AppReportsRoute
   '/settings': typeof AppSettingsRoute
   '/team': typeof AppTeamRoute
@@ -272,7 +272,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
-  '/report': typeof ReportRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -289,6 +288,7 @@ export interface FileRoutesByTo {
   '/payroll': typeof AppPayrollRoute
   '/pipeline': typeof AppPipelineRoute
   '/projects': typeof AppProjectsRoute
+  '/report': typeof AppReportRoute
   '/reports': typeof AppReportsRoute
   '/settings': typeof AppSettingsRoute
   '/team': typeof AppTeamRoute
@@ -312,7 +312,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
-  '/report': typeof ReportRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/signup': typeof SignupRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -329,6 +328,7 @@ export interface FileRoutesById {
   '/_app/payroll': typeof AppPayrollRoute
   '/_app/pipeline': typeof AppPipelineRoute
   '/_app/projects': typeof AppProjectsRoute
+  '/_app/report': typeof AppReportRoute
   '/_app/reports': typeof AppReportsRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/team': typeof AppTeamRoute
@@ -353,7 +353,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
-    | '/report'
     | '/robots.txt'
     | '/signup'
     | '/sitemap.xml'
@@ -370,6 +369,7 @@ export interface FileRouteTypes {
     | '/payroll'
     | '/pipeline'
     | '/projects'
+    | '/report'
     | '/reports'
     | '/settings'
     | '/team'
@@ -390,7 +390,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
-    | '/report'
     | '/robots.txt'
     | '/signup'
     | '/sitemap.xml'
@@ -407,6 +406,7 @@ export interface FileRouteTypes {
     | '/payroll'
     | '/pipeline'
     | '/projects'
+    | '/report'
     | '/reports'
     | '/settings'
     | '/team'
@@ -429,7 +429,6 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_app'
     | '/login'
-    | '/report'
     | '/robots.txt'
     | '/signup'
     | '/sitemap.xml'
@@ -446,6 +445,7 @@ export interface FileRouteTypes {
     | '/_app/payroll'
     | '/_app/pipeline'
     | '/_app/projects'
+    | '/_app/report'
     | '/_app/reports'
     | '/_app/settings'
     | '/_app/team'
@@ -469,7 +469,6 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
-  ReportRoute: typeof ReportRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SignupRoute: typeof SignupRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
@@ -506,13 +505,6 @@ declare module '@tanstack/react-router' {
       path: '/robots.txt'
       fullPath: '/robots.txt'
       preLoaderRoute: typeof RobotsDottxtRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/report': {
-      id: '/report'
-      path: '/report'
-      fullPath: '/report'
-      preLoaderRoute: typeof ReportRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -583,6 +575,13 @@ declare module '@tanstack/react-router' {
       path: '/reports'
       fullPath: '/reports'
       preLoaderRoute: typeof AppReportsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/report': {
+      id: '/_app/report'
+      path: '/report'
+      fullPath: '/report'
+      preLoaderRoute: typeof AppReportRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/projects': {
@@ -763,6 +762,7 @@ interface AppRouteChildren {
   AppPayrollRoute: typeof AppPayrollRoute
   AppPipelineRoute: typeof AppPipelineRoute
   AppProjectsRoute: typeof AppProjectsRoute
+  AppReportRoute: typeof AppReportRoute
   AppReportsRoute: typeof AppReportsRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppTeamRoute: typeof AppTeamRoute
@@ -787,6 +787,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppPayrollRoute: AppPayrollRoute,
   AppPipelineRoute: AppPipelineRoute,
   AppProjectsRoute: AppProjectsRoute,
+  AppReportRoute: AppReportRoute,
   AppReportsRoute: AppReportsRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppTeamRoute: AppTeamRoute,
@@ -802,7 +803,6 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
-  ReportRoute: ReportRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
   SignupRoute: SignupRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,

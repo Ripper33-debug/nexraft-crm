@@ -2,17 +2,18 @@ import { useState } from "react";
 
 import { createFileRoute } from "@tanstack/react-router";
 
-import { runPublicSiteReport, type PublicSiteReport } from "../lib/crm/data";
-import { explainSiteIssue } from "../lib/crm/constants";
-import { LogoMark } from "../components/crm/brand";
-import { cx } from "../components/crm/ui";
+import { runPublicSiteReport, type PublicSiteReport } from "../../lib/crm/data";
+import { explainSiteIssue } from "../../lib/crm/constants";
+import { LogoMark } from "../../components/crm/brand";
+import { cx } from "../../components/crm/ui";
 
-// PUBLIC free site report card (no login) — the inbound lead magnet Barry
-// links from nexraft.com. A business owner enters their site + email, gets an
-// honest letter grade from the same audit engine the reps use, and lands in
-// the CRM as the hottest kind of lead: one that came to us.
+// Site report card — INTERNAL for now (Barry's call 2026-07-21): lives behind
+// the CRM login so the team can grade any prospect's site and use the letter
+// grade + plain-English defects as call/email ammo. When Barry's ready to use
+// it as the public lead magnet on nexraft.com, move this file back to
+// src/routes/report.tsx and drop the requireUser() in runPublicSiteReport.
 
-export const Route = createFileRoute("/report")({
+export const Route = createFileRoute("/_app/report")({
   component: ReportPage,
 });
 
@@ -57,7 +58,7 @@ function ReportPage() {
   }
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-ink px-4 py-10">
+    <div className="flex justify-center px-4 py-10">
       <div className="w-full max-w-lg">
         <div className="mb-5 flex items-center gap-2.5">
           <LogoMark size={34} radius={9} />

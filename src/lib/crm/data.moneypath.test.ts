@@ -257,8 +257,11 @@ describe("new-business feed is a bonus, never a blocker", () => {
   });
 });
 
-describe("public site report card stays fenced and capped", () => {
+describe("site report card stays fenced and capped", () => {
   const body = fnBody("runPublicSiteReport");
+  it("is login-gated while Barry keeps it internal", () => {
+    expect(body).toContain("requireUser()");
+  });
   it("refuses non-public hosts before fetching anything", () => {
     expect(body).toContain("isPublicHttpHost(");
     const fence = helperBody("isPublicHttpHost");

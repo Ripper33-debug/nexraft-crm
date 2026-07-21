@@ -6042,10 +6042,11 @@ export type PublicSiteReport = {
   status: "live" | "dead" | "unknown";
 };
 
-// PUBLIC by design — no login, this IS the lead magnet. Bounded against abuse:
-// strict input shapes, public-host fence, one audit fetch with a hard timeout,
-// and a daily cap on how many report-card leads can be created (past the cap
-// the visitor still gets their report; we just stop inserting rows).
+// INTERNAL for now (Barry's call): requires a signed-in rep, so the report
+// card works as a sales tool rather than a public lead magnet. To take it
+// public later, remove the requireUser() line below and move the /report
+// route back out of the _app layout. The abuse fences (strict input shapes,
+// public-host guard, bounded fetch, daily lead cap) stay either way.
 export const runPublicSiteReport = createServerFn({ method: "POST" })
   .validator(
     z.object({
@@ -6055,6 +6056,7 @@ export const runPublicSiteReport = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }): Promise<PublicSiteReport> => {
+    await requireUser(); // internal-only for now — see note above
     await ensureExtraSchema();
     if (!isPublicHttpHost(data.url)) {
       return { ok: false, grade: null, issues: [], status: "unknown" };
