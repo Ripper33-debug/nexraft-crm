@@ -4042,6 +4042,48 @@ export const researchCompany = createServerFn({ method: "POST" })
 // best scraped address into a real contact. Idempotent — rerunning skips
 // companies that now have an email, and a global dupe check stops the same
 // address landing on two companies.
+// Backfill the 'facebook-only' tag across the existing book: any unarchived
+// company with NO website whose research dossier found social profiles is a
+// business that already markets itself online — the easiest pitch there is.
+// New discoveries get the tag automatically; this catches everyone imported
+// before the signal was persisted.
+export const tagFacebookOnlyCompanies = createServerFn({ method: "POST" }).handler(async () => {
+  const me = await requireAdmin();
+  await ensureExtraSchema();
+  const { results } = await db()
+    .prepare(
+      `SELECT id, tags, research FROM companies
+        WHERE archived_at IS NULL AND (website IS NULL OR website = '')
+          AND research IS NOT NULL
+          AND COALESCE(tags, '') NOT LIKE '%facebook-only%'`,
+    )
+    .all<{ id: string; tags: string | null; research: string }>();
+  const candidates = results ?? [];
+  let tagged = 0;
+  for (const c of candidates) {
+    try {
+      const dossier = JSON.parse(c.research) as { socials?: unknown };
+      const socials = Array.isArray(dossier.socials) ? dossier.socials : [];
+      if (socials.length === 0) continue;
+      const tags = c.tags ? `${c.tags},facebook-only` : "facebook-only";
+      await db().prepare(`UPDATE companies SET tags = ? WHERE id = ?`).bind(tags, c.id).run();
+      tagged++;
+    } catch {
+      // Unparseable dossier — skip, never abort the batch.
+    }
+  }
+  if (tagged > 0) {
+    await logEvent({
+      actorId: me.id,
+      verb: "radar",
+      entityType: "company",
+      entityId: null,
+      summary: `🏷 Tagged ${tagged} facebook-only companies — marketing on socials, no website`,
+    });
+  }
+  return { ok: true as const, tagged, scanned: candidates.length };
+});
+
 export const backfillResearchEmails = createServerFn({ method: "POST" }).handler(async () => {
   const me = await requireAdmin();
   await ensureExtraSchema();
@@ -4946,6 +4988,7 @@ export const importDiscoveredLead = createServerFn({ method: "POST" })
       email: z.string().optional().nullable(),
       city: z.string().optional().nullable(),
       autoAssign: z.boolean().optional(),
+      socialUrl: z.string().optional().nullable(),
     }),
   )
   .handler(async ({ data }) => {
@@ -4961,6 +5004,10 @@ type ImportLeadData = {
   email?: string | null;
   city?: string | null;
   autoAssign?: boolean;
+  // Facebook/Instagram profile spotted at discovery time. A business with a
+  // social page but NO website is already marketing-minded — the easiest
+  // pitch there is — so siteless leads with one get tagged 'facebook-only'.
+  socialUrl?: string | null;
 };
 
 // The import itself, callable without a request context (actor null = the daily
@@ -5008,6 +5055,13 @@ async function importLeadCore(
     );
 
     const id = uid();
+    // Marketing-minded but siteless: a social profile with no website is the
+    // easiest pitch in the book, so it gets a durable tag + the profile link.
+    const facebookOnly = Boolean(data.socialUrl) && !data.website;
+    const noteParts = [
+      data.email ? `Email: ${data.email}` : null, // stash any email so reps can reach them
+      data.socialUrl ? `Social: ${data.socialUrl}` : null,
+    ].filter(Boolean);
     await db()
       .prepare(
         `INSERT INTO companies (id, name, industry, website, phone, city, source, notes, tags, owner_id)
@@ -5021,8 +5075,8 @@ async function importLeadCore(
         data.phone ?? null,
         data.city ?? null,
         "Discovered",
-        data.email ? `Email: ${data.email}` : null, // stash any email so reps can reach them
-        null,
+        noteParts.length ? noteParts.join(" · ") : null,
+        facebookOnly ? "facebook-only" : null,
         ownerId, // null → open pool; set → auto-assigned to a rep
       )
       .run();
@@ -5298,6 +5352,7 @@ async function runSweepOnce(sweep: SweepRow): Promise<{ imported: number; assign
             email: l.email,
             city: l.city,
             autoAssign: true,
+            socialUrl: l.social_url, // FB/IG page but no site → tagged facebook-only
           },
           null,
         );

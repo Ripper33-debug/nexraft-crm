@@ -283,6 +283,29 @@ describe("site report card stays fenced and capped", () => {
   });
 });
 
+describe("facebook-only leads are tagged and durable", () => {
+  it("importLeadCore tags siteless leads that have a social profile", () => {
+    const core = helperBody("importLeadCore");
+    expect(core).toContain("data.socialUrl");
+    expect(core).toContain('"facebook-only"');
+    expect(core).toContain("!data.website");
+  });
+  it("the backfill is admin-only and only touches siteless untagged companies", () => {
+    const body = fnBody("tagFacebookOnlyCompanies");
+    expect(body).toContain("requireAdmin()");
+    expect(body).toContain("website IS NULL OR website = ''");
+    expect(body).toContain("NOT LIKE '%facebook-only%'");
+  });
+  it("the backfill appends to existing tags instead of overwriting them", () => {
+    const body = fnBody("tagFacebookOnlyCompanies");
+    expect(body).toContain("`${c.tags},facebook-only`");
+  });
+  it("a bad dossier never aborts the batch", () => {
+    const body = fnBody("tagFacebookOnlyCompanies");
+    expect(body).toMatch(/catch\s*\{/);
+  });
+});
+
 describe("referral engine keeps its guards", () => {
   const body = fnBody("setCompanyReferredBy");
   it("keeps record-level permissions on the lead", () => {

@@ -145,6 +145,7 @@ function buildScript(opts: {
   const atRisk = tags.includes("At risk");
   const isReferral = tags.includes("Referral") || source === "Referral";
   const isUpsell = tags.includes("Upsell") || tags.includes("Retainer");
+  const isFacebookOnly = tags.includes("facebook-only");
 
   const sections: Section[] = [];
 
@@ -180,6 +181,12 @@ function buildScript(opts: {
   } else if (atRisk) {
     why.push({ kind: "say", text: `I wanted to check in personally and make sure everything's on track on our end.` });
     why.push({ kind: "tip", text: `Flagged at risk — lead with care, not a pitch.` });
+  } else if (isFacebookOnly) {
+    // The easiest cold pitch on the board: they already market themselves on
+    // socials — they just have nowhere to send the people that marketing wins.
+    why.push({ kind: "say", text: `I found ${companyName} on Facebook — your page looks great, but when people Google you there's no website behind it. About half of your potential customers check Google first, and right now they find nothing.` });
+    why.push({ kind: "say", text: `You're clearly already putting effort into being online — a site just captures the customers your posts are already creating.` });
+    why.push({ kind: "tip", text: `Facebook-only lead: they believe in marketing, so don't sell the idea of being online — sell catching what they're missing. Their profile link is in the notes.` });
   } else {
     const angle = industryAngle(industry);
     if (angle) {

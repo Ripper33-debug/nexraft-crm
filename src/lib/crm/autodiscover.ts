@@ -327,6 +327,7 @@ export async function runAutoDiscovery(
                 email: l.email,
                 city: l.city,
                 autoAssign: true, // let the server flip a coin: ~half go to a rep
+                socialUrl: l.social_url, // FB/IG page but no site → tagged facebook-only
               },
             });
             if (imp.ok && !imp.duplicate) {

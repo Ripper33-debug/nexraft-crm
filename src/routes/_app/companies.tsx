@@ -12,6 +12,7 @@ import {
   verifyCompanyWebsites,
   claimCompany,
   backfillResearchEmails,
+  tagFacebookOnlyCompanies,
   archiveGoodSiteCompanies,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, PageSkeleton } from "../../components/crm/ui";
@@ -109,6 +110,7 @@ function CompaniesPage() {
   const [calling, setCalling] = useState<Row | null>(null);
   const [checkingSites, setCheckingSites] = useState(false);
   const [pullingEmails, setPullingEmails] = useState(false);
+  const [taggingFb, setTaggingFb] = useState(false);
   const [clearingGoodSites, setClearingGoodSites] = useState(false);
 
   // Deep-link: a global-search result routes here with ?focus=<id> to auto-open.
@@ -225,6 +227,31 @@ function CompaniesPage() {
                 }}
               >
                 {pullingEmails ? "Pulling emails…" : "Pull emails from research"}
+              </Button>
+            ) : null}
+            {isAdmin ? (
+              <Button
+                variant="outline"
+                disabled={taggingFb}
+                onClick={async () => {
+                  setTaggingFb(true);
+                  try {
+                    const res = await tagFacebookOnlyCompanies();
+                    toast(
+                      res.tagged > 0
+                        ? `Tagged ${res.tagged} compan${res.tagged === 1 ? "y" : "ies"} that market on socials but have no website — filter by "facebook-only" to work them.`
+                        : `Checked ${res.scanned} siteless researched companies — no new social-only businesses found.`,
+                      res.tagged > 0 ? "success" : "info",
+                    );
+                    void router.invalidate();
+                  } catch {
+                    toast("Couldn't run the Facebook-only tagging — try again.", "error");
+                  } finally {
+                    setTaggingFb(false);
+                  }
+                }}
+              >
+                {taggingFb ? "Tagging…" : "📘 Tag Facebook-only"}
               </Button>
             ) : null}
             <Button
@@ -453,6 +480,13 @@ function CompaniesPage() {
                             )
                           ) : null}
                         </div>
+                      ) : tags.includes("facebook-only") ? (
+                        <span
+                          className="rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300"
+                          title="Marketing on Facebook/Instagram but has NO website — already sold on being online, easiest pitch on the board. Profile link is in their notes."
+                        >
+                          📘 On socials, no site
+                        </span>
                       ) : null}
                     </td>
                     <td className="px-4 py-2.5">
