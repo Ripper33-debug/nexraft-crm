@@ -220,6 +220,39 @@ describe("AI research layer is a bonus, never a blocker", () => {
   });
 });
 
+describe("prune weak leads archives, never deletes, and can't touch a real prospect", () => {
+  const body = fnBody("pruneWeakLeads");
+  it("is admin-only", () => {
+    expect(body).toContain("requireAdmin()");
+  });
+  it("archives with the restorable cascade — no DELETE anywhere", () => {
+    expect(body).toContain("UPDATE companies SET archived_at=?");
+    expect(body).toContain("UPDATE deals SET archived_at=?");
+    expect(body).not.toContain("DELETE FROM");
+  });
+  it("protects signed, interested, and maybe outcomes at the SQL level", () => {
+    expect(body).toContain(`NOT IN ('signed', 'interested', 'maybe')`);
+  });
+  it("protects referrals both directions and active deals", () => {
+    expect(body).toContain(`LOWER(COALESCE(c.source, '')) <> 'referral'`);
+    expect(body).toContain("c.referred_by_company_id IS NULL");
+    expect(body).toContain("r.referred_by_company_id = c.id");
+    expect(body).toContain(`d.stage <> 'To Call' OR COALESCE(d.value, 0) > 0`);
+  });
+  it("protects scheduled follow-ups and fresh uncalled leads (30-day grace)", () => {
+    expect(body).toContain("c.next_followup_at IS NULL OR c.next_followup_at <=");
+    expect(body).toContain("isoDaysAgo(30)");
+    expect(body).toContain(`'not_interested'`);
+  });
+  it("scores with the shared opportunityScore and honors the threshold", () => {
+    expect(body).toContain("opportunityScore({");
+    expect(body).toContain(".score < data.threshold");
+  });
+  it("supports a dry run so the UI can preview before archiving", () => {
+    expect(body).toContain("if (data.dryRun)");
+  });
+});
+
 describe("dead-site alerts catch the live→dead flip", () => {
   const core = helperBody("verifyWebsitesCore");
   it("only treats a LIVE site going dead as the hot moment, not always-dead ones", () => {

@@ -4176,6 +4176,132 @@ export const archiveGoodSiteCompanies = createServerFn({ method: "POST" }).handl
   return { ok: true as const, archived };
 });
 
+// ==================== Prune weak leads (owner's cleanup, 2026-07-21) ====================
+// Archives (NEVER hard-deletes — everything is restorable from the Archived
+// drawer) companies whose fit score falls below a threshold. The owner asked
+// for "less than 70% chance they'll want a website → remove them", so the
+// default threshold is 70 against opportunityScore's 0-100.
+//
+// Guardrails — a low score must never remove a real prospect, so these are
+// untouchable no matter what they score:
+//   - signed clients, and anyone who said "interested" or even "maybe"
+//   - companies with a won deal, or any deal that's moved past "To Call" /
+//     has money on it
+//   - referrals in (referred to us) and referrers out (sent us business)
+//   - anyone with a follow-up scheduled in the future (a rep made a plan)
+//   - leads younger than 30 days that haven't been called yet — a fresh lead
+//     scores low simply because nobody's worked it, that's not a verdict.
+//     ("not interested" IS a verdict, so those prune at any age.)
+//
+// Two-step by design: the UI calls dryRun first and shows the count, and only
+// archives after the admin confirms. Both steps use identical logic.
+export const pruneWeakLeads = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      threshold: z.number().int().min(1).max(100).default(70),
+      dryRun: z.boolean().default(true),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const me = await requireAdmin();
+    await ensureExtraSchema();
+    const { results } = await db()
+      .prepare(
+        `SELECT c.id, c.name, c.industry, c.source, c.phone, c.call_outcome, c.created_at
+           FROM companies c
+          WHERE c.archived_at IS NULL
+            AND COALESCE(c.call_outcome, '') NOT IN ('signed', 'interested', 'maybe')
+            AND LOWER(COALESCE(c.source, '')) <> 'referral'
+            AND c.referred_by_company_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM companies r
+               WHERE r.referred_by_company_id = c.id AND r.archived_at IS NULL
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM deals d
+               WHERE d.company_id = c.id AND d.archived_at IS NULL
+                 AND (d.stage <> 'To Call' OR COALESCE(d.value, 0) > 0)
+            )
+            AND (c.next_followup_at IS NULL OR c.next_followup_at <= ?)
+            AND (c.created_at <= ? OR COALESCE(c.call_outcome, '') = 'not_interested')`,
+      )
+      .bind(new Date().toISOString(), isoDaysAgo(30))
+      .all<{
+        id: string;
+        name: string;
+        industry: string | null;
+        source: string | null;
+        phone: string | null;
+        call_outcome: string | null;
+        created_at: string;
+      }>();
+    const candidates = results ?? [];
+
+    // Email-on-file lifts the score, so look it up the same way the AI brief
+    // batch does — one query, then a Set membership check per company.
+    const emailRows = (
+      await db()
+        .prepare(
+          `SELECT DISTINCT company_id FROM contacts
+            WHERE company_id IS NOT NULL AND email IS NOT NULL AND email <> '' AND archived_at IS NULL`,
+        )
+        .all<{ company_id: string }>()
+    ).results ?? [];
+    const hasEmail = new Set(emailRows.map((r) => r.company_id));
+
+    const weak = candidates.filter(
+      (c) =>
+        opportunityScore({
+          source: c.source,
+          callOutcome: c.call_outcome,
+          industry: c.industry,
+          hasPhone: Boolean(c.phone),
+          hasEmail: hasEmail.has(c.id),
+          createdAt: c.created_at,
+        }).score < data.threshold,
+    );
+
+    if (data.dryRun) {
+      return {
+        ok: true as const,
+        dryRun: true as const,
+        threshold: data.threshold,
+        scanned: candidates.length,
+        matched: weak.length,
+        archived: 0,
+      };
+    }
+
+    const now = new Date().toISOString();
+    let archived = 0;
+    for (const c of weak) {
+      // Same cascade as archiveCompany: the company and its still-open deals
+      // get one shared timestamp so restoreCompany can un-archive them together.
+      await db().prepare("UPDATE companies SET archived_at=? WHERE id=? AND archived_at IS NULL").bind(now, c.id).run();
+      await db()
+        .prepare("UPDATE deals SET archived_at=? WHERE company_id=? AND archived_at IS NULL")
+        .bind(now, c.id)
+        .run();
+      archived += 1;
+    }
+    if (archived > 0) {
+      await logEvent({
+        actorId: me.id,
+        verb: "archived",
+        entityType: "companies",
+        summary: `${me.name} pruned ${archived} weak lead${archived === 1 ? "" : "s"} scoring under ${data.threshold} — all restorable from Archived`,
+      });
+    }
+    return {
+      ok: true as const,
+      dryRun: false as const,
+      threshold: data.threshold,
+      scanned: candidates.length,
+      matched: weak.length,
+      archived,
+    };
+  });
+
 // Batch enrichment: research the newest never-researched companies so reps
 // open them to ready-made intel. Includes companies WITHOUT a website — they
 // get the "no website at all" selling point plus a ratings lookup, which is

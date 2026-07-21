@@ -14,6 +14,7 @@ import {
   backfillResearchEmails,
   tagFacebookOnlyCompanies,
   archiveGoodSiteCompanies,
+  pruneWeakLeads,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, PageSkeleton } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
@@ -112,6 +113,7 @@ function CompaniesPage() {
   const [pullingEmails, setPullingEmails] = useState(false);
   const [taggingFb, setTaggingFb] = useState(false);
   const [clearingGoodSites, setClearingGoodSites] = useState(false);
+  const [pruning, setPruning] = useState(false);
 
   // Deep-link: a global-search result routes here with ?focus=<id> to auto-open.
   useEffect(() => {
@@ -252,6 +254,43 @@ function CompaniesPage() {
                 }}
               >
                 {taggingFb ? "Tagging…" : "📘 Tag Facebook-only"}
+              </Button>
+            ) : null}
+            {isAdmin ? (
+              <Button
+                variant="outline"
+                disabled={pruning}
+                onClick={async () => {
+                  setPruning(true);
+                  try {
+                    // Two-step on purpose: preview the damage, then confirm.
+                    // Everything archived here is restorable from Archived.
+                    const preview = await pruneWeakLeads({ data: { threshold: 70, dryRun: true } });
+                    if (preview.matched === 0) {
+                      toast(
+                        `Scanned ${preview.scanned} prunable compan${preview.scanned === 1 ? "y" : "ies"} — none scored under 70. Nothing to clean up.`,
+                        "info",
+                      );
+                      return;
+                    }
+                    const go = window.confirm(
+                      `${preview.matched} compan${preview.matched === 1 ? "y" : "ies"} score under 70 and look like dead weight (old leads never reached, or "not interested").\n\nSigned clients, interested/maybe, referrals, active deals, and fresh leads are protected and NOT included.\n\nArchive ${preview.matched === 1 ? "it" : "them"}? (Restorable any time from the Archived drawer.)`,
+                    );
+                    if (!go) return;
+                    const res = await pruneWeakLeads({ data: { threshold: 70, dryRun: false } });
+                    toast(
+                      `Archived ${res.archived} weak lead${res.archived === 1 ? "" : "s"} — the book is cleaner. Restore any of them from the Archived drawer below.`,
+                      "success",
+                    );
+                    void router.invalidate();
+                  } catch {
+                    toast("Couldn't prune weak leads — try again.", "error");
+                  } finally {
+                    setPruning(false);
+                  }
+                }}
+              >
+                {pruning ? "Scoring the book…" : "🧹 Prune weak leads"}
               </Button>
             ) : null}
             <Button
