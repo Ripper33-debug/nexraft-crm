@@ -23,7 +23,7 @@ function nudge1(company: string, rep: string, repName: string): EmailDraft {
 
 ${rep} here — I tried calling about ${company}'s website but didn't catch you.
 
-Short version: we build and run websites for local businesses. $100/month, everything handled — design, hosting, updates. One new customer usually pays for the year.
+Short version: we build and run websites for local businesses — design, hosting, updates, all handled. Plans start at $299/month.
 
 Worth a look? Reply "sure" and I'll send something over — or "no thanks" and I won't bug you again.
 
@@ -42,7 +42,7 @@ ${rep} again. Quick question and then I'll get out of your inbox:
 
 When someone in town searches for what ${company} does, are you happy with what they find? Most owners we talk to aren't — and it's usually costing them a few customers a month without them ever knowing.
 
-That's the whole thing we fix, for $100/month, done for you. Want me to send over what your site could look like?
+That's the whole thing we fix, done for you, from $299/month. Want me to send over what your site could look like?
 
 ${repName || "The Nexraft team"}
 Nexraft`,
@@ -110,7 +110,7 @@ export const EMAIL_TEMPLATES: EmailTemplate[] = [
       subject: `question about ${company}`,
       body: `${greet(firstName)}
 
-${repFirst(repName)} here, from Nexraft. We build and run websites for local businesses — $100/month, everything handled, live in about two weeks.
+${repFirst(repName)} here, from Nexraft. We build and run websites for local businesses — everything handled, live in about two weeks, plans from $299/month.
 
 I think ${company} is exactly the kind of business it works for, but you'd know better than me.
 
@@ -130,7 +130,7 @@ Nexraft`,
 
 ${repFirst(repName)} again — my earlier note about a website for ${company} probably got buried, so bumping it once.
 
-The offer's simple: $100/month, we handle everything, one new customer covers it.
+The offer's simple: we handle everything — design, hosting, updates — with plans from $299/month.
 
 Yes, no, or "ask me in the fall" — any one-word reply works and I'll take it from there.
 
@@ -222,6 +222,11 @@ export function aiDraftFromResearch(research: unknown, repName: string): EmailDr
     const subject = typeof ai?.email_subject === "string" ? ai.email_subject.trim() : "";
     const body = typeof ai?.email_body === "string" ? ai.email_body.trim() : "";
     if (!subject || !body) return null;
+    // Drafts generated before 2026-07-21 quote the wrong price ("$100/month" —
+    // real plans start at $299/month, per nexraft.com). Refuse to pre-fill
+    // those; the corrected canned templates take over until the nightly
+    // research run regenerates the draft with the right pricing.
+    if (body.includes("$100")) return null;
     const rep = (repName || "").trim() || "The Nexraft team";
     return { subject, body: body.replaceAll("{{REP_NAME}}", rep) };
   } catch {

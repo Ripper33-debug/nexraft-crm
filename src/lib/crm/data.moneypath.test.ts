@@ -378,7 +378,7 @@ describe("team rebalance takes evenly from teammates but never their real work",
 });
 
 describe("the one-time Michael rebalance runs itself exactly once", () => {
-  const body = helperBody("runPendingOneTimeTasks");
+  const body = helperBody("runMichaelRebalance");
   it("claims a run-once lock in app_settings before touching anything", () => {
     expect(body).toContain("ON CONFLICT (key) DO NOTHING RETURNING key");
     expect(body).toContain("if (!row) return");
@@ -585,6 +585,23 @@ describe("outreach uses the AI-tailored email for each business", () => {
   it("the email workspace ships the research column the composer needs", () => {
     expect(fnBody("getEmailWorkspace")).toContain("c.research");
     expect(source).toMatch(/EmailTargetRow = \{[\s\S]*?research: string \| null;[\s\S]*?\};/);
+  });
+  it("the one-time Arctic Air move is locked, strict about matches, and logs Michael's email", () => {
+    const body = helperBody("runMoveArcticAirToMichael");
+    expect(source).toContain('"task_move_arctic_air_to_michael_2026_07_21"');
+    expect(body).toContain("ON CONFLICT (key) DO NOTHING"); // run-once lock
+    expect(body).toContain("matches.length !== 1"); // never guess between companies
+    expect(body).toContain("michaels.length !== 1"); // never guess who Michael is
+    expect(body).toContain("GREATEST(COALESCE(email_touches, 0), 1)"); // his email counts, once
+    expect(helperBody("runPendingOneTimeTasks")).toContain("runMoveArcticAirToMichael()");
+  });
+  it("every AI prompt quotes the real pricing ($299/month, per nexraft.com) — never the old $100", () => {
+    const aiServer = readFileSync(join(__dirname, "ai.server.ts"), "utf8");
+    expect(aiServer).toContain("$299/month");
+    expect(aiServer).not.toContain("$100");
+    expect(source).toContain("$299/month"); // AI_FIT_SYSTEM lead-qualification prompt
+    expect(source).not.toContain("$100/mo");
+    expect(source).not.toContain("$100/month");
   });
 });
 

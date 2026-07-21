@@ -4717,6 +4717,11 @@ let _oneTimeTasksChecked = false;
 async function runPendingOneTimeTasks(): Promise<void> {
   if (_oneTimeTasksChecked) return;
   _oneTimeTasksChecked = true;
+  await runMichaelRebalance();
+  await runMoveArcticAirToMichael();
+}
+
+async function runMichaelRebalance(): Promise<void> {
   let claimed = false;
   try {
     const row = await db()
@@ -4854,19 +4859,118 @@ async function runPendingOneTimeTasks(): Promise<void> {
   }
 }
 
+// One-time move (owner's ask, 2026-07-21): Michael already emailed Arctic Air
+// himself, so the company belongs on his book — and the email touch gets
+// recorded so the follow-up cadence picks up where he left off instead of
+// treating them as never-contacted. Same run-once app_settings lock as the
+// rebalance. Deliberately strict: it skips (leaving a note in the setting
+// value) unless exactly one company matches "arctic air" and exactly one
+// Michael exists — moving the wrong company silently would be worse than
+// doing nothing.
+const ARCTIC_AIR_TASK_KEY = "task_move_arctic_air_to_michael_2026_07_21";
+
+async function runMoveArcticAirToMichael(): Promise<void> {
+  let claimed = false;
+  try {
+    const row = await db()
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES (?, 'running')
+         ON CONFLICT (key) DO NOTHING RETURNING key`,
+      )
+      .bind(ARCTIC_AIR_TASK_KEY)
+      .first<{ key: string }>();
+    if (!row) return; // already ran (or another instance is on it)
+    claimed = true;
+
+    const note = async (value: string) => {
+      await db().prepare(`UPDATE app_settings SET value=? WHERE key=?`).bind(value, ARCTIC_AIR_TASK_KEY).run();
+    };
+
+    const michaels =
+      (
+        await db()
+          .prepare(`SELECT id, name FROM users WHERE lower(name) LIKE '%michael%'`)
+          .all<{ id: string; name: string }>()
+      ).results ?? [];
+    if (michaels.length !== 1) {
+      await note(`skipped: ${michaels.length} users match "michael"`);
+      return;
+    }
+    const michael = michaels[0];
+
+    const matches =
+      (
+        await db()
+          .prepare(
+            `SELECT id, name, owner_id FROM companies
+              WHERE archived_at IS NULL AND lower(name) LIKE '%arctic%air%'`,
+          )
+          .all<{ id: string; name: string; owner_id: string | null }>()
+      ).results ?? [];
+    if (matches.length !== 1) {
+      await note(`skipped: ${matches.length} companies match "arctic air"`);
+      return;
+    }
+    const company = matches[0];
+    if (company.owner_id === michael.id) {
+      await note(`done: ${company.name} already belongs to ${michael.name}`);
+      return;
+    }
+
+    await db().prepare(`UPDATE companies SET owner_id = ? WHERE id = ?`).bind(michael.id, company.id).run();
+    // His deals come with the company (same rule as every reassignment).
+    await db()
+      .prepare(`UPDATE deals SET owner_id = ? WHERE company_id = ? AND archived_at IS NULL`)
+      .bind(michael.id, company.id)
+      .run();
+    // Record the email Michael already sent, without double-counting if
+    // someone logged it by hand in the meantime.
+    await db()
+      .prepare(
+        `UPDATE companies
+            SET email_touches = GREATEST(COALESCE(email_touches, 0), 1),
+                last_emailed_at = COALESCE(last_emailed_at, to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+          WHERE id = ?`,
+      )
+      .bind(company.id)
+      .run();
+
+    await note(`done: moved ${company.name} to ${michael.name}`);
+    await logEvent({
+      actorId: null,
+      verb: "assigned",
+      entityType: "companies",
+      entityId: company.id,
+      summary: `${company.name} moved to ${michael.name} — he already emailed them, so the touch was logged too`,
+    });
+  } catch {
+    if (claimed) {
+      try {
+        await db()
+          .prepare(`DELETE FROM app_settings WHERE key=? AND value='running'`)
+          .bind(ARCTIC_AIR_TASK_KEY)
+          .run();
+      } catch {
+        /* give up quietly — the admin can clear the key */
+      }
+    }
+  }
+}
+
 // ==================== AI lead qualification (owner's ask, 2026-07-21) ====================
 // "Use the API key to help us get better leads." The model can't FIND
 // businesses (it would invent them) — but it can read the real research
 // dossier we crawled and judge, better than keyword rules, how likely this
-// specific business is to buy a $100/mo website. The 0-100 verdict + one-line
+// specific business is to buy a Nexraft site (build fee + plan from $299/mo).
+// The 0-100 verdict + one-line
 // why land on the company row (ai_fit / ai_fit_reason) so the best bets are
 // visible at a glance and reps call them first. Config-gated like every AI
 // feature; the rule-based opportunityScore keeps working without it.
-const AI_FIT_SYSTEM = `You qualify sales leads for Nexraft, a web design agency selling websites to local businesses: one-time build plus a ~$100/month plan where everything is handled for them. Given verified facts about one business, judge how likely they are to BUY.
+const AI_FIT_SYSTEM = `You qualify sales leads for Nexraft, a web design agency selling websites to local businesses: a one-time build (from $1,500) plus a managed plan from $299/month where everything is handled for them. Given verified facts about one business, judge how likely they are to BUY.
 
 Respond with ONLY a JSON object, no markdown fences, exactly: {"fit": <integer 0-100>, "why": "<one sentence>"}
 
-Consider: Do they clearly need a site (none, dead, or visibly bad)? Can they afford $100/mo (trade where one customer is worth a lot scores higher)? Signs they already invest in marketing (active socials, many reviews)? Signs they'd never buy (site is already modern and flawless, or business looks inactive).
+Consider: Do they clearly need a site (none, dead, or visibly bad)? Can they afford $299+/mo (trade where one customer is worth a lot scores higher)? Signs they already invest in marketing (active socials, many reviews)? Signs they'd never buy (site is already modern and flawless, or business looks inactive).
 - fit: 85+ only when need AND budget are both obvious. 50-84 solid prospect. Below 50 weak. Below 25 basically never buying.
 - why: one concrete sentence a sales rep reads before dialing. Reference their actual situation. No fluff.
 - Judge ONLY from the facts given. Never assume facts not present.`;

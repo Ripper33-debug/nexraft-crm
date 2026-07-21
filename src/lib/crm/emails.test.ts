@@ -25,9 +25,16 @@ describe("follow-up nudges are built to get replies", () => {
       expect(d.body.toLowerCase()).not.toContain("love to connect");
     }
   });
-  it("mentions the price so the ask is concrete, in touches 1 and 2", () => {
-    expect(followUpEmail("Joe's Plumbing", "Mike", 1).body).toContain("$100/month");
-    expect(followUpEmail("Joe's Plumbing", "Mike", 2).body).toContain("$100/month");
+  it("states the real pricing (plans from $299/month, per nexraft.com) — never the old $100", () => {
+    expect(followUpEmail("Joe's Plumbing", "Mike", 1).body).toContain("$299/month");
+    expect(followUpEmail("Joe's Plumbing", "Mike", 2).body).toContain("$299/month");
+    for (const touch of [1, 2, 3]) {
+      expect(followUpEmail("Joe's Plumbing", "Mike", touch).body).not.toContain("$100");
+    }
+    for (const tpl of EMAIL_TEMPLATES) {
+      const d = tpl.build({ company: "Ana's Bakery", firstName: "Ana", repName: "Brady" });
+      expect(d.body, tpl.id).not.toContain("$100");
+    }
   });
   it("the final touch is a breakup email — closing the file, not another pitch", () => {
     const d = followUpEmail("Joe's Plumbing", "Mike", 3);
@@ -74,6 +81,12 @@ describe("aiDraftFromResearch surfaces the per-business AI email", () => {
     expect(aiDraftFromResearch("not json{", "Ayden")).toBeNull();
     expect(aiDraftFromResearch(JSON.stringify({ ai: { email_subject: "x" } }), "Ayden")).toBeNull();
     expect(aiDraftFromResearch(JSON.stringify({ siteStatus: "live" }), "Ayden")).toBeNull();
+  });
+  it("rejects stale drafts quoting the old $100 price so the fixed templates take over", () => {
+    const stale = JSON.stringify({
+      ai: { email_subject: "your site", email_body: "We handle it all for $100/month.\n\n{{REP_NAME}}" },
+    });
+    expect(aiDraftFromResearch(stale, "Ayden")).toBeNull();
   });
 });
 
