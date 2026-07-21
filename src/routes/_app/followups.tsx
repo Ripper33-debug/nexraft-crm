@@ -255,11 +255,16 @@ function FollowUpsPage() {
   // Everyone who didn't pick up — the follow-up worklist, split by urgency:
   // overdue first (scheduled nudge date has passed), then never-scheduled,
   // then future-scheduled parked at the bottom. Fully-nudged stay visible but last.
-  const queue = useMemo(() => {
-    return (companies as Row[])
-      .filter((c) => c.call_outcome === "no_answer")
+  // Only companies we can actually email belong in an email outbox — the
+  // no-email ones still live on the Calls board, and we say how many were
+  // hidden so nobody thinks leads vanished.
+  const { queue, noEmail } = useMemo(() => {
+    const all = (companies as Row[]).filter((c) => c.call_outcome === "no_answer");
+    const queue = all
+      .filter((c) => (Number(c.email_contacts) || 0) > 0 || emailByCompany.has(c.id as string))
       .sort((a, b) => (Number(a.email_touches) || 0) - (Number(b.email_touches) || 0));
-  }, [companies]);
+    return { queue, noEmail: all.length - queue.length };
+  }, [companies, emailByCompany]);
 
   const { dueNow, scheduled } = useMemo(() => {
     const dueNow: Row[] = [];
@@ -344,7 +349,11 @@ function FollowUpsPage() {
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <SummaryCard label="Due now" value={String(stats.dueNow)} accent sub={stats.overdue > 0 ? `${stats.overdue} overdue` : "nudge these today"} />
-        <SummaryCard label="In the queue" value={String(stats.total)} hint="Everyone who didn't answer" />
+        <SummaryCard
+          label="In the queue"
+          value={String(stats.total)}
+          hint={noEmail > 0 ? `${noEmail} more have no email — they stay on Calls` : "Everyone who didn't answer"}
+        />
         <SummaryCard label="Fully nudged" value={String(stats.done)} hint="All 3 sent" />
       </div>
 
@@ -453,9 +462,12 @@ function ComposeSection({
   );
 
   const filtered = useMemo(() => {
+    // The picker only offers companies with an email on file — this is a
+    // composer, and a recipient you can't send to is just noise.
+    const emailable = companies.filter((c) => (c.contact_email ?? "").trim() !== "");
     const needle = q.trim().toLowerCase();
-    if (!needle) return companies;
-    return companies.filter(
+    if (!needle) return emailable;
+    return emailable.filter(
       (c) =>
         c.name.toLowerCase().includes(needle) ||
         (c.city ?? "").toLowerCase().includes(needle) ||
