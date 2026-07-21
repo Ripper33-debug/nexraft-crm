@@ -355,8 +355,11 @@ describe("team rebalance takes evenly from teammates but never their real work",
   it("never moves signed, interested, or maybe leads", () => {
     expect(body).toContain(`NOT IN ('signed', 'interested', 'maybe')`);
   });
-  it("never moves active deals or leads with a scheduled follow-up", () => {
-    expect(body).toContain(`d.stage <> 'To Call' OR COALESCE(d.value, 0) > 0`);
+  it("never moves worked deals (stage progress) or leads with a scheduled follow-up", () => {
+    expect(body).toContain(`d.stage <> 'To Call'`);
+    // Deal VALUE must NOT protect: radar imports carry MRR estimates, so a
+    // value guard would make every uncalled lead untouchable (the v1 bug).
+    expect(body).not.toContain("COALESCE(d.value");
     expect(body).toContain("c.next_followup_at IS NULL OR c.next_followup_at <=");
   });
   it("splits the take evenly across donors, least-worked leads first", () => {
@@ -383,8 +386,12 @@ describe("the one-time Michael rebalance runs itself exactly once", () => {
   it("takes at most 40 per donor and never a rep's real work", () => {
     expect(source).toContain("REBALANCE_PER_DONOR = 40");
     expect(body).toContain(`NOT IN ('signed', 'interested', 'maybe')`);
-    expect(body).toContain(`d.stage <> 'To Call' OR COALESCE(d.value, 0) > 0`);
+    expect(body).toContain(`d.stage <> 'To Call'`);
     expect(body).toContain("c.next_followup_at IS NULL OR c.next_followup_at <=");
+  });
+  it("uses a versioned run-once key and skips if Michael's book is already stocked", () => {
+    expect(source).toContain(`REBALANCE_TASK_KEY = "task_rebalance_michael_2026_07_21_v2"`);
+    expect(body).toContain(">= REBALANCE_PER_DONOR");
   });
   it("never donates from Michael himself or from Barry the owner", () => {
     expect(body).toContain("c.owner_id <> ?");
@@ -548,5 +555,35 @@ describe("good-site archive protects the money", () => {
   it("only archives sites the audit graded live with zero angles", () => {
     expect(body).toContain('siteStatus !== "live"');
     expect(body).toContain("angles");
+  });
+});
+
+describe("outreach uses the AI-tailored email for each business", () => {
+  const emails = readFileSync(join(__dirname, "emails.ts"), "utf8");
+  const followups = readFileSync(join(__dirname, "..", "..", "routes", "_app", "followups.tsx"), "utf8");
+  it("aiDraftFromResearch reads the research .ai draft and fills the rep's name", () => {
+    expect(emails).toContain("export function aiDraftFromResearch");
+    expect(emails).toContain("email_subject");
+    expect(emails).toContain("email_body");
+    expect(emails).toContain('replaceAll("{{REP_NAME}}"');
+  });
+  it("returns null (so canned templates take over) when there is no AI draft", () => {
+    const start = emails.indexOf("export function aiDraftFromResearch");
+    const body = emails.slice(start, emails.indexOf("export function", start + 10));
+    expect(body).toContain("return null");
+    expect(body).toContain("catch");
+  });
+  it("nudge cards and the bulk approve prefer the tailored draft for the first touch", () => {
+    expect(followups).toContain("aiDraftFromResearch(company.research");
+    expect(followups).toContain("aiDraftFromResearch(t.c.research");
+    expect(followups).toContain("?? followUpEmail(");
+  });
+  it("the composer leads with the tailored draft when a client has one", () => {
+    expect(followups).toContain("aiDraftFromResearch(c.research");
+    expect(followups).toContain("TAILORED_ID");
+  });
+  it("the email workspace ships the research column the composer needs", () => {
+    expect(fnBody("getEmailWorkspace")).toContain("c.research");
+    expect(source).toMatch(/EmailTargetRow = \{[\s\S]*?research: string \| null;[\s\S]*?\};/);
   });
 });

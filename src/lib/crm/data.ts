@@ -3519,6 +3519,7 @@ export type EmailTargetRow = {
   contact_id: string | null;
   contact_first_name: string | null;
   contact_email: string | null;
+  research: string | null;
 };
 
 export type SentEmailRow = {
@@ -3535,7 +3536,7 @@ export const getEmailWorkspace = createServerFn({ method: "GET" }).handler(async
   const { results: companies } = await db()
     .prepare(
       `SELECT c.id, c.name, c.industry, c.city, c.owner_id, u.name AS owner_name,
-              COALESCE(c.email_touches, 0)::int AS email_touches, c.last_emailed_at,
+              COALESCE(c.email_touches, 0)::int AS email_touches, c.last_emailed_at, c.research,
               ct.id AS contact_id, ct.first_name AS contact_first_name, ct.email AS contact_email
          FROM companies c
          LEFT JOIN users u ON u.id = c.owner_id
@@ -4493,8 +4494,10 @@ export const assignPoolLeadsToRep = createServerFn({ method: "POST" })
 // OUT of the other reps' books — split as evenly as possible across every
 // donor (round-robin, one at a time) — and hands them to one target rep.
 // A rep's real work is untouchable: signed clients, interested/maybe,
-// anything with a deal past "To Call" or with money on it, and anything with
-// an upcoming follow-up all stay put. From each donor we take their LEAST
+// anything with a deal a rep actually moved past "To Call", and anything with
+// an upcoming follow-up all stay put. (Deal VALUE alone doesn't protect —
+// radar imports carry MRR estimates, so every uncalled lead "has money on
+// it"; only stage progress proves a rep worked it.) From each donor: LEAST
 // worked leads first (never called, then no-answer, stalest first), so
 // nobody loses a lead they're actively on. Admin only, dry-run first.
 export const pullTeamLeadsToRep = createServerFn({ method: "POST" })
@@ -4546,7 +4549,7 @@ export const pullTeamLeadsToRep = createServerFn({ method: "POST" })
                 AND NOT EXISTS (
                   SELECT 1 FROM deals d
                    WHERE d.company_id = c.id AND d.archived_at IS NULL
-                     AND (d.stage <> 'To Call' OR COALESCE(d.value, 0) > 0)
+                     AND d.stage <> 'To Call'
                 )
                 AND (c.next_followup_at IS NULL OR c.next_followup_at <= ?)`,
           )
@@ -4655,7 +4658,12 @@ export const pullTeamLeadsToRep = createServerFn({ method: "POST" })
 // app_settings insert is the run-once lock: whichever server instance claims
 // the key does the work; everyone else sees the conflict and skips. Same
 // protections as every rebalance — a rep's real work never moves.
-const REBALANCE_TASK_KEY = "task_rebalance_michael_2026_07_21";
+// v2: v1's "no deals with value" guard turned out to block nearly everything —
+// radar imports carry MRR estimates on their deals, so every book looked
+// untouchable. A rebalance only needs to protect deals a rep actually MOVED
+// (stage past "To Call"); the estimate on an uncalled lead isn't work. The
+// versioned key lets v2 run once even where v1 already marked itself done.
+const REBALANCE_TASK_KEY = "task_rebalance_michael_2026_07_21_v2";
 const REBALANCE_PER_DONOR = 40;
 let _oneTimeTasksChecked = false;
 
@@ -4691,6 +4699,20 @@ async function runPendingOneTimeTasks(): Promise<void> {
     }
     const michael = michaels[0];
 
+    // If Michael already has a stocked book (v1 partially ran, or an admin
+    // moved leads by hand between deploys), don't pile more on.
+    const owned = await db()
+      .prepare(`SELECT COUNT(*)::int AS n FROM companies WHERE owner_id = ? AND archived_at IS NULL`)
+      .bind(michael.id)
+      .first<{ n: number }>();
+    if ((owned?.n ?? 0) >= REBALANCE_PER_DONOR) {
+      await db()
+        .prepare(`UPDATE app_settings SET value=? WHERE key=?`)
+        .bind(`skipped: ${michael.name} already owns ${owned?.n} companies`, REBALANCE_TASK_KEY)
+        .run();
+      return;
+    }
+
     // Donors: the other SALES people — every owner except Michael and except
     // Barry the owner (same email/name rule the auto-assign rotation uses).
     // Movable = same untouchables as pullTeamLeadsToRep: no signed, no
@@ -4711,7 +4733,7 @@ async function runPendingOneTimeTasks(): Promise<void> {
                 AND NOT EXISTS (
                   SELECT 1 FROM deals d
                    WHERE d.company_id = c.id AND d.archived_at IS NULL
-                     AND (d.stage <> 'To Call' OR COALESCE(d.value, 0) > 0)
+                     AND d.stage <> 'To Call'
                 )
                 AND (c.next_followup_at IS NULL OR c.next_followup_at <= ?)`,
           )

@@ -25,7 +25,7 @@ import {
   cx,
 } from "../../components/crm/ui";
 import { toast } from "../../components/crm/toast";
-import { EMAIL_TEMPLATES, followUpEmail, mailtoLink, NUDGE_LABELS } from "../../lib/crm/emails";
+import { aiDraftFromResearch, EMAIL_TEMPLATES, followUpEmail, mailtoLink, NUDGE_LABELS } from "../../lib/crm/emails";
 import { relativeTime } from "../../lib/crm/constants";
 
 type Row = Record<string, unknown>;
@@ -91,8 +91,12 @@ function FollowUpCard({
   const [to, setTo] = useState(emailOnFile);
   const [busy, setBusy] = useState(false);
   // The draft is pre-written and waiting for approval. Opening the preview lets
-  // the rep read and tweak it; approving sends exactly what's shown.
-  const initialDraft = followUpEmail(name, repName, nextTouch);
+  // the rep read and tweak it; approving sends exactly what's shown. For the
+  // FIRST touch we prefer the AI-written email from the company's research —
+  // it talks about this specific business, not a template. Later nudges keep
+  // the escalating cadence templates so touch 2/3 don't repeat the pitch.
+  const aiDraft = nextTouch === 1 ? aiDraftFromResearch(company.research, repName) : null;
+  const initialDraft = aiDraft ?? followUpEmail(name, repName, nextTouch);
   const [subject, setSubject] = useState(initialDraft.subject);
   const [body, setBody] = useState(initialDraft.body);
   const [showDraft, setShowDraft] = useState(false);
@@ -154,6 +158,7 @@ function FollowUpCard({
             ) : (
               <Pill tone="signal">{NUDGE_LABELS[nextTouch - 1]} next</Pill>
             )}
+            {aiDraft ? <Pill tone="signal">✨ Tailored</Pill> : null}
             {!allSent && due.state === "overdue" ? (
               <Pill tone="warn">{due.label}</Pill>
             ) : !allSent && due.state === "scheduled" ? (
@@ -321,7 +326,12 @@ function FollowUpsPage() {
     let failed = 0;
     for (const t of bulkTargets) {
       const touches = Number(t.c.email_touches) || 0;
-      const draft = followUpEmail((t.c.name as string) || "there", me?.name ?? "", Math.min(3, touches + 1));
+      const nextTouch = Math.min(3, touches + 1);
+      // First touches use the AI-written email about THIS business when the
+      // research has one; later touches stay on the escalating templates.
+      const draft =
+        (nextTouch === 1 ? aiDraftFromResearch(t.c.research, me?.name ?? "") : null) ??
+        followUpEmail((t.c.name as string) || "there", me?.name ?? "", nextTouch);
       try {
         const res = await sendCrmEmail({
           data: { to: t.to, subject: draft.subject, body: draft.body, company_id: t.c.id as string },
@@ -432,6 +442,9 @@ function FollowUpsPage() {
   );
 }
 
+// Pseudo-template id for the AI-written, per-business draft in the composer.
+const TAILORED_ID = "ai_tailored";
+
 // The one-off composer (formerly its own Email tab): pick a client and the
 // To field + a ready-to-edit draft fill themselves in. Sends go through the
 // rep's connected Gmail, or open as a pre-filled draft in their mail app.
@@ -491,12 +504,26 @@ function ComposeSection({
   function pickCompany(c: EmailTargetRow) {
     setSelectedId(c.id);
     setTo(c.contact_email ?? "");
-    // Re-run the current template so the draft speaks to THIS client.
-    const tpl = EMAIL_TEMPLATES.find((t) => t.id === templateId) ?? EMAIL_TEMPLATES[0];
+    // If the nightly research wrote a bespoke email for this business, lead
+    // with it — it's about THEIR site and THEIR situation. Otherwise re-run
+    // the current template so the draft at least speaks to this client.
+    const ai = aiDraftFromResearch(c.research, repName);
+    if (ai) {
+      setTemplateId(TAILORED_ID);
+      setSubject(ai.subject);
+      setBody(ai.body);
+      return;
+    }
+    const tplId = templateId === TAILORED_ID ? "intro" : templateId;
+    const tpl = EMAIL_TEMPLATES.find((t) => t.id === tplId) ?? EMAIL_TEMPLATES[0];
     const draft = tpl.build({ company: c.name, firstName: c.contact_first_name, repName });
+    setTemplateId(tplId);
     setSubject(draft.subject);
     setBody(draft.body);
   }
+
+  // The AI draft for the currently selected client, if their research has one.
+  const selectedAiDraft = selected ? aiDraftFromResearch(selected.research, repName) : null;
 
   const canSend = to.trim().includes("@") && subject.trim().length > 0 && body.trim().length > 0;
 
@@ -585,6 +612,25 @@ function ComposeSection({
         {/* Compose */}
         <Card className="space-y-3 p-4">
           <div className="flex flex-wrap gap-1.5">
+            {selectedAiDraft ? (
+              <button
+                type="button"
+                title="An AI-written email about this specific business, from its research"
+                onClick={() => {
+                  setTemplateId(TAILORED_ID);
+                  setSubject(selectedAiDraft.subject);
+                  setBody(selectedAiDraft.body);
+                }}
+                className={cx(
+                  "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                  templateId === TAILORED_ID
+                    ? "border-signal/60 bg-signal-soft text-signal"
+                    : "border-line text-mute hover:border-line-strong hover:text-bone",
+                )}
+              >
+                ✨ Tailored
+              </button>
+            ) : null}
             {EMAIL_TEMPLATES.map((t) => (
               <button
                 key={t.id}

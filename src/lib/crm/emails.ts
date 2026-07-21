@@ -205,6 +205,27 @@ Nexraft`,
   },
 ];
 
+// ---- AI-tailored drafts ------------------------------------------------------
+// The nightly research run has Grok write a bespoke outreach email for each
+// business (stored in the company's research JSON under `.ai`). When one
+// exists, it beats any canned template — it talks about THEIR site, THEIR
+// reviews, THEIR town. This helper digs it out and personalizes the sign-off.
+// Client-safe: pure JSON parsing, no server imports.
+
+export function aiDraftFromResearch(research: unknown, repName: string): EmailDraft | null {
+  try {
+    const parsed = typeof research === "string" ? JSON.parse(research) : research;
+    const ai = (parsed as { ai?: { email_subject?: unknown; email_body?: unknown } } | null)?.ai;
+    const subject = typeof ai?.email_subject === "string" ? ai.email_subject.trim() : "";
+    const body = typeof ai?.email_body === "string" ? ai.email_body.trim() : "";
+    if (!subject || !body) return null;
+    const rep = (repName || "").trim() || "The Nexraft team";
+    return { subject, body: body.replaceAll("{{REP_NAME}}", rep) };
+  } catch {
+    return null;
+  }
+}
+
 // A mailto: link that opens the rep's own email app with everything pre-filled.
 export function mailtoLink(to: string, subject: string, body: string): string {
   const params = `subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
