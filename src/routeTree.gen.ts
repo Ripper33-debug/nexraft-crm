@@ -17,7 +17,6 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as ShareTokenRouteImport } from './routes/share.$token'
 import { Route as ProposalTokenRouteImport } from './routes/proposal.$token'
-import { Route as PeekTokenRouteImport } from './routes/peek.$token'
 import { Route as AppTodayRouteImport } from './routes/_app/today'
 import { Route as AppTeamRouteImport } from './routes/_app/team'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
@@ -84,11 +83,6 @@ const ShareTokenRoute = ShareTokenRouteImport.update({
 const ProposalTokenRoute = ProposalTokenRouteImport.update({
   id: '/proposal/$token',
   path: '/proposal/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PeekTokenRoute = PeekTokenRouteImport.update({
-  id: '/peek/$token',
-  path: '/peek/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppTodayRoute = AppTodayRouteImport.update({
@@ -256,7 +250,6 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AppSettingsRoute
   '/team': typeof AppTeamRoute
   '/today': typeof AppTodayRoute
-  '/peek/$token': typeof PeekTokenRoute
   '/proposal/$token': typeof ProposalTokenRoute
   '/share/$token': typeof ShareTokenRoute
   '/companies/$companyId': typeof AppCompaniesCompanyIdRoute
@@ -293,7 +286,6 @@ export interface FileRoutesByTo {
   '/settings': typeof AppSettingsRoute
   '/team': typeof AppTeamRoute
   '/today': typeof AppTodayRoute
-  '/peek/$token': typeof PeekTokenRoute
   '/proposal/$token': typeof ProposalTokenRoute
   '/share/$token': typeof ShareTokenRoute
   '/': typeof AppIndexRoute
@@ -333,7 +325,6 @@ export interface FileRoutesById {
   '/_app/settings': typeof AppSettingsRoute
   '/_app/team': typeof AppTeamRoute
   '/_app/today': typeof AppTodayRoute
-  '/peek/$token': typeof PeekTokenRoute
   '/proposal/$token': typeof ProposalTokenRoute
   '/share/$token': typeof ShareTokenRoute
   '/_app/': typeof AppIndexRoute
@@ -374,7 +365,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/team'
     | '/today'
-    | '/peek/$token'
     | '/proposal/$token'
     | '/share/$token'
     | '/companies/$companyId'
@@ -411,7 +401,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/team'
     | '/today'
-    | '/peek/$token'
     | '/proposal/$token'
     | '/share/$token'
     | '/'
@@ -450,7 +439,6 @@ export interface FileRouteTypes {
     | '/_app/settings'
     | '/_app/team'
     | '/_app/today'
-    | '/peek/$token'
     | '/proposal/$token'
     | '/share/$token'
     | '/_app/'
@@ -472,7 +460,6 @@ export interface RootRouteChildren {
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SignupRoute: typeof SignupRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
-  PeekTokenRoute: typeof PeekTokenRoute
   ProposalTokenRoute: typeof ProposalTokenRoute
   ShareTokenRoute: typeof ShareTokenRoute
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
@@ -540,13 +527,6 @@ declare module '@tanstack/react-router' {
       path: '/proposal/$token'
       fullPath: '/proposal/$token'
       preLoaderRoute: typeof ProposalTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/peek/$token': {
-      id: '/peek/$token'
-      path: '/peek/$token'
-      fullPath: '/peek/$token'
-      preLoaderRoute: typeof PeekTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/today': {
@@ -806,7 +786,6 @@ const rootRouteChildren: RootRouteChildren = {
   RobotsDottxtRoute: RobotsDottxtRoute,
   SignupRoute: SignupRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
-  PeekTokenRoute: PeekTokenRoute,
   ProposalTokenRoute: ProposalTokenRoute,
   ShareTokenRoute: ShareTokenRoute,
   ApiAuthLoginRoute: ApiAuthLoginRoute,

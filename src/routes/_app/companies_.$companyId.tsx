@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useRouter, useRouteContext } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { getCompanies, getContacts, getDeals, researchCompany, getTeaserLink, setCompanyReferredBy, type ResearchDossier } from "../../lib/crm/data";
+import { getCompanies, getContacts, getDeals, researchCompany, setCompanyReferredBy, type ResearchDossier } from "../../lib/crm/data";
 import { toast } from "../../components/crm/toast";
 import {
   Button,
@@ -200,37 +200,6 @@ function ResearchPanel({ company }: { company: Row }) {
   );
 }
 
-// Copies the public /peek/<token> link — a designed mock homepage for THIS
-// company, built from the dossier. Reps drop it into outreach emails.
-function SneakPeekButton({ companyId }: { companyId: string }) {
-  const [busy, setBusy] = useState(false);
-
-  async function run() {
-    setBusy(true);
-    try {
-      const { token } = await getTeaserLink({ data: { companyId } });
-      const url = `${window.location.origin}/peek/${token}`;
-      try {
-        await navigator.clipboard.writeText(url);
-        toast("✨ Sneak-peek link copied — a mock homepage for THEIR business. Deadly in a follow-up email.", "success");
-      } catch {
-        prompt("Copy the sneak-peek link:", url);
-      }
-      window.open(url, "_blank", "noopener");
-    } catch {
-      toast("Couldn't create the sneak peek — try again.", "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Button size="sm" onClick={run} disabled={busy}>
-      {busy ? "Building…" : "✨ Sneak peek"}
-    </Button>
-  );
-}
-
 // "Referred by" control inside the Details card: pick which existing client
 // sent this lead. Setting it flips source to Referral server-side and the
 // referrer's page starts showing a thank-them tally.
@@ -322,7 +291,6 @@ function CompanyDetail() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <SneakPeekButton companyId={companyId} />
           <Link to="/companies" search={{ focus: companyId, new: undefined }}>
             <Button size="sm" variant="outline">Edit</Button>
           </Link>

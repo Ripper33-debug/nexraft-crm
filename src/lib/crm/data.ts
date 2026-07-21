@@ -6953,53 +6953,6 @@ export const setCompanyReferredBy = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
-// ---- Sneak-peek teaser pages -------------------------------------------------
-// Per-company public page that renders a designed "what your new homepage could
-// look like" mock built from the research dossier. Reps drop the link in an
-// email — a prospect seeing their OWN business looking expensive closes deals.
-
-export const getTeaserLink = createServerFn({ method: "POST" })
-  .validator(z.object({ companyId: z.string() }))
-  .handler(async ({ data }) => {
-    await requireUser();
-    await ensureExtraSchema();
-    const row = await db()
-      .prepare(`SELECT teaser_token FROM companies WHERE id = ? AND archived_at IS NULL`)
-      .bind(data.companyId)
-      .first<{ teaser_token: string | null }>();
-    if (!row) throw new Error("NOT_FOUND");
-    let token = row.teaser_token;
-    if (!token) {
-      token = `${uid()}${uid()}`;
-      await db().prepare(`UPDATE companies SET teaser_token = ? WHERE id = ?`).bind(token, data.companyId).run();
-    }
-    return { token };
-  });
-
-export type SharedTeaser = {
-  name: string;
-  industry: string | null;
-  city: string | null;
-  phone: string | null;
-  website: string | null;
-  research: string | null;
-};
-
-// PUBLIC by design (token IS the credential). Client-safe fields only.
-export const getSharedTeaser = createServerFn({ method: "GET" })
-  .validator(z.object({ token: z.string().min(10) }))
-  .handler(async ({ data }) => {
-    await ensureExtraSchema();
-    const row = await db()
-      .prepare(
-        `SELECT name, industry, city, phone, website, research
-           FROM companies WHERE teaser_token = ? AND archived_at IS NULL`,
-      )
-      .bind(data.token)
-      .first<SharedTeaser>();
-    return row ?? null;
-  });
-
 // ---- Weekly rep leaderboard --------------------------------------------------
 // Friendly competition for the dashboard: everyone's calls, emails, and wins
 // since Monday. Calls = logged call activities + calls-board triages (each path

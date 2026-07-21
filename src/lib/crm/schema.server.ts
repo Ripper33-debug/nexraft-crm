@@ -84,9 +84,6 @@ export function ensureExtraSchema(): Promise<void> {
       // Opening it flips proposal_status to 'viewed' and notifies the deal owner.
       `ALTER TABLE deals ADD COLUMN IF NOT EXISTS proposal_token TEXT`,
       `ALTER TABLE deals ADD COLUMN IF NOT EXISTS proposal_viewed_at TEXT`,
-      // Sneak-peek teaser pages: a public token per company that renders a
-      // "what your new site could look like" mock homepage from the dossier.
-      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS teaser_token TEXT`,
       // Referral engine: which existing company (usually a signed client) sent
       // this lead our way. Referrals are the strongest close signal there is —
       // source flips to 'Referral' (+25 opportunity score) and the referrer
