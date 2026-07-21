@@ -26,6 +26,20 @@ import { toast } from "../../components/crm/toast";
 
 type Row = Record<string, unknown>;
 
+// A company whose researched website came back live with ZERO pitch angles is
+// one the audit couldn't fault — modern, working, nothing to sell against.
+// These are the hardest calls in the book, so they get flagged and filterable.
+function isGoodSite(c: Row): boolean {
+  const raw = c.research as string | null;
+  if (!raw) return false;
+  try {
+    const r = JSON.parse(raw) as { siteStatus?: string; angles?: string[] };
+    return r.siteStatus === "live" && (r.angles ?? []).length === 0;
+  } catch {
+    return false;
+  }
+}
+
 function exportCompanies(rows: Row[]) {
   downloadCsv(
     stampedName("nexraft_companies"),
@@ -82,6 +96,7 @@ function CompaniesPage() {
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [ownerFilter, setOwnerFilter] = useState<string>("");
   const [callFilter, setCallFilter] = useState<string>("");
+  const [siteFilter, setSiteFilter] = useState<string>("");
   const [calling, setCalling] = useState<Row | null>(null);
   const [checkingSites, setCheckingSites] = useState(false);
   const [pullingEmails, setPullingEmails] = useState(false);
@@ -128,9 +143,16 @@ function CompaniesPage() {
     }
   }
 
+  const goodSiteIds = useMemo(
+    () => new Set((companies as Row[]).filter(isGoodSite).map((c) => c.id as string)),
+    [companies],
+  );
+
   const rows = useMemo(() => {
     let all = companies as Row[];
     if (tagFilter) all = all.filter((c) => parseTags(c.tags as string).includes(tagFilter));
+    if (siteFilter === "good") all = all.filter((c) => goodSiteIds.has(c.id as string));
+    else if (siteFilter === "weak") all = all.filter((c) => !goodSiteIds.has(c.id as string));
     if (ownerFilter) {
       all = ownerFilter === "__none__"
         ? all.filter((c) => !c.owner_id)
@@ -142,13 +164,13 @@ function CompaniesPage() {
     else if (callFilter === "not_interested") all = all.filter((c) => c.call_outcome === "not_interested");
     else if (callFilter === "signed") all = all.filter((c) => c.call_outcome === "signed");
     return all;
-  }, [companies, tagFilter, ownerFilter, callFilter]);
+  }, [companies, tagFilter, ownerFilter, callFilter, siteFilter, goodSiteIds]);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
       <PageHeader
         title="Companies"
-        subtitle={`${(companies as Row[]).length} accounts · ${(companies as Row[]).filter((c) => Number(c.email_contacts ?? 0) > 0).length} with an email on file · each has one owner`}
+        subtitle={`${(companies as Row[]).length} accounts · ${(companies as Row[]).filter((c) => Number(c.email_contacts ?? 0) > 0).length} with an email on file · ${goodSiteIds.size} already have a good site`}
         actions={
           <>
             <ImportCsvButton
@@ -265,6 +287,16 @@ function CompaniesPage() {
 
         {/* Owner + call-status filters */}
         <div className="ml-auto flex items-center gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Site</span>
+          <Select
+            value={siteFilter}
+            onChange={(e) => setSiteFilter(e.target.value)}
+            className="h-8 w-auto min-w-[8rem] py-1 text-xs"
+          >
+            <option value="">All sites</option>
+            <option value="good">Good site already</option>
+            <option value="weak">Weak, dead, or none</option>
+          </Select>
           <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Call</span>
           <Select
             value={callFilter}
@@ -326,6 +358,14 @@ function CompaniesPage() {
                       {Number(c.email_contacts ?? 0) > 0 ? (
                         <span className="ml-1.5 align-middle text-[11px] text-faint" title="Has an email on file — reachable from Outreach">
                           ✉
+                        </span>
+                      ) : null}
+                      {goodSiteIds.has(c.id as string) ? (
+                        <span
+                          className="ml-2 align-middle rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300"
+                          title="Research found a live, modern site with nothing to pitch against — hardest sell in the book"
+                        >
+                          Good site
                         </span>
                       ) : null}
                       {c.call_outcome === "signed" ? (
