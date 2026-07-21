@@ -345,6 +345,35 @@ describe("bulk pool handoff deals an even spread, never someone else's book", ()
   });
 });
 
+describe("team rebalance takes evenly from teammates but never their real work", () => {
+  const body = fnBody("pullTeamLeadsToRep");
+  it("is admin-only and must match exactly one target rep", () => {
+    expect(body).toContain("requireAdmin()");
+    expect(body).toContain("matches.length === 0");
+    expect(body).toContain("matches.length > 1");
+  });
+  it("never moves signed, interested, or maybe leads", () => {
+    expect(body).toContain(`NOT IN ('signed', 'interested', 'maybe')`);
+  });
+  it("never moves active deals or leads with a scheduled follow-up", () => {
+    expect(body).toContain(`d.stage <> 'To Call' OR COALESCE(d.value, 0) > 0`);
+    expect(body).toContain("c.next_followup_at IS NULL OR c.next_followup_at <=");
+  });
+  it("splits the take evenly across donors, least-worked leads first", () => {
+    expect(body).toContain("entry.queue[lap]"); // round-robin, one per donor per lap
+    expect(body).toContain("workRank");
+    expect(body).toContain(`"no_answer"`);
+  });
+  it("moves with an ownership guard so a race can't yank a lead sideways", () => {
+    expect(body).toContain("SET owner_id = ? WHERE id = ? AND owner_id = ?");
+  });
+  it("supports a dry run with a per-donor breakdown, and logs the real move", () => {
+    expect(body).toContain("if (data.dryRun)");
+    expect(body).toContain("breakdown");
+    expect(body).toContain("logEvent(");
+  });
+});
+
 describe("dead-site alerts catch the live→dead flip", () => {
   const core = helperBody("verifyWebsitesCore");
   it("only treats a LIVE site going dead as the hot moment, not always-dead ones", () => {

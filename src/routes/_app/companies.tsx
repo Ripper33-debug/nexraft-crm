@@ -16,7 +16,7 @@ import {
   archiveGoodSiteCompanies,
   pruneWeakLeads,
   undoLastBulkArchive,
-  assignPoolLeadsToRep,
+  pullTeamLeadsToRep,
   aiQualifyLeadsBatch,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, PageSkeleton } from "../../components/crm/ui";
@@ -338,7 +338,7 @@ function CompaniesPage() {
                 variant="outline"
                 disabled={dealing}
                 onClick={async () => {
-                  const rep = window.prompt("Deal pool leads to which teammate? (name or email)", "Michael");
+                  const rep = window.prompt("Move leads from the rest of the team to which teammate? (name or email)", "Michael");
                   if (!rep?.trim()) return;
                   const countRaw = window.prompt("How many leads?", "40");
                   if (!countRaw) return;
@@ -349,34 +349,34 @@ function CompaniesPage() {
                   }
                   setDealing(true);
                   try {
-                    const preview = await assignPoolLeadsToRep({ data: { rep: rep.trim(), count, dryRun: true } });
+                    const preview = await pullTeamLeadsToRep({ data: { rep: rep.trim(), count, dryRun: true } });
                     if (!preview.ok) {
                       toast(preview.error, "error");
                       return;
                     }
                     if (preview.taking === 0) {
-                      toast("The pool is empty — nothing unowned to deal out.", "info");
+                      toast("Nobody else has movable leads — signed, interested/maybe, active deals, and scheduled follow-ups never move.", "info");
                       return;
                     }
                     const go = window.confirm(
-                      `Deal ${preview.taking} of ${preview.poolSize} pool lead${preview.poolSize === 1 ? "" : "s"} to ${preview.rep}?\n\nPicked as an even spread across lead quality (callable leads first), so ${preview.rep} gets a fair mix — not the dregs.`,
+                      `Move ${preview.taking} lead${preview.taking === 1 ? "" : "s"} to ${preview.rep}, taken evenly from teammates:\n\n${preview.breakdown.map((d) => `  • ${d.name}: ${d.giving} of their ${d.movable} movable`).join("\n")}\n\nOnly least-worked leads move — signed clients, interested/maybe, active deals, and anything with a follow-up scheduled stay with their rep.`,
                     );
                     if (!go) return;
-                    const res = await assignPoolLeadsToRep({ data: { rep: rep.trim(), count, dryRun: false } });
+                    const res = await pullTeamLeadsToRep({ data: { rep: rep.trim(), count, dryRun: false } });
                     if (!res.ok) {
                       toast(res.error, "error");
                       return;
                     }
-                    toast(`Dealt ${res.assigned} lead${res.assigned === 1 ? "" : "s"} to ${res.rep} — they're in their book now.`, "success");
+                    toast(`Moved ${res.moved} lead${res.moved === 1 ? "" : "s"} to ${res.rep} — they're in their book now.`, "success");
                     void router.invalidate();
                   } catch {
-                    toast("Couldn't deal out pool leads — try again.", "error");
+                    toast("Couldn't move team leads — try again.", "error");
                   } finally {
                     setDealing(false);
                   }
                 }}
               >
-                {dealing ? "Dealing leads…" : "🤝 Deal pool leads"}
+                {dealing ? "Moving leads…" : "🤝 Move team leads to a rep"}
               </Button>
             ) : null}
             {isAdmin ? (

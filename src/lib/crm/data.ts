@@ -4484,6 +4484,166 @@ export const assignPoolLeadsToRep = createServerFn({ method: "POST" })
     };
   });
 
+// ==================== Team rebalance (owner's ask, 2026-07-21) ====================
+// "Take 40 from everyone else and give them to Michael." Pulls `count` leads
+// OUT of the other reps' books — split as evenly as possible across every
+// donor (round-robin, one at a time) — and hands them to one target rep.
+// A rep's real work is untouchable: signed clients, interested/maybe,
+// anything with a deal past "To Call" or with money on it, and anything with
+// an upcoming follow-up all stay put. From each donor we take their LEAST
+// worked leads first (never called, then no-answer, stalest first), so
+// nobody loses a lead they're actively on. Admin only, dry-run first.
+export const pullTeamLeadsToRep = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      rep: z.string().min(1).max(120),
+      count: z.number().int().min(1).max(200).default(40),
+      dryRun: z.boolean().default(true),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const me = await requireAdmin();
+    await ensureExtraSchema();
+
+    // Same exactly-one fuzzy match as the pool handoff — a typo must never
+    // route someone's book to the wrong teammate.
+    const q = `%${data.rep.trim().toLowerCase()}%`;
+    const matches =
+      (
+        await db()
+          .prepare(`SELECT id, name FROM users WHERE lower(name) LIKE ? OR lower(email) LIKE ?`)
+          .bind(q, q)
+          .all<{ id: string; name: string }>()
+      ).results ?? [];
+    if (matches.length === 0) {
+      return { ok: false as const, error: `No teammate matches "${data.rep}".` };
+    }
+    if (matches.length > 1) {
+      return {
+        ok: false as const,
+        error: `"${data.rep}" matches ${matches.length} people (${matches.map((m) => m.name).join(", ")}) — be more specific.`,
+      };
+    }
+    const rep = matches[0];
+
+    // Every movable lead owned by anyone OTHER than the target. The guards
+    // mirror the prune's "never touch a real prospect" rules.
+    const eligible =
+      (
+        await db()
+          .prepare(
+            `SELECT c.id, c.name, c.owner_id, u.name AS owner_name, c.call_outcome, c.created_at
+               FROM companies c
+               JOIN users u ON u.id = c.owner_id
+              WHERE c.archived_at IS NULL
+                AND c.owner_id IS NOT NULL
+                AND c.owner_id <> ?
+                AND COALESCE(c.call_outcome, '') NOT IN ('signed', 'interested', 'maybe')
+                AND NOT EXISTS (
+                  SELECT 1 FROM deals d
+                   WHERE d.company_id = c.id AND d.archived_at IS NULL
+                     AND (d.stage <> 'To Call' OR COALESCE(d.value, 0) > 0)
+                )
+                AND (c.next_followup_at IS NULL OR c.next_followup_at <= ?)`,
+          )
+          .bind(rep.id, new Date().toISOString())
+          .all<{
+            id: string;
+            name: string;
+            owner_id: string;
+            owner_name: string;
+            call_outcome: string | null;
+            created_at: string;
+          }>()
+      ).results ?? [];
+
+    // Group by donor, least-worked first within each: never called, then
+    // no-answer, then anything else; ties broken stalest-first.
+    const workRank = (o: string | null) => (!o ? 0 : o === "no_answer" ? 1 : 2);
+    const byDonor = new Map<string, { name: string; queue: typeof eligible }>();
+    for (const c of eligible) {
+      const entry = byDonor.get(c.owner_id) ?? { name: c.owner_name, queue: [] };
+      entry.queue.push(c);
+      byDonor.set(c.owner_id, entry);
+    }
+    for (const entry of byDonor.values()) {
+      entry.queue.sort(
+        (a, b) => workRank(a.call_outcome) - workRank(b.call_outcome) || a.created_at.localeCompare(b.created_at),
+      );
+    }
+
+    // Round-robin one lead per donor per lap = as even a split as the books
+    // allow (a donor with only 3 movable leads just gives 3).
+    const donors = [...byDonor.entries()].sort((a, b) => b[1].queue.length - a[1].queue.length);
+    const picks: { c: (typeof eligible)[number]; donorId: string }[] = [];
+    for (let lap = 0; picks.length < data.count; lap++) {
+      let tookAny = false;
+      for (const [donorId, entry] of donors) {
+        if (picks.length >= data.count) break;
+        const c = entry.queue[lap];
+        if (!c) continue;
+        picks.push({ c, donorId });
+        tookAny = true;
+      }
+      if (!tookAny) break; // every donor's queue is exhausted
+    }
+
+    const breakdown = [...byDonor.entries()]
+      .map(([donorId, entry]) => ({
+        name: entry.name,
+        giving: picks.filter((p) => p.donorId === donorId).length,
+        movable: entry.queue.length,
+      }))
+      .filter((d) => d.giving > 0)
+      .sort((a, b) => b.giving - a.giving);
+
+    if (data.dryRun) {
+      return {
+        ok: true as const,
+        dryRun: true as const,
+        rep: rep.name,
+        movable: eligible.length,
+        taking: picks.length,
+        moved: 0,
+        breakdown,
+      };
+    }
+
+    let moved = 0;
+    for (const p of picks) {
+      // Ownership guard: only move it if the donor still owns it, so a race
+      // (rep just claimed/was reassigned) can't yank a lead sideways.
+      await db()
+        .prepare("UPDATE companies SET owner_id = ? WHERE id = ? AND owner_id = ?")
+        .bind(rep.id, p.c.id, p.donorId)
+        .run();
+      await db()
+        .prepare(
+          `UPDATE deals SET owner_id = ? WHERE company_id = ? AND archived_at IS NULL AND (owner_id = ? OR owner_id IS NULL)`,
+        )
+        .bind(rep.id, p.c.id, p.donorId)
+        .run();
+      moved += 1;
+    }
+    if (moved > 0) {
+      await logEvent({
+        actorId: me.id,
+        verb: "assigned",
+        entityType: "companies",
+        summary: `${me.name} moved ${moved} lead${moved === 1 ? "" : "s"} to ${rep.name}, taken evenly from ${breakdown.map((d) => `${d.name} (${d.giving})`).join(", ")}`,
+      });
+    }
+    return {
+      ok: true as const,
+      dryRun: false as const,
+      rep: rep.name,
+      movable: eligible.length,
+      taking: picks.length,
+      moved,
+      breakdown,
+    };
+  });
+
 // ==================== AI lead qualification (owner's ask, 2026-07-21) ====================
 // "Use the API key to help us get better leads." The model can't FIND
 // businesses (it would invent them) — but it can read the real research
