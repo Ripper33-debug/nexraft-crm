@@ -4240,6 +4240,48 @@ export const runReResearchBatch = createServerFn({ method: "POST" }).handler(asy
   return { ok: true as const, configured: true as const, refreshed, remaining: r?.n ?? 0 };
 });
 
+// The nuclear option: re-run research on EVERY unarchived company — fresh
+// site status, fresh emails, fresh ratings, and (with the key set) fresh AI
+// briefs. The client passes the moment the run started as a cutoff and the
+// server only ever touches dossiers older than it (never-researched counts as
+// oldest). Each refresh stamps a new research_at, which moves the company past
+// the cutoff and out of the pool — so the loop walks the book exactly once
+// and terminates even though nobody ever leaves "all companies". Stale-first
+// ordering means stopping midway always leaves the freshest data behind.
+const STALE_RESEARCH_SQL = `archived_at IS NULL AND (research_at IS NULL OR research_at < ?)`;
+export const runFullReResearchBatch = createServerFn({ method: "POST" })
+  .validator(z.object({ before: z.string() }))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    await ensureExtraSchema();
+    const { results } = await db()
+      .prepare(
+        `SELECT id, name, website, city FROM companies
+         WHERE ${STALE_RESEARCH_SQL}
+         ORDER BY research_at ASC NULLS FIRST
+         LIMIT 6`,
+      )
+      .bind(data.before)
+      .all<{ id: string; name: string; website: string | null; city: string | null }>();
+    let refreshed = 0;
+    await Promise.allSettled(
+      (results ?? []).map(async (c) => {
+        try {
+          const dossier = await researchCompanyCore(c);
+          await saveDossier(c.id, dossier, null);
+          refreshed++;
+        } catch {
+          /* per-company best effort — a broken site must not stall the batch */
+        }
+      }),
+    );
+    const r = await db()
+      .prepare(`SELECT COUNT(*)::int AS n FROM companies WHERE ${STALE_RESEARCH_SQL}`)
+      .bind(data.before)
+      .first<{ n: number }>();
+    return { ok: true as const, refreshed, remaining: r?.n ?? 0 };
+  });
+
 // On-demand verification for companies already in the CRM. Sweeps up to 12 of
 // the stalest unchecked websites (never checked, or checked > 7 days ago),
 // probes them concurrently, and stamps website_status / website_checked_at.

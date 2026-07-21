@@ -189,6 +189,15 @@ describe("AI research layer is a bonus, never a blocker", () => {
     );
     expect(fnBody("runReResearchBatch")).toContain("NEEDS_AI_REFRESH_SQL");
   });
+  it("full re-research is admin-only and cutoff-bounded so it can't loop forever", () => {
+    const body = fnBody("runFullReResearchBatch");
+    expect(body).toContain("requireAdmin()");
+    expect(body).toContain("STALE_RESEARCH_SQL");
+    expect(body).toContain(".bind(data.before)");
+    expect(source).toContain(
+      "STALE_RESEARCH_SQL = `archived_at IS NULL AND (research_at IS NULL OR research_at < ?)`",
+    );
+  });
 });
 
 describe("good-site archive protects the money", () => {

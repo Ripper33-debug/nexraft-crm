@@ -13,6 +13,7 @@ import {
   adminReassignBook,
   runResearchBatch,
   runReResearchBatch,
+  runFullReResearchBatch,
   type TeamMemberRow,
   type RepActivityRow,
 } from "../../lib/crm/data";
@@ -161,6 +162,63 @@ function ReResearchButton() {
   return (
     <Button variant="outline" onClick={run}>
       {running ? (left !== null ? `Refreshing… ${left} left (click to stop)` : "Refreshing… (click to stop)") : "✨ Add AI briefs"}
+    </Button>
+  );
+}
+
+// Full refresh: re-digs EVERY company, oldest dossier first. The cutoff is
+// captured the moment the run starts and sent with every batch, so the server
+// only touches dossiers older than the click — that's what makes the loop
+// finish instead of chasing its own tail. Stoppable like the others, and
+// stopping midway keeps everything refreshed so far.
+function FullReResearchButton() {
+  const [running, setRunning] = useState(false);
+  const [left, setLeft] = useState<number | null>(null);
+  const stopRef = useRef(false);
+  const run = async () => {
+    if (running) {
+      stopRef.current = true;
+      setRunning(false);
+      toast("⏸ Re-research stopped — everything refreshed so far is saved.");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Re-research EVERY company? This re-reads each website and rewrites every dossier (nothing a rep typed is touched). It can take a while on a big list — you can stop it anytime.",
+      )
+    )
+      return;
+    setRunning(true);
+    stopRef.current = false;
+    const before = new Date().toISOString();
+    let total = 0;
+    try {
+      for (let i = 0; i < 200; i++) {
+        const res = await runFullReResearchBatch({ data: { before } });
+        total += res.refreshed;
+        setLeft(res.remaining);
+        if (stopRef.current) return;
+        if (res.remaining === 0 || res.refreshed === 0) break;
+      }
+      toast(
+        total === 0
+          ? "🔁 Nothing to refresh — every dossier is already newer than this run."
+          : `🔁 Done — re-researched ${total} compan${total === 1 ? "y" : "ies"} with fresh intel.`,
+      );
+    } catch {
+      toast(
+        total > 0
+          ? `Re-research hit a snag after ${total} companies — click again to continue.`
+          : "Re-research failed to start — try again in a moment.",
+      );
+    } finally {
+      setRunning(false);
+      setLeft(null);
+    }
+  };
+  return (
+    <Button variant="outline" onClick={run}>
+      {running ? (left !== null ? `Re-digging… ${left} left (click to stop)` : "Re-digging… (click to stop)") : "🔁 Re-research all"}
     </Button>
   );
 }
@@ -348,6 +406,7 @@ function TeamPage() {
           <div className="flex flex-wrap gap-2">
             <ResearchBatchButton />
             <ReResearchButton />
+            <FullReResearchButton />
             <Button onClick={() => setAddOpen(true)}>+ Add teammate</Button>
           </div>
         }
