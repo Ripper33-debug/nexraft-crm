@@ -46,6 +46,28 @@ function parseDossier(raw: string | null): Dossier {
   }
 }
 
+// ---- Display name cleanup ---------------------------------------------------
+// Radar imports arrive with names like "1&Done Maintenance LLC Fort Wayne," —
+// legal suffix, city jammed on the end, stray trailing comma. Rendering that
+// raw across a "premium" mock is the fastest way to look like a template. For
+// DISPLAY only (the CRM record keeps the real name): trim junk punctuation and
+// strip a trailing city so the mock reads like the business actually brands
+// itself ("1&Done Maintenance").
+function cleanCompanyName(raw: string, city: string | null): string {
+  let n = (raw || "").replace(/\s+/g, " ").trim();
+  n = n.replace(/[\s,.\-–—|]+$/g, ""); // trailing separators/commas
+  const cityShort = (city || "").split(",")[0].trim();
+  if (cityShort.length >= 3) {
+    const esc = cityShort.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    n = n.replace(new RegExp(`[\\s,\\-–—|]+${esc}$`, "i"), "");
+  }
+  n = n.replace(/[\s,.\-–—|]+$/g, "");
+  // Drop a bare legal suffix left dangling at the end — "Joe's Plumbing LLC"
+  // reads fine on paperwork, but real businesses don't put it in their logo.
+  n = n.replace(/[\s,]+(LLC|L\.L\.C\.|Inc\.?|Corp\.?|Co\.?|Ltd\.?)$/i, "");
+  return n.trim() || raw.trim();
+}
+
 // ---- Industry art direction -------------------------------------------------
 // Each theme is a full visual identity: palette, hero vocabulary, fallback
 // services, and section flavor. Matched against industry + dossier services so
@@ -73,7 +95,10 @@ type Theme = {
 
 const THEMES: { match: RegExp; theme: Theme }[] = [
   {
-    match: /plumb|hvac|heating|cooling|air condition|electric|septic|drain/i,
+    // NOTE: /maint/ (not "maintenance") on purpose — radar data spells it every
+    // way imaginable ("Maintinance") and a missed match dumps a real trades
+    // business into the generic default theme.
+    match: /plumb|hvac|heating|cooling|air condition|electric|septic|drain|maint|handyman|pressure wash|power wash|clean|janitor|pest|garage door|locksmith|applianc/i,
     theme: {
       id: "trades",
       bg: "#0b1220", panel: "#111a2c", ink: "#f4f6fb", sub: "#9fb0c9",
@@ -271,6 +296,7 @@ function PeekPage() {
   const dossier = parseDossier(company.research);
   const t = pickTheme(company, dossier);
   const place = placeName(company, dossier);
+  const brandName = cleanCompanyName(company.name, company.city);
   const services = dossier.services.length >= 3 ? dossier.services.slice(0, 6) : t.services;
   const year = dossier.established;
   const rating = dossier.rating;
@@ -292,7 +318,7 @@ function PeekPage() {
           <div className="flex min-w-0 items-center gap-2">
             <LogoMark size={22} radius={6} />
             <span className="truncate text-xs text-mute">
-              <span className="font-semibold text-bone">Sneak peek</span> — what {company.name}&apos;s new
+              <span className="font-semibold text-bone">Sneak peek</span> — what {brandName}&apos;s new
               homepage could look like
             </span>
           </div>
@@ -311,7 +337,7 @@ function PeekPage() {
           {/* Mock nav */}
           <nav className="flex items-center justify-between gap-4 px-5 py-4 sm:px-8" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
             <span className="truncate text-base font-bold tracking-tight sm:text-lg" style={{ fontFamily: display }}>
-              {company.name}
+              {brandName}
             </span>
             <div className="hidden items-center gap-6 text-[13px] md:flex" style={{ color: t.sub }}>
               <span>Services</span>
@@ -336,7 +362,7 @@ function PeekPage() {
               className="mt-3 max-w-2xl text-4xl font-bold leading-[1.03] tracking-tight sm:text-6xl"
               style={{ fontFamily: display }}
             >
-              {t.headline(company.name, place)}
+              {t.headline(brandName, place)}
             </h1>
             <p className="mt-4 max-w-lg text-[15px] leading-relaxed" style={{ color: t.sub }}>
               {t.subcopy}
@@ -429,7 +455,7 @@ function PeekPage() {
 
           {/* Mock footer */}
           <footer className="flex flex-wrap items-center justify-between gap-2 px-5 py-4 text-[11px] sm:px-8" style={{ borderTop: "1px solid rgba(255,255,255,0.07)", color: t.sub }}>
-            <span style={{ fontFamily: display }} className="font-bold">{company.name}</span>
+            <span style={{ fontFamily: display }} className="font-bold">{brandName}</span>
             <span>
               {place ? `${place} · ` : ""}
               {company.phone ?? ""}
@@ -444,7 +470,7 @@ function PeekPage() {
             Imagine this live, with your photos and your reviews.
           </h2>
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-mute">
-            We put this concept together from public info about {company.name} — the real thing gets
+            We put this concept together from public info about {brandName} — the real thing gets
             your photos, your words, and a design round where you call the shots. Reply to our email
             or give us a call and we&apos;ll take it from here.
           </p>

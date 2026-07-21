@@ -587,3 +587,21 @@ describe("outreach uses the AI-tailored email for each business", () => {
     expect(source).toMatch(/EmailTargetRow = \{[\s\S]*?research: string \| null;[\s\S]*?\};/);
   });
 });
+
+describe("the sneak-peek page presents businesses like a real brand", () => {
+  const peek = readFileSync(join(__dirname, "..", "..", "routes", "peek.$token.tsx"), "utf8");
+  it("cleans radar-import names (trailing commas, jammed-on city, dangling LLC) for display", () => {
+    expect(peek).toContain("function cleanCompanyName");
+    expect(peek).toContain("cleanCompanyName(company.name, company.city)");
+    expect(peek).toMatch(/LLC\|L\\\.L\\\.C/);
+  });
+  it("renders the cleaned brand name everywhere the prospect sees a name", () => {
+    expect(peek).toContain("t.headline(brandName, place)");
+    // The only raw-name usages left are theme matching + building brandName.
+    const uses = peek.match(/company\.name/g) ?? [];
+    expect(uses.length).toBeLessThanOrEqual(2);
+  });
+  it("theme matching catches maintenance/handyman/cleaning trades (typos included)", () => {
+    expect(peek).toMatch(/match: \/plumb[^\n]*maint[^\n]*handyman/);
+  });
+});
