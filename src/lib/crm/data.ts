@@ -4342,6 +4342,148 @@ export const undoLastBulkArchive = createServerFn({ method: "POST" })
     return { ok: true as const, found: true as const, restored: stamp.n, count: stamp.n, at: stamp.at };
   });
 
+// ==================== Bulk pool handoff (owner's ask, 2026-07-21) ====================
+// "Give him 40 companies evenly from what's left." Deals `count` unowned,
+// unarchived leads to ONE rep in an EVEN quality spread: the pool is sorted
+// best-first by opportunityScore and the picks are striped across the whole
+// range, so the rep gets a fair mix of hot, warm, and long-shot leads — and
+// what stays in the pool keeps the same fair mix. Callable leads (phone on
+// file) are dealt first; phone-less ones only pad the count if the callable
+// pool runs dry. Admin only, dry-run first like every bulk action.
+export const assignPoolLeadsToRep = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      rep: z.string().min(1).max(120),
+      count: z.number().int().min(1).max(200).default(40),
+      dryRun: z.boolean().default(true),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const me = await requireAdmin();
+    await ensureExtraSchema();
+
+    // Find the rep by a fuzzy name/email match — must resolve to exactly one
+    // person so a typo can never hand a book to the wrong teammate.
+    const q = `%${data.rep.trim().toLowerCase()}%`;
+    const matches =
+      (
+        await db()
+          .prepare(`SELECT id, name FROM users WHERE lower(name) LIKE ? OR lower(email) LIKE ?`)
+          .bind(q, q)
+          .all<{ id: string; name: string }>()
+      ).results ?? [];
+    if (matches.length === 0) {
+      return { ok: false as const, error: `No teammate matches "${data.rep}".` };
+    }
+    if (matches.length > 1) {
+      return {
+        ok: false as const,
+        error: `"${data.rep}" matches ${matches.length} people (${matches.map((m) => m.name).join(", ")}) — be more specific.`,
+      };
+    }
+    const rep = matches[0];
+
+    const pool =
+      (
+        await db()
+          .prepare(
+            `SELECT c.id, c.name, c.industry, c.source, c.phone, c.call_outcome, c.created_at
+               FROM companies c
+              WHERE c.owner_id IS NULL AND c.archived_at IS NULL
+                AND COALESCE(c.call_outcome, '') <> 'signed'`,
+          )
+          .all<{
+            id: string;
+            name: string;
+            industry: string | null;
+            source: string | null;
+            phone: string | null;
+            call_outcome: string | null;
+            created_at: string;
+          }>()
+      ).results ?? [];
+
+    const emailRows =
+      (
+        await db()
+          .prepare(
+            `SELECT DISTINCT company_id FROM contacts
+              WHERE company_id IS NOT NULL AND email IS NOT NULL AND email <> '' AND archived_at IS NULL`,
+          )
+          .all<{ company_id: string }>()
+      ).results ?? [];
+    const hasEmail = new Set(emailRows.map((r) => r.company_id));
+
+    const scored = pool
+      .map((c) => ({
+        c,
+        callable: normPhone(c.phone).length > 0,
+        score: opportunityScore({
+          source: c.source,
+          callOutcome: c.call_outcome,
+          industry: c.industry,
+          hasPhone: Boolean(c.phone),
+          hasEmail: hasEmail.has(c.id),
+          createdAt: c.created_at,
+        }).score,
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    // Stripe evenly across the score-sorted CALLABLE pool, so the handoff is
+    // an honest cross-section of quality; top up from phone-less leads
+    // (best-first) only if there aren't enough callable ones.
+    const callable = scored.filter((s) => s.callable);
+    const rest = scored.filter((s) => !s.callable);
+    const take = Math.min(data.count, scored.length);
+    const picks: typeof scored = [];
+    if (callable.length >= take) {
+      for (let i = 0; i < take; i++) {
+        picks.push(callable[Math.floor((i * callable.length) / take)]);
+      }
+    } else {
+      picks.push(...callable, ...rest.slice(0, take - callable.length));
+    }
+
+    if (data.dryRun) {
+      return {
+        ok: true as const,
+        dryRun: true as const,
+        rep: rep.name,
+        poolSize: pool.length,
+        callable: callable.length,
+        taking: picks.length,
+        assigned: 0,
+      };
+    }
+
+    let assigned = 0;
+    for (const p of picks) {
+      await db().prepare("UPDATE companies SET owner_id = ? WHERE id = ? AND owner_id IS NULL").bind(rep.id, p.c.id).run();
+      await db()
+        .prepare(`UPDATE deals SET owner_id = ? WHERE company_id = ? AND archived_at IS NULL AND owner_id IS NULL`)
+        .bind(rep.id, p.c.id)
+        .run();
+      assigned += 1;
+    }
+    if (assigned > 0) {
+      await logEvent({
+        actorId: me.id,
+        verb: "assigned",
+        entityType: "companies",
+        summary: `${me.name} dealt ${assigned} pool lead${assigned === 1 ? "" : "s"} to ${rep.name} (even quality spread)`,
+      });
+    }
+    return {
+      ok: true as const,
+      dryRun: false as const,
+      rep: rep.name,
+      poolSize: pool.length,
+      callable: callable.length,
+      taking: picks.length,
+      assigned,
+    };
+  });
+
 // ==================== AI lead qualification (owner's ask, 2026-07-21) ====================
 // "Use the API key to help us get better leads." The model can't FIND
 // businesses (it would invent them) — but it can read the real research
@@ -4365,11 +4507,10 @@ const NEEDS_AI_FIT_SQL = `research IS NOT NULL AND archived_at IS NULL
   AND COALESCE(call_outcome, '') <> 'signed'
   AND (ai_fit IS NULL OR (research_at IS NOT NULL AND ai_fit_at IS NOT NULL AND ai_fit_at < research_at))`;
 
-export const aiQualifyLeadsBatch = createServerFn({ method: "POST" })
-  .validator(z.object({ limit: z.number().int().min(1).max(10).default(6) }))
-  .handler(async ({ data }) => {
-    await requireAdmin();
-    await ensureExtraSchema();
+// Core rater, shared by the admin "🎯 AI-rate leads" button and the nightly
+// cron (so the lead engine's own finds arrive pre-rated). No auth here —
+// callers gate; config check lives inside so a no-key deploy is a no-op.
+async function aiQualifyCore(limit: number) {
     if (!isAiConfigured()) {
       return { ok: true as const, configured: false as const, rated: 0, remaining: 0 };
     }
@@ -4379,7 +4520,7 @@ export const aiQualifyLeadsBatch = createServerFn({ method: "POST" })
            FROM companies WHERE ${NEEDS_AI_FIT_SQL}
           ORDER BY created_at DESC LIMIT ?`,
       )
-      .bind(data.limit)
+      .bind(limit)
       .all<{
         id: string;
         name: string;
@@ -4444,6 +4585,14 @@ export const aiQualifyLeadsBatch = createServerFn({ method: "POST" })
       .prepare(`SELECT COUNT(*)::int AS n FROM companies WHERE ${NEEDS_AI_FIT_SQL}`)
       .first<{ n: number }>();
     return { ok: true as const, configured: true as const, rated, remaining: left?.n ?? 0 };
+}
+
+export const aiQualifyLeadsBatch = createServerFn({ method: "POST" })
+  .validator(z.object({ limit: z.number().int().min(1).max(10).default(6) }))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    await ensureExtraSchema();
+    return aiQualifyCore(data.limit);
   });
 
 // Batch enrichment: research the newest never-researched companies so reps
@@ -5843,6 +5992,14 @@ export const runDueSweeps = createServerOnlyFn(
       await enrichNewLeads(5);
     } catch {
       /* research is a bonus, never a blocker */
+    }
+    // AI qualification: the leads researched above (and any backlog) get their
+    // 0-100 buy-likelihood verdict overnight, so the engine's own finds show
+    // up pre-rated with the 🎯 badge. Config-gated inside (no API key = no-op).
+    try {
+      await aiQualifyCore(6);
+    } catch {
+      /* rating is a bonus, never a blocker */
     }
     // Dead-site watch: re-probe the stalest checked websites so a prospect
     // whose site just went down gets flagged within a day — the hottest lead

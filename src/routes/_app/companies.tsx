@@ -16,6 +16,7 @@ import {
   archiveGoodSiteCompanies,
   pruneWeakLeads,
   undoLastBulkArchive,
+  assignPoolLeadsToRep,
   aiQualifyLeadsBatch,
 } from "../../lib/crm/data";
 import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, PageSkeleton } from "../../components/crm/ui";
@@ -117,6 +118,7 @@ function CompaniesPage() {
   const [clearingGoodSites, setClearingGoodSites] = useState(false);
   const [pruning, setPruning] = useState(false);
   const [undoing, setUndoing] = useState(false);
+  const [dealing, setDealing] = useState(false);
   const [aiRating, setAiRating] = useState(false);
 
   // Deep-link: a global-search result routes here with ?focus=<id> to auto-open.
@@ -329,6 +331,52 @@ function CompaniesPage() {
                 }}
               >
                 {undoing ? "Restoring…" : "↩️ Undo last bulk archive"}
+              </Button>
+            ) : null}
+            {isAdmin ? (
+              <Button
+                variant="outline"
+                disabled={dealing}
+                onClick={async () => {
+                  const rep = window.prompt("Deal pool leads to which teammate? (name or email)", "Michael");
+                  if (!rep?.trim()) return;
+                  const countRaw = window.prompt("How many leads?", "40");
+                  if (!countRaw) return;
+                  const count = Math.max(1, Math.min(200, Math.round(Number(countRaw)) || 0));
+                  if (!count) {
+                    toast("That's not a number — try again.", "error");
+                    return;
+                  }
+                  setDealing(true);
+                  try {
+                    const preview = await assignPoolLeadsToRep({ data: { rep: rep.trim(), count, dryRun: true } });
+                    if (!preview.ok) {
+                      toast(preview.error, "error");
+                      return;
+                    }
+                    if (preview.taking === 0) {
+                      toast("The pool is empty — nothing unowned to deal out.", "info");
+                      return;
+                    }
+                    const go = window.confirm(
+                      `Deal ${preview.taking} of ${preview.poolSize} pool lead${preview.poolSize === 1 ? "" : "s"} to ${preview.rep}?\n\nPicked as an even spread across lead quality (callable leads first), so ${preview.rep} gets a fair mix — not the dregs.`,
+                    );
+                    if (!go) return;
+                    const res = await assignPoolLeadsToRep({ data: { rep: rep.trim(), count, dryRun: false } });
+                    if (!res.ok) {
+                      toast(res.error, "error");
+                      return;
+                    }
+                    toast(`Dealt ${res.assigned} lead${res.assigned === 1 ? "" : "s"} to ${res.rep} — they're in their book now.`, "success");
+                    void router.invalidate();
+                  } catch {
+                    toast("Couldn't deal out pool leads — try again.", "error");
+                  } finally {
+                    setDealing(false);
+                  }
+                }}
+              >
+                {dealing ? "Dealing leads…" : "🤝 Deal pool leads"}
               </Button>
             ) : null}
             {isAdmin ? (

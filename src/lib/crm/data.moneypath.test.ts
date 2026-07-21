@@ -285,9 +285,10 @@ describe("auto-assign rotation includes every rep except Barry", () => {
 });
 
 describe("AI lead qualification rates real research, never invents leads", () => {
-  const body = fnBody("aiQualifyLeadsBatch");
-  it("is admin-only and config-gated like every AI feature", () => {
-    expect(body).toContain("requireAdmin()");
+  const body = helperBody("aiQualifyCore");
+  it("the admin button is admin-only; the shared core is config-gated like every AI feature", () => {
+    expect(fnBody("aiQualifyLeadsBatch")).toContain("requireAdmin()");
+    expect(fnBody("aiQualifyLeadsBatch")).toContain("aiQualifyCore(data.limit)");
     expect(body).toContain("if (!isAiConfigured())");
     expect(body).toContain("configured: false");
   });
@@ -307,6 +308,40 @@ describe("AI lead qualification rates real research, never invents leads", () =>
   it("tells the model to judge only from given facts (anti-hallucination contract)", () => {
     expect(source).toContain("Judge ONLY from the facts given");
     expect(source).toContain(`{"fit": <integer 0-100>, "why": "<one sentence>"}`);
+  });
+  it("runs from the nightly cron so the engine's own finds arrive pre-rated, best-effort", () => {
+    const cron = source.slice(source.indexOf("export const runDueSweeps"));
+    const idx = cron.indexOf("await aiQualifyCore(");
+    expect(idx).toBeGreaterThan(-1);
+    // …after research, before the pause gate (rating existing leads is
+    // housekeeping, not importing), and wrapped so a failure can't stall it.
+    expect(idx).toBeGreaterThan(cron.indexOf("enrichNewLeads("));
+    expect(idx).toBeLessThan(cron.indexOf("readLeadEnginePaused()"));
+  });
+});
+
+describe("bulk pool handoff deals an even spread, never someone else's book", () => {
+  const body = fnBody("assignPoolLeadsToRep");
+  it("is admin-only and must match exactly one teammate", () => {
+    expect(body).toContain("requireAdmin()");
+    expect(body).toContain("matches.length === 0");
+    expect(body).toContain("matches.length > 1");
+  });
+  it("only touches unowned, unarchived, unsigned companies", () => {
+    expect(body).toContain("c.owner_id IS NULL AND c.archived_at IS NULL");
+    expect(body).toContain(`COALESCE(c.call_outcome, '') <> 'signed'`);
+  });
+  it("assigns with an ownership guard so a race can't steal a claimed lead", () => {
+    expect(body).toContain("SET owner_id = ? WHERE id = ? AND owner_id IS NULL");
+    expect(body).toContain("AND archived_at IS NULL AND owner_id IS NULL");
+  });
+  it("stripes picks evenly across the score-sorted callable pool", () => {
+    expect(body).toContain("opportunityScore({");
+    expect(body).toContain("Math.floor((i * callable.length) / take)");
+  });
+  it("supports a dry run and logs the real handoff", () => {
+    expect(body).toContain("if (data.dryRun)");
+    expect(body).toContain("logEvent(");
   });
 });
 
