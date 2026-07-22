@@ -1,5 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   getActivities,
@@ -32,6 +32,12 @@ function exportActivities(rows: Row[]) {
 }
 
 export const Route = createFileRoute("/_app/activities")({
+  // ?new=true (from the global "+ New" button) lands here with the create
+  // modal already open — same deep-link pattern as companies/contacts/pipeline.
+  validateSearch: (search: Record<string, unknown>) => ({
+    focus: typeof search.focus === "string" ? search.focus : undefined,
+    new: search.new === true || search.new === "true" ? true : undefined,
+  }),
   loader: async () => {
     const [activities, deals, contacts, users] = await Promise.all([
       getActivities(),
@@ -55,9 +61,20 @@ function ActivitiesPage() {
   const { user: me } = Route.useRouteContext();
   const isAdmin = me?.role === "admin";
   const router = useRouter();
+  const { new: newParam } = Route.useSearch();
+  const navigate = Route.useNavigate();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [showDone, setShowDone] = useState(false);
+
+  // Deep-link from the global "+ New → Task" button: open the create modal on
+  // arrival, then clean the param so refresh/back doesn't re-open it.
+  useEffect(() => {
+    if (!newParam) return;
+    setEditing(null);
+    setOpen(true);
+    void navigate({ search: { focus: undefined, new: undefined }, replace: true });
+  }, [newParam, navigate]);
 
   async function onToggle(id: string, done: boolean) {
     await toggleActivity({ data: { id, done } });
@@ -74,8 +91,8 @@ function ActivitiesPage() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
       <PageHeader
-        title="Activities & follow-ups"
-        subtitle="Calls, meetings, tasks and reminders."
+        title="Tasks & reminders"
+        subtitle="Your to-dos with due dates — overdue ones float to the top."
         actions={
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-1.5 text-xs text-mute">
@@ -93,7 +110,7 @@ function ActivitiesPage() {
                 setOpen(true);
               }}
             >
-              + New activity
+              + New task
             </Button>
           </div>
         }
@@ -170,7 +187,7 @@ function ActivitiesPage() {
                       setOpen(true);
                     }}
                   >
-                    + New activity
+                    + New task
                   </Button>
                 )
               }

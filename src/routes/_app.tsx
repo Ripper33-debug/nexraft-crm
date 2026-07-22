@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { createFileRoute, redirect, Link, Outlet, useLocation, useRouterState } from "@tanstack/react-router";
 
-import { getMe, getFollowupCount } from "../lib/crm/data";
+import { getMe, getFollowupCount, getDueTaskCount } from "../lib/crm/data";
 import { Avatar } from "../components/crm/ui";
 import { CommandPalette, CommandPaletteTrigger } from "../components/crm/command-palette";
 import { NotificationBell } from "../components/crm/notifications";
@@ -43,16 +43,18 @@ export const Route = createFileRoute("/_app")({
     }
   },
   loader: async ({ context }) => {
-    // Pull the follow-up count alongside the user so the nav badge is ready on
-    // first paint. It's a single cheap COUNT — refreshes with live-sync.
+    // Pull the nav badge counts alongside the user so they're ready on first
+    // paint. Two cheap COUNTs — they refresh with live-sync.
     let followupCount = 0;
+    let taskCount = 0;
     try {
-      const r = await getFollowupCount();
-      followupCount = r.count;
+      const [f, t] = await Promise.all([getFollowupCount(), getDueTaskCount()]);
+      followupCount = f.count;
+      taskCount = t.count;
     } catch {
       /* non-critical — just show no badge */
     }
-    return { user: context.user, followupCount };
+    return { user: context.user, followupCount, taskCount };
   },
   component: AppLayout,
   errorComponent: RouteError,
@@ -99,32 +101,42 @@ function RouteError({ error, reset }: { error: Error; reset: () => void }) {
   );
 }
 
-type NavItem = { to: string; label: string; icon: string; admin?: boolean; badgeKey?: "followups" };
+type NavItem = { to: string; label: string; icon: string; admin?: boolean; badgeKey?: "followups" | "tasks" };
 type NavGroup = { label?: string; items: NavItem[] };
 
-// Grouped so the list scans at a glance instead of reading as one long column.
-// "Main" is the day-to-day sales flow; the rest is grouped by purpose.
+// Owner's ask (2026-07-22): "flow and work like a real CRM." The nav now reads
+// as a workflow, the way HubSpot/Pipedrive users expect: TODAY'S WORK (the
+// queues you burn down) → YOUR BOOK (the records) → INSIGHTS → ADMIN. Tasks
+// finally gets a front door — the page always existed but wasn't in the nav.
 const NAV_GROUPS: NavGroup[] = [
   {
+    label: "Work",
     items: [
       { to: "/today", label: "My Day", icon: "M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z" },
-      { to: "/", label: "Dashboard", icon: "M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" },
       { to: "/calls", label: "Calls", icon: "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" },
       { to: "/followups", label: "Outreach", icon: "M4 4h16v12H5.17L4 17.17V4zm4 4h8M8 11h5", badgeKey: "followups" },
-      { to: "/pipeline", label: "Pipeline", icon: "M3 6h18M6 12h12M10 18h4" },
+      { to: "/activities", label: "Tasks", icon: "M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11", badgeKey: "tasks" },
+    ],
+  },
+  {
+    label: "Book",
+    items: [
       { to: "/companies", label: "Companies", icon: "M4 21V5a1 1 0 011-1h9a1 1 0 011 1v16M15 21V9h4a1 1 0 011 1v11M8 8h3M8 12h3M8 16h3" },
+      { to: "/contacts", label: "Contacts", icon: "M16 14a4 4 0 10-8 0M12 7a3 3 0 100 6 3 3 0 000-6zM4 20c0-2 3-3 8-3s8 1 8 3" },
+      { to: "/pipeline", label: "Pipeline", icon: "M3 6h18M6 12h12M10 18h4" },
       { to: "/projects", label: "Projects", icon: "M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" },
     ],
   },
   {
-    label: "Records",
+    label: "Insights",
     items: [
-      { to: "/contacts", label: "Contacts", icon: "M16 14a4 4 0 10-8 0M12 7a3 3 0 100 6 3 3 0 000-6zM4 20c0-2 3-3 8-3s8 1 8 3" },
+      { to: "/", label: "Dashboard", icon: "M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" },
     ],
   },
   {
     label: "Admin",
     items: [
+      { to: "/discover", label: "Discover", admin: true, icon: "M12 2a10 10 0 100 20 10 10 0 000-20zm0 0v4m0 12v4m10-10h-4M6 12H2m14.5-6.5L14 8m-4 4l-2.5 2.5m9 0L14 12m-4-4L7.5 5.5" },
       { to: "/team", label: "Team", admin: true, icon: "M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6-2a3 3 0 10-2-5.24" },
       { to: "/payroll", label: "Payroll", admin: true, icon: "M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" },
       { to: "/billing", label: "Billing", admin: true, icon: "M2 7a2 2 0 012-2h16a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V7zm0 3h20M6 15h4" },
@@ -169,7 +181,7 @@ function NavLink({
       {badge && badge > 0 ? (
         <span
           className="ml-auto inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500/20 px-1.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-500/30"
-          title={`${badge} follow-up${badge === 1 ? "" : "s"} waiting`}
+          title={`${badge} thing${badge === 1 ? "" : "s"} waiting on you here`}
         >
           {badge > 99 ? "99+" : badge}
         </span>
@@ -182,11 +194,13 @@ function NavLinks({
   pathname,
   isAdmin,
   followupCount,
+  taskCount,
   onNavigate,
 }: {
   pathname: string;
   isAdmin: boolean;
   followupCount: number;
+  taskCount: number;
   onNavigate?: () => void;
 }) {
   return (
@@ -203,7 +217,7 @@ function NavLinks({
             ) : null}
             {items.map((item) => {
               const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
-              const badge = item.badgeKey === "followups" ? followupCount : undefined;
+              const badge = item.badgeKey === "followups" ? followupCount : item.badgeKey === "tasks" ? taskCount : undefined;
               return <NavLink key={item.to} item={item} active={active} badge={badge} onNavigate={onNavigate} />;
             })}
           </div>
@@ -264,8 +278,59 @@ function StatusStrip() {
   );
 }
 
+// One "+ New" button that works from ANY page — the owner's complaint (2026-07-22)
+// was "you gotta go to one place to add the company and another to call."
+// Every create flow is one tap from here; each choice lands on the right page
+// with its create modal already open (the ?new=true deep links the pages
+// already support), so add → call → triage happens without hunting.
+function QuickAdd() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [open]);
+  const items = [
+    { to: "/companies", label: "Company", hint: "add it, then call it right from the list" },
+    { to: "/contacts", label: "Contact", hint: "a person at one of your companies" },
+    { to: "/pipeline", label: "Deal", hint: "money on the board" },
+    { to: "/activities", label: "Task", hint: "a to-do with a due date" },
+  ];
+  return (
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-signal px-3 py-1.5 text-sm font-semibold text-ink shadow-sm transition-colors hover:bg-signal-strong"
+        title="Add something new — company, contact, deal, or task — from anywhere"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        New
+      </button>
+      {open ? (
+        <div className="absolute right-0 z-[90] mt-2 w-64 overflow-hidden rounded-xl border border-line-strong bg-surface py-1 shadow-[0_16px_40px_-14px_rgba(0,0,0,0.25)]">
+          {items.map((i) => (
+            <Link
+              key={i.to}
+              to={i.to}
+              search={{ focus: undefined, new: true }}
+              onClick={() => setOpen(false)}
+              className="block px-3.5 py-2.5 transition-colors hover:bg-surface-2"
+            >
+              <div className="text-sm font-medium text-bone">{i.label}</div>
+              <div className="text-xs text-faint">{i.hint}</div>
+            </Link>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function AppLayout() {
-  const { user, followupCount } = Route.useLoaderData();
+  const { user, followupCount, taskCount } = Route.useLoaderData();
   const pathname = useLocation().pathname;
   const isAdmin = user.role === "admin";
 
@@ -309,7 +374,7 @@ function AppLayout() {
           <Wordmark />
         </div>
         <nav className="flex flex-1 flex-col gap-1 px-3 py-2">
-          <NavLinks pathname={pathname} isAdmin={isAdmin} followupCount={followupCount} />
+          <NavLinks pathname={pathname} isAdmin={isAdmin} followupCount={followupCount} taskCount={taskCount} />
         </nav>
         <div className="border-t border-line px-3 py-3">
           <div className="flex items-center gap-2.5 px-2 pb-2">
@@ -343,6 +408,7 @@ function AppLayout() {
           <CommandPaletteTrigger />
           <div className="ml-auto flex items-center gap-4">
             <StatusStrip />
+            <QuickAdd />
             <NotificationBell />
           </div>
         </header>
@@ -359,7 +425,10 @@ function AppLayout() {
             </svg>
           </button>
           <Wordmark small />
-          <NotificationBell />
+          <div className="flex items-center gap-2">
+            <QuickAdd />
+            <NotificationBell />
+          </div>
         </header>
         <div className="border-b border-line bg-surface px-3 py-2 md:hidden">
           <CommandPaletteTrigger />
@@ -390,7 +459,7 @@ function AppLayout() {
                 </button>
               </div>
               <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-3">
-                <NavLinks pathname={pathname} isAdmin={isAdmin} followupCount={followupCount} onNavigate={() => setMenuOpen(false)} />
+                <NavLinks pathname={pathname} isAdmin={isAdmin} followupCount={followupCount} taskCount={taskCount} onNavigate={() => setMenuOpen(false)} />
               </nav>
               <div className="border-t border-line px-3 py-3">
                 <div className="flex items-center gap-2.5 px-2 pb-2">

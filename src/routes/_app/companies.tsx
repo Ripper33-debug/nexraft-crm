@@ -1,5 +1,5 @@
 import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   getCompanies,
@@ -872,9 +872,12 @@ function CompaniesPage() {
         existing={companies as Row[]}
         users={users as Row[]}
         canEdit={!editing || canEditRecord(me, (editing.owner_id as string) ?? null, (editing.shared_with as string) ?? null)}
-        onSaved={() => {
+        onSaved={(saved, thenCall) => {
           setOpen(false);
           router.invalidate();
+          // "Save & call now": the add→call flow stays on one screen — the
+          // fresh company goes straight into Call Mode.
+          if (thenCall && saved?.id) setCalling(saved);
         }}
       />
 
@@ -904,12 +907,16 @@ function CompanyModal({
   company: Row | null;
   existing: Row[];
   users: Row[];
-  onSaved: () => void;
+  onSaved: (saved?: Row, thenCall?: boolean) => void;
   canEdit?: boolean;
 }) {
   const [saving, setSaving] = useState(false);
   const [tags, setTags] = useState<string[]>([]);
   const [nameVal, setNameVal] = useState("");
+  // "Save & call" support: the second submit button flips this ref so the ONE
+  // submit handler knows to hand the fresh company straight to Call Mode.
+  // (A ref, not state — state wouldn't be committed yet when submit fires.)
+  const thenCallRef = useRef(false);
 
   // Reset the selected tags + name whenever the modal opens on a different record.
   useEffect(() => {
@@ -946,23 +953,29 @@ function CompanyModal({
       if (clash && !confirm(`A company named “${name}” already exists. Add it anyway?`)) return;
     }
 
+    const thenCall = thenCallRef.current && !company?.id;
+    thenCallRef.current = false;
+
     setSaving(true);
     try {
+      const fields = {
+        name,
+        industry: (fd.get("industry") as string) || null,
+        website: (fd.get("website") as string) || null,
+        phone: (fd.get("phone") as string) || null,
+        email: (fd.get("email") as string) ?? null,
+        city: (fd.get("city") as string) || null,
+        source: (fd.get("source") as string) || null,
+        owner_id: (fd.get("owner_id") as string) || null,
+        notes: (fd.get("notes") as string) || null,
+        tags: serializeTags(tags) || null,
+      };
       const saved = await upsertCompany({
-        data: {
-          id: (company?.id as string) || undefined,
-          name,
-          industry: (fd.get("industry") as string) || null,
-          website: (fd.get("website") as string) || null,
-          phone: (fd.get("phone") as string) || null,
-          email: (fd.get("email") as string) ?? null,
-          city: (fd.get("city") as string) || null,
-          source: (fd.get("source") as string) || null,
-          owner_id: (fd.get("owner_id") as string) || null,
-          notes: (fd.get("notes") as string) || null,
-          tags: serializeTags(tags) || null,
-        },
+        data: { id: (company?.id as string) || undefined, ...fields },
       });
+      // upsertCompany returns just { id } — rebuild the row from the form so
+      // "Save & call" can open Call Mode without waiting for a reload.
+      const savedRow: Row = { ...fields, id: saved?.id };
       if (company?.id) {
         toast("Company updated");
       } else {
@@ -975,7 +988,7 @@ function CompanyModal({
           void researchCompany({ data: { id: saved.id as string } }).catch(() => {});
         }
       }
-      onSaved();
+      onSaved(savedRow, thenCall);
     } catch {
       toast("Couldn't save — please try again", "error");
     } finally {
@@ -1095,6 +1108,18 @@ function CompanyModal({
           <Button type="submit" disabled={saving || !canEdit}>
             {saving ? "Saving…" : "Save company"}
           </Button>
+          {!company?.id ? (
+            <Button
+              type="submit"
+              disabled={saving || !canEdit}
+              onClick={() => {
+                thenCallRef.current = true;
+              }}
+              title="Save the company and open Call Mode on it right away — no hunting for it in the list"
+            >
+              {saving ? "Saving…" : "Save & call now"}
+            </Button>
+          ) : null}
         </div>
       </form>
 

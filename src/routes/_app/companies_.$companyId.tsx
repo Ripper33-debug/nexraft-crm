@@ -98,6 +98,122 @@ function ReferredByRow({ company, referrers }: { company: Row; referrers: { id: 
   );
 }
 
+// Guided next step: one banner that answers "what do I do with this company
+// RIGHT NOW?" based on the last call outcome — so a rep never lands on a
+// record and has to guess where the flow continues.
+function NextStepBar({
+  c,
+  deals,
+  hasEmail,
+  onCall,
+}: {
+  c: Row;
+  deals: Row[];
+  hasEmail: boolean;
+  onCall: () => void;
+}) {
+  const outcome = (c.call_outcome as string | null) ?? null;
+  const openDeal = deals.find((d) => !d.archived_at && d.stage !== "Launched" && d.stage !== "Lost") ?? null;
+
+  const step = (() => {
+    if (outcome === "signed") {
+      return {
+        icon: "🎉",
+        text: "They signed — onboarding lives in Projects.",
+        cta: (
+          <Link to="/projects">
+            <Button size="sm" variant="outline">Open Projects →</Button>
+          </Link>
+        ),
+      };
+    }
+    if (outcome === "interested") {
+      return {
+        icon: "🔥",
+        text: "They said YES. Get the proposal out today, while it's hot.",
+        cta: openDeal ? (
+          <Link to="/deals/$dealId" params={{ dealId: openDeal.id as string }}>
+            <Button size="sm">Open the deal →</Button>
+          </Link>
+        ) : (
+          <Link to="/pipeline" search={{ focus: undefined, new: true }}>
+            <Button size="sm">Create the deal →</Button>
+          </Link>
+        ),
+      };
+    }
+    if (outcome === "maybe") {
+      return {
+        icon: "⏳",
+        text: "They said maybe — set a reminder so this never goes cold.",
+        cta: (
+          <Link to="/activities" search={{ focus: undefined, new: true }}>
+            <Button size="sm" variant="outline">Set a reminder →</Button>
+          </Link>
+        ),
+      };
+    }
+    if (outcome === "not_interested") {
+      return {
+        icon: "↩",
+        text: "They passed. Shake it off — the next call is waiting.",
+        cta: (
+          <Link to="/calls">
+            <Button size="sm" variant="outline">Back to the queue →</Button>
+          </Link>
+        ),
+      };
+    }
+    if (outcome === "no_answer") {
+      return {
+        icon: "📵",
+        text: hasEmail
+          ? "No answer last time. Call again — or fire off the quick email above."
+          : "No answer last time. Give them another ring.",
+        cta: (
+          <Button size="sm" onClick={onCall}>
+            Call again
+          </Button>
+        ),
+      };
+    }
+    // Never called yet.
+    if (c.phone) {
+      return {
+        icon: "☎",
+        text: "Haven't called them yet — that's the next step.",
+        cta: (
+          <Button size="sm" onClick={onCall}>
+            Call now
+          </Button>
+        ),
+      };
+    }
+    return {
+      icon: "🔍",
+      text: "No phone on file — add one so you can start the call.",
+      cta: (
+        <Link to="/companies" search={{ focus: c.id as string, new: undefined }}>
+          <Button size="sm" variant="outline">Add a phone →</Button>
+        </Link>
+      ),
+    };
+  })();
+
+  return (
+    <Card className="mt-5 flex flex-wrap items-center justify-between gap-3 border-signal/30 bg-signal-soft/60 px-4 py-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <span aria-hidden className="text-lg">{step.icon}</span>
+        <div className="min-w-0">
+          <Eyebrow>Next step</Eyebrow>
+          <p className="text-sm font-medium text-bone">{step.text}</p>
+        </div>
+      </div>
+      <div className="shrink-0">{step.cta}</div>
+    </Card>
+  );
+}
+
 function CompanyDetail() {
   const { company, contacts, deals, referrers } = Route.useLoaderData();
   const { companyId } = Route.useParams();
@@ -199,6 +315,8 @@ function CompanyDetail() {
         deals={deals as Row[]}
         onLogged={() => router.invalidate()}
       />
+
+      <NextStepBar c={c} deals={deals as Row[]} hasEmail={!!quickEmail} onCall={() => setCalling(true)} />
 
       <div className="mt-5 grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">

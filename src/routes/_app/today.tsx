@@ -427,6 +427,7 @@ function TodayPage() {
           <li key={f.id as string} className="px-4 py-2.5">
             <Link
               to="/activities"
+              search={{ focus: undefined, new: undefined }}
               className="flex items-center justify-between gap-3 hover:opacity-90"
             >
               <div className="min-w-0">

@@ -840,8 +840,9 @@ describe("moneypath: the simplified pipeline reads To Call → Lost → Proposal
     expect(helperBody("runPendingOneTimeTasks")).toContain("runRetireLeadDiscoveryStages()");
   });
   it("an interested call now advances a To Call deal straight to Proposal", () => {
-    expect(source).toContain('.bind("Proposal", now, now, deal.id)');
-    expect(source).not.toContain('.bind("Lead", now, now, deal.id)');
+    const body = fnBody("setCompanyCallOutcome");
+    expect(body).toContain('"Proposal",');
+    expect(body).not.toContain('"Lead",');
   });
   it("new deals default to the To Call entry stage, not a retired one", () => {
     const pipeline = readFileSync(join(__dirname, "../../routes/_app/pipeline.tsx"), "utf8");
@@ -1057,7 +1058,101 @@ describe("companies list rows triage the call right where the rep is", () => {
   it("the server fn really does move the deal (the badge isn't cosmetic)", () => {
     const body = fnBody("setCompanyCallOutcome");
     expect(body).toContain('data.outcome === "interested" || data.outcome === "maybe"');
-    expect(body).toContain('.bind("Proposal", now, now, deal.id)');
+    expect(body).toContain('"Proposal",');
     expect(body).toContain("LOST_STAGE, now, now, deal.id");
+  });
+});
+
+// "Flow like a real CRM" — Barry's complaint was "u gotta go to one place to
+// add the compnay another to call and stuff and uts a mess". These lock in the
+// one-continuous-flow features: nav that mirrors the workday, a Tasks front
+// door with a badge, a global + New that deep-links into create modals,
+// Save & call straight from the create modal, and a guided next step on every
+// company page.
+describe("the sidebar mirrors the rep's actual workday", () => {
+  const app = readFileSync(join(__dirname, "../../routes/_app.tsx"), "utf8");
+  it("groups are Work → Book → Insights → Admin", () => {
+    for (const g of ['"Work"', '"Book"', '"Insights"', '"Admin"']) {
+      expect(app).toContain(g);
+    }
+  });
+  it("Tasks is a first-class nav item pointing at /activities", () => {
+    expect(app).toContain('to: "/activities"');
+    expect(app).toContain('label: "Tasks"');
+  });
+  it("the Tasks badge counts due-or-overdue open tasks owned by the signed-in rep", () => {
+    const body = fnBody("getDueTaskCount");
+    expect(body).toContain("status = 'open'");
+    expect(body).toContain("owner_id = ?");
+    expect(body).toContain("due_date IS NOT NULL");
+    expect(body).toContain("requireUser()");
+  });
+  it("the layout loads both badges in parallel and threads them into the nav", () => {
+    expect(app).toContain("getDueTaskCount()");
+    expect(app).toContain('badgeKey === "tasks" ? taskCount');
+  });
+});
+
+describe("+ New drops the rep straight into a create modal", () => {
+  const app = readFileSync(join(__dirname, "../../routes/_app.tsx"), "utf8");
+  it("QuickAdd offers Company / Contact / Deal / Task", () => {
+    const quick = app.slice(app.indexOf("function QuickAdd("));
+    for (const l of ['label: "Company"', 'label: "Contact"', 'label: "Deal"', 'label: "Task"']) {
+      expect(quick).toContain(l);
+    }
+  });
+  it("each entry deep-links with ?new=true so the modal opens on arrival", () => {
+    const quick = app.slice(app.indexOf("function QuickAdd("));
+    expect(quick).toContain("new: true");
+  });
+  it("the activities page honours the ?new=true deep link and then cleans it up", () => {
+    const activities = readFileSync(join(__dirname, "../../routes/_app/activities.tsx"), "utf8");
+    expect(activities).toContain("search.new === true");
+    expect(activities).toContain("setOpen(true)");
+    expect(activities).toContain("replace: true");
+  });
+});
+
+describe("Save & call now: add a company and be on the phone in one motion", () => {
+  const companies = readFileSync(join(__dirname, "../../routes/_app/companies.tsx"), "utf8");
+  it("the create modal has a second submit that flags the call intent", () => {
+    expect(companies).toContain("Save & call now");
+    expect(companies).toContain("thenCallRef.current = true");
+  });
+  it("the flag only fires for brand-new companies and resets after use", () => {
+    expect(companies).toContain("thenCallRef.current && !company?.id");
+    expect(companies).toContain("thenCallRef.current = false");
+  });
+  it("the page opens Call Mode on the freshly saved row", () => {
+    expect(companies).toContain("if (thenCall && saved?.id) setCalling(saved)");
+  });
+});
+
+describe("every company page tells the rep the one next move", () => {
+  const detail = readFileSync(join(__dirname, "../../routes/_app/companies_.$companyId.tsx"), "utf8");
+  const bar = detail.slice(detail.indexOf("function NextStepBar("), detail.indexOf("function CompanyDetail("));
+  it("the NextStepBar is rendered on the page", () => {
+    expect(detail).toContain("<NextStepBar c={c} deals={deals as Row[]}");
+  });
+  it("covers every triage outcome plus the never-called cases", () => {
+    for (const o of ['"signed"', '"interested"', '"maybe"', '"not_interested"', '"no_answer"']) {
+      expect(bar).toContain(`outcome === ${o}`);
+    }
+    expect(bar).toContain("c.phone");
+    expect(bar).toContain("No phone on file");
+  });
+  it("a YES routes to the open deal, not a dead-ended Lost/Launched one", () => {
+    expect(bar).toContain('d.stage !== "Launched" && d.stage !== "Lost"');
+    expect(bar).toContain("!d.archived_at");
+  });
+  it("a MAYBE routes into creating a reminder so the lead can't go cold", () => {
+    expect(bar).toContain('to="/activities"');
+    expect(bar).toContain("new: true");
+  });
+  it("triaged Yes/Maybe deals arrive in Proposal with next_step pre-filled (rep's own note wins)", () => {
+    const body = fnBody("setCompanyCallOutcome");
+    expect(body).toContain("COALESCE(NULLIF(next_step, ''), ?)");
+    expect(body).toContain('"Send the proposal"');
+    expect(body).toContain("Follow up while it's warm, then send the proposal");
   });
 });

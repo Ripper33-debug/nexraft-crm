@@ -153,7 +153,7 @@ function HelpPage() {
 
         <Section title="Follow-ups & activities">
           <p>
-            <Link to="/activities" className="text-signal hover:underline">Activities</Link> are the calls,
+            <Link to="/activities" search={{ focus: undefined, new: undefined }} className="text-signal hover:underline">Activities</Link> are the calls,
             emails, and to-dos tied to your deals. Give one a due date and it becomes a follow-up. Anything
             due today or overdue shows up in your Today list on the dashboard, so you never lose track.
           </p>

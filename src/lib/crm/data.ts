@@ -232,6 +232,23 @@ export const getFollowupCount = createServerFn({ method: "GET" }).handler(async 
   return { count: row?.n ?? 0 };
 });
 
+// Nav badge for the Tasks page: MY open tasks that are due today or overdue.
+// Same philosophy as the follow-up badge — a real "do this now" number, not
+// the size of the whole to-do list.
+export const getDueTaskCount = createServerFn({ method: "GET" }).handler(async () => {
+  const user = await requireUser();
+  const row = await db()
+    .prepare(
+      `SELECT COUNT(*)::int AS n FROM activities
+       WHERE status = 'open' AND owner_id = ?
+         AND due_date IS NOT NULL
+         AND substr(due_date, 1, 10) <= to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+    )
+    .bind(user.id)
+    .first<{ n: number }>();
+  return { count: row?.n ?? 0 };
+});
+
 // ---------- Companies ----------
 const companySchema = z.object({
   id: z.string().optional(),
@@ -1415,9 +1432,21 @@ export const setCompanyCallOutcome = createServerFn({ method: "POST" })
       // real step in the simplified pipeline (don't rewind a deal a rep has
       // already pushed further along).
       if (deal && deal.stage === TO_CALL_STAGE) {
+        // Guided next step: a triaged Yes/Maybe lands in Proposal with the
+        // next move already written down (only if the rep hasn't set one).
         await db()
-          .prepare(`UPDATE deals SET stage=?, stage_changed_at=?, updated_at=? WHERE id=?`)
-          .bind("Proposal", now, now, deal.id)
+          .prepare(
+            `UPDATE deals SET stage=?, stage_changed_at=?, updated_at=?,
+               next_step = COALESCE(NULLIF(next_step, ''), ?)
+             WHERE id=?`,
+          )
+          .bind(
+            "Proposal",
+            now,
+            now,
+            data.outcome === "interested" ? "Send the proposal" : "Follow up while it's warm, then send the proposal",
+            deal.id,
+          )
           .run();
       }
     } else if (data.outcome === null) {
