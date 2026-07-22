@@ -713,3 +713,21 @@ describe("prompt upgrades reach every stored email draft (redraft pass)", () => 
     expect(aiSource).toContain("plans from $299/month");
   });
 });
+
+describe("a manually added company gets researched immediately, not tomorrow", () => {
+  const companiesPage = readFileSync(join(__dirname, "../../routes/_app/companies.tsx"), "utf8");
+  it("the New-company form fires researchCompany in the background after create", () => {
+    expect(companiesPage).toContain("const saved = await upsertCompany(");
+    expect(companiesPage).toContain("void researchCompany({ data: { id: saved.id as string } }).catch(");
+  });
+  it("only new companies trigger it — edits don't re-burn research", () => {
+    // The fire-and-forget lives in the else-branch of `if (company?.id)`.
+    const idx = companiesPage.indexOf("void researchCompany(");
+    const before = companiesPage.slice(idx - 700, idx);
+    expect(before).toContain("if (company?.id)");
+    expect(before).toContain("researching it in the background");
+  });
+  it("upsertCompany returns the new id the form relies on", () => {
+    expect(fnBody("upsertCompany")).toContain("return { id }");
+  });
+});

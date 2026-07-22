@@ -12,6 +12,7 @@ import {
   verifyCompanyWebsites,
   claimCompany,
   backfillResearchEmails,
+  researchCompany,
   runOutscraperEnrich,
   tagFacebookOnlyCompanies,
   archiveGoodSiteCompanies,
@@ -839,7 +840,7 @@ function CompanyModal({
 
     setSaving(true);
     try {
-      await upsertCompany({
+      const saved = await upsertCompany({
         data: {
           id: (company?.id as string) || undefined,
           name,
@@ -854,7 +855,18 @@ function CompanyModal({
           tags: serializeTags(tags) || null,
         },
       });
-      toast(company?.id ? "Company updated" : "Company added");
+      if (company?.id) {
+        toast("Company updated");
+      } else {
+        // Brand-new company: kick off the website/AI research right away in the
+        // background so the dossier + tailored email are ready by the time a rep
+        // opens it — no waiting for the nightly sweep. Fire-and-forget: research
+        // is a bonus, never a blocker, so failures are swallowed silently.
+        toast("Company added — researching it in the background");
+        if (saved?.id) {
+          void researchCompany({ data: { id: saved.id as string } }).catch(() => {});
+        }
+      }
       onSaved();
     } catch {
       toast("Couldn't save — please try again", "error");
