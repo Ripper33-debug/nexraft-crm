@@ -15,6 +15,7 @@ import {
   runReResearchBatch,
   runRedraftEmailsBatch,
   runFullReResearchBatch,
+  huntLeadsBatch,
   type TeamMemberRow,
   type RepActivityRow,
 } from "../../lib/crm/data";
@@ -219,6 +220,57 @@ function RedraftEmailsButton() {
   return (
     <Button variant="outline" onClick={run}>
       {running ? (left !== null ? `Rewriting… ${left} left (click to stop)` : "Rewriting… (click to stop)") : "✍️ Re-draft emails"}
+    </Button>
+  );
+}
+
+// Bulk lead hunt: sweeps a fixed rotation of Florida cities × service niches
+// and imports ONLY businesses that list BOTH a phone and an email — every lead
+// it adds is fully contactable on day one. Loops until it's added the target
+// count or the whole rotation has been swept; stoppable mid-run like the rest,
+// and everything found so far stays saved.
+const HUNT_TARGET = 1000;
+function HuntLeadsButton() {
+  const [running, setRunning] = useState(false);
+  const [found, setFound] = useState(0);
+  const stopRef = useRef(false);
+  const run = async () => {
+    if (running) {
+      stopRef.current = true;
+      setRunning(false);
+      toast("⏸ Hunt stopped — every lead found so far is saved in the pool.");
+      return;
+    }
+    setRunning(true);
+    stopRef.current = false;
+    setFound(0);
+    let total = 0;
+    try {
+      for (let step = 0; ; step++) {
+        const res = await huntLeadsBatch({ data: { step } });
+        total += res.imported;
+        setFound(total);
+        if (stopRef.current) return;
+        if (total >= HUNT_TARGET || res.done) break;
+      }
+      toast(
+        total === 0
+          ? "🎯 Hunt finished but found nothing new with both a phone AND an email — the map data has been picked clean for now."
+          : `🎯 Hunt done — added ${total} lead${total === 1 ? "" : "s"}, every one with a phone AND an email. They're in the pool, and tonight's sweep starts researching them.`,
+      );
+    } catch {
+      toast(
+        total > 0
+          ? `Hunt hit a snag after ${total} leads — click again to keep going.`
+          : "Hunt failed to start — try again in a moment.",
+      );
+    } finally {
+      setRunning(false);
+    }
+  };
+  return (
+    <Button variant="outline" onClick={run}>
+      {running ? `Hunting… ${found} added (click to stop)` : "🎯 Hunt 1,000 leads"}
     </Button>
   );
 }
@@ -461,6 +513,7 @@ function TeamPage() {
         subtitle="Admin view — everything your team has in the CRM."
         actions={
           <div className="flex flex-wrap gap-2">
+            <HuntLeadsButton />
             <ResearchBatchButton />
             <ReResearchButton />
             <RedraftEmailsButton />

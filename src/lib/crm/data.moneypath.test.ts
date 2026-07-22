@@ -731,3 +731,28 @@ describe("a manually added company gets researched immediately, not tomorrow", (
     expect(fnBody("upsertCompany")).toContain("return { id }");
   });
 });
+
+describe("the bulk lead hunt only imports fully contactable businesses", () => {
+  const body = fnBody("huntLeadsBatch");
+  it("is admin-only", () => {
+    expect(body).toContain("requireAdmin()");
+  });
+  it("enforces Barry's rule: no email + phone, no import", () => {
+    expect(body).toContain("l.phone && l.email && EMAIL_OK.test(l.email.trim())");
+    expect(body).toContain("!l.already_in_crm");
+  });
+  it("makes each hunted lead emailable immediately via a real contact row", () => {
+    expect(body).toContain("INSERT INTO contacts");
+    expect(body).toContain("found during the bulk lead hunt");
+  });
+  it("one bad lead can't stall a step, and finished steps report done", () => {
+    expect(body).toContain("one bad lead must not stall the hunt");
+    expect(body).toContain("data.step + 1 >= HUNT_STOPS.length");
+  });
+  it("the Team page button loops steps and is stoppable", () => {
+    const teamPage = readFileSync(join(__dirname, "../../routes/_app/team.tsx"), "utf8");
+    expect(teamPage).toContain("huntLeadsBatch({ data: { step } })");
+    expect(teamPage).toContain("total >= HUNT_TARGET || res.done");
+    expect(teamPage).toContain("<HuntLeadsButton />");
+  });
+});

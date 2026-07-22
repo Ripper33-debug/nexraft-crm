@@ -6782,6 +6782,113 @@ export const runNewBusinessImport = createServerFn({ method: "POST" }).handler(a
   return { ok: true as const, ...res };
 });
 
+// ── Bulk lead hunt ───────────────────────────────────────────────────────────
+// On-demand deep scan across a fixed rotation of Florida cities × the service
+// niches that fit Nexraft, importing ONLY businesses that already list BOTH a
+// phone number AND an email address. Barry's rule: no email + phone, no import
+// — every lead the hunt adds is fully contactable from day one. Each step is
+// one Overpass sweep sized to fit a single serverless request; the Team-page
+// button loops steps until it hits its target or the rotation is exhausted.
+const HUNT_CITIES = [
+  "Tampa", "Orlando", "Miami", "Jacksonville", "St. Petersburg", "Fort Lauderdale",
+  "Cape Coral", "Port St. Lucie", "Tallahassee", "Hialeah", "Gainesville",
+  "West Palm Beach", "Clearwater", "Lakeland", "Pembroke Pines", "Hollywood",
+  "Brandon", "Spring Hill", "Palm Bay", "Pompano Beach", "Davie", "Boca Raton",
+  "Sarasota", "Naples", "Fort Myers", "Kissimmee", "Daytona Beach", "Melbourne",
+  "Ocala", "Bradenton", "Largo", "Palm Coast", "Deltona", "Wesley Chapel",
+  "New Port Richey", "Winter Haven", "Delray Beach", "Port Charlotte",
+  "Pensacola", "Palm Harbor", "The Villages", "Jupiter", "Doral", "Sanford",
+  "Coral Springs", "Panama City", "Sebring", "Vero Beach",
+];
+// High-fit first: the trades combos historically close best, so the early
+// steps of a hunt spend their budget where the odds are.
+const HUNT_TYPE_COMBOS = [
+  "roofers, plumbers, hvac, electricians",
+  "landscaping, painters, contractors, cleaning",
+  "dentists, chiropractors, vets, med spas",
+  "salons, barbers, gyms, spas",
+  "auto repair, tire shops, movers, pet stores",
+  "lawyers, accountants, insurance, real estate",
+];
+const HUNT_STOPS: { area: string; types: string }[] = HUNT_TYPE_COMBOS.flatMap((types) =>
+  HUNT_CITIES.map((city) => ({ area: `${city}, FL`, types })),
+);
+
+export const huntLeadsBatch = createServerFn({ method: "POST" })
+  .validator(z.object({ step: z.number().int().min(0) }))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    await ensureExtraSchema();
+    if (data.step >= HUNT_STOPS.length) {
+      return { ok: true as const, done: true, imported: 0, qualified: 0, area: null as string | null, totalSteps: HUNT_STOPS.length };
+    }
+    const stop = HUNT_STOPS[data.step];
+    const res = await discoverLeadsCore({ businessType: stop.types, area: stop.area, limit: 60 });
+    // The hard bar: a real-looking email AND a phone, and not already in the
+    // CRM (which includes trashed leads — a dismissed business stays dismissed).
+    const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    const picks = res.leads.filter(
+      (l) => !l.already_in_crm && l.phone && l.email && EMAIL_OK.test(l.email.trim()),
+    );
+    let imported = 0;
+    for (const l of picks) {
+      try {
+        const r = await importLeadCore(
+          {
+            name: l.name,
+            industry: l.industry,
+            website: l.website,
+            phone: l.phone,
+            email: l.email,
+            city: l.city ?? stop.area.split(",")[0],
+            autoAssign: true,
+            socialUrl: l.social_url ?? null,
+          },
+          null,
+        );
+        if (r.duplicate) continue;
+        imported++;
+        // The email that qualified this lead becomes a real contact row, so the
+        // company is immediately emailable from Outreach (a note-only email isn't).
+        await db()
+          .prepare(
+            `INSERT INTO contacts (id, first_name, last_name, email, phone, title, company_id, owner_id, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            uid(),
+            "Office",
+            l.name,
+            (l.email ?? "").trim().toLowerCase(),
+            l.phone,
+            "Main inbox",
+            r.id,
+            null,
+            "Listed publicly by the business — found during the bulk lead hunt.",
+          )
+          .run();
+      } catch {
+        /* one bad lead must not stall the hunt */
+      }
+    }
+    if (imported > 0) {
+      await logEvent({
+        actorId: null,
+        verb: "radar",
+        entityType: "company",
+        summary: `Lead hunt: imported ${imported} fully contactable lead${imported === 1 ? "" : "s"} from ${stop.area}`,
+      });
+    }
+    return {
+      ok: true as const,
+      done: data.step + 1 >= HUNT_STOPS.length,
+      imported,
+      qualified: picks.length,
+      area: stop.area as string | null,
+      totalSteps: HUNT_STOPS.length,
+    };
+  });
+
 // Entry point for the Vercel cron (/api/cron/sweep): run the enabled sweep
 // that's waited longest, skipping any that already ran in the last 20 hours —
 // which doubles as abuse protection if the endpoint is hit repeatedly.
