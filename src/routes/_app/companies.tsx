@@ -11,6 +11,7 @@ import {
   importCompanies,
   verifyCompanyWebsites,
   claimCompany,
+  setCompanyCallOutcome,
   backfillResearchEmails,
   researchCompany,
   runOutscraperEnrich,
@@ -82,6 +83,121 @@ function TagChip({ name }: { name: string }) {
       style={{ color, backgroundColor: color + "22", border: `1px solid ${color}55` }}
     >
       {name}
+    </span>
+  );
+}
+
+// Owner's ask (2026-07-22): reps work straight down this list and call from the
+// row — give them a way to MOVE the company right here once they've called.
+// Clicking the outcome badge opens the same Yes / Maybe / No / No answer triage
+// as the Calls queue, backed by the same setCompanyCallOutcome server fn, so
+// the company's pipeline deal moves with it (Yes/Maybe → Proposal, No → Lost,
+// No answer → stays in the call queue).
+function RowTriage({ c, canEdit, onDone }: { c: Row; canEdit: boolean; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const badge =
+    c.call_outcome === "signed" ? (
+      <span className="ml-2 align-middle rounded-full bg-signal px-1.5 py-0.5 text-[10px] font-semibold text-ink">Signed</span>
+    ) : c.call_outcome === "interested" ? (
+      <span className="ml-2 align-middle rounded-full bg-signal-soft px-1.5 py-0.5 text-[10px] font-medium text-signal">Yes</span>
+    ) : c.call_outcome === "maybe" ? (
+      <span className="ml-2 align-middle rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Maybe</span>
+    ) : c.call_outcome === "not_interested" ? (
+      <span className="ml-2 align-middle rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-faint">No</span>
+    ) : c.call_outcome === "no_answer" ? (
+      <span className="ml-2 align-middle rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">No answer</span>
+    ) : !c.call_outcome ? (
+      <span className="ml-2 align-middle rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Need to call</span>
+    ) : null;
+
+  // "Signed" is final (there's a won deal behind it) — leave that badge alone.
+  // Records you can't edit stay read-only badges too.
+  if (!canEdit || c.call_outcome === "signed") return badge;
+
+  async function decide(outcome: "interested" | "maybe" | "not_interested" | "no_answer") {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await setCompanyCallOutcome({ data: { id: c.id as string, outcome } });
+      toast(
+        outcome === "interested"
+          ? "Marked Yes — deal moved to Proposal"
+          : outcome === "maybe"
+            ? "Marked Maybe"
+            : outcome === "not_interested"
+              ? "Marked No"
+              : "Marked No answer — they stay in the call queue",
+      );
+      setOpen(false);
+      onDone();
+    } catch {
+      toast("Couldn't save — you may not own this one", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="cursor-pointer transition-opacity hover:opacity-75"
+        title="How did the call go? Click to move them — Yes, Maybe, No, or No answer"
+      >
+        {badge}
+      </button>
+    );
+  }
+  return (
+    <span className="ml-2 inline-flex items-center gap-1 align-middle">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => decide("interested")}
+        className="rounded-full bg-signal-soft px-2 py-0.5 text-[10px] font-medium text-signal transition-colors hover:bg-signal hover:text-ink disabled:opacity-50"
+        title="They're interested — moves their deal to Proposal"
+      >
+        Yes
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => decide("maybe")}
+        className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300 transition-colors hover:bg-amber-500/30 disabled:opacity-50"
+        title="Warm but not sold yet — moves their deal to Proposal"
+      >
+        Maybe
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => decide("not_interested")}
+        className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-faint transition-colors hover:text-red-300 disabled:opacity-50"
+        title="Not interested — drops their deal to Lost"
+      >
+        No
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => decide("no_answer")}
+        className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-medium text-sky-300 transition-colors hover:bg-sky-500/30 disabled:opacity-50"
+        title="Didn't pick up — keeps them in the call queue"
+      >
+        No answer
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => setOpen(false)}
+        className="px-1 text-[10px] text-faint transition-colors hover:text-bone"
+        title="Never mind"
+      >
+        ✕
+      </button>
     </span>
   );
 }
@@ -586,19 +702,11 @@ function CompaniesPage() {
                           Good site
                         </span>
                       ) : null}
-                      {c.call_outcome === "signed" ? (
-                        <span className="ml-2 align-middle rounded-full bg-signal px-1.5 py-0.5 text-[10px] font-semibold text-ink">Signed</span>
-                      ) : c.call_outcome === "interested" ? (
-                        <span className="ml-2 align-middle rounded-full bg-signal-soft px-1.5 py-0.5 text-[10px] font-medium text-signal">Yes</span>
-                      ) : c.call_outcome === "maybe" ? (
-                        <span className="ml-2 align-middle rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Maybe</span>
-                      ) : c.call_outcome === "not_interested" ? (
-                        <span className="ml-2 align-middle rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-faint">No</span>
-                      ) : c.call_outcome === "no_answer" ? (
-                        <span className="ml-2 align-middle rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">No answer</span>
-                      ) : !c.call_outcome ? (
-                        <span className="ml-2 align-middle rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Need to call</span>
-                      ) : null}
+                      <RowTriage
+                        c={c}
+                        canEdit={canEditRecord(me, (c.owner_id as string) ?? null, (c.shared_with as string) ?? null)}
+                        onDone={() => router.invalidate()}
+                      />
                       {typeof c.ai_fit === "number" ? (
                         <span
                           className={`ml-2 align-middle rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${

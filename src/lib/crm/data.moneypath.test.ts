@@ -1022,3 +1022,42 @@ describe("moneypath: the Manager role sees the whole team's book without admin p
     expect(payroll).toContain('user.role !== "admin"');
   });
 });
+
+// Owner's ask (2026-07-22): "if they're going down the companies list and call
+// from there, can we add a way to move them from there." The outcome badge on
+// each Companies row is now the same Yes/Maybe/No/No-answer triage the Calls
+// queue uses — one click, and the pipeline deal moves with it.
+describe("companies list rows triage the call right where the rep is", () => {
+  const companies = readFileSync(join(__dirname, "../../routes/_app/companies.tsx"), "utf8");
+
+  it("the row badge is a RowTriage control wired to canEditRecord and invalidate", () => {
+    expect(companies).toContain("function RowTriage(");
+    expect(companies).toContain("<RowTriage");
+    expect(companies).toContain("canEdit={canEditRecord(me, (c.owner_id as string) ?? null, (c.shared_with as string) ?? null)}");
+    expect(companies).toContain("onDone={() => router.invalidate()}");
+  });
+  it("it saves through the same server fn as the Calls queue", () => {
+    const triage = companies.slice(companies.indexOf("function RowTriage("), companies.indexOf("export const Route"));
+    expect(triage).toContain("setCompanyCallOutcome({ data: { id: c.id as string, outcome } })");
+    // all four one-click outcomes are offered
+    for (const o of ['decide("interested")', 'decide("maybe")', 'decide("not_interested")', 'decide("no_answer")']) {
+      expect(triage).toContain(o);
+    }
+  });
+  it("signed is final and non-owners just see the badge", () => {
+    const triage = companies.slice(companies.indexOf("function RowTriage("), companies.indexOf("export const Route"));
+    expect(triage).toContain('if (!canEdit || c.call_outcome === "signed") return badge;');
+  });
+  it("the rep hears what actually happened, in plain words", () => {
+    const triage = companies.slice(companies.indexOf("function RowTriage("), companies.indexOf("export const Route"));
+    expect(triage).toContain("Marked Yes — deal moved to Proposal");
+    expect(triage).toContain("Marked No answer — they stay in the call queue");
+    expect(triage).toContain("Couldn't save — you may not own this one");
+  });
+  it("the server fn really does move the deal (the badge isn't cosmetic)", () => {
+    const body = fnBody("setCompanyCallOutcome");
+    expect(body).toContain('data.outcome === "interested" || data.outcome === "maybe"');
+    expect(body).toContain('.bind("Proposal", now, now, deal.id)');
+    expect(body).toContain("LOST_STAGE, now, now, deal.id");
+  });
+});
