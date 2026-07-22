@@ -136,10 +136,21 @@ export async function aiComplete(req: {
   return text;
 }
 
+// Bumped whenever the SYSTEM prompt below changes in a way that should
+// regenerate already-stored drafts. Stored on each brief as `v`; the redraft
+// pass in data.ts walks companies whose brief carries an older (or no)
+// version and rewrites just the AI layer from the saved dossier — no
+// re-crawl. v2 (2026-07-21): Barry flagged that the drafts "all sound like
+// cold emails" — rewrote the prompt around one specific hook, banned the
+// mass-mail clichés, and pushed for neighbor-not-salesman voice.
+export const AI_PROMPT_VERSION = 2;
+
 export type AiBrief = {
   brief: string; // 2-3 sentence "what they are + how to pitch them"
   email_subject: string;
   email_body: string;
+  /** Prompt version that produced this draft — missing means v1. */
+  v?: number;
 };
 
 // Everything the model needs, distilled from the dossier — we never send raw
@@ -173,9 +184,16 @@ Respond with ONLY a JSON object, no markdown fences, in this exact shape:
 Rules:
 - brief: 2-3 sentences. What the business is, the single strongest reason their current web presence is costing them customers, and the opening angle the rep should lead with. Concrete, no fluff.
 - email_subject: 2-6 words, lowercase and casual, like a note from someone in town ("your google reviews", "question about the shop"). Specific to THIS business. Never salesy, never Title Case, no clickbait.
-- email_body: 50-90 words, plain text, written to be read on a phone. Its only job is to get a REPLY, not to close a sale. Structure: (1) open with the single most specific TRUE observation about this business — their rating, their broken or missing site, how they show up when locals search — one sentence; (2) one sentence on the fix (we handle everything — plans from $299/month); never quote any other price; (3) end with ONE question they can answer in a word or two ("worth a look?", "want me to send it over?") plus an easy out ("if not, just say so and I'll leave you be"). Short sentences. No "hope this finds you well", no "I'd love to connect", no bullet points, zero corporate speak. Sign off with just "{{REP_NAME}}" on its own line — the CRM fills the name in.
+- email_body: 50-90 words, plain text, written to be read on a phone. Its only job is to get a REPLY, not to close a sale.
+
+The one test that matters: if this email could be sent to a different business by swapping the name, it is WRONG. Delete it and start from what makes THIS business different — their exact rating and review count, how long they've been at it, a service they name, their town, the specific thing broken or missing about their site. Work at least two of those facts in, stated plainly ("4.9 stars across 212 reviews", "pouring concrete in Cape Coral since 2009") — numbers and proper nouns are what make it obviously written for them.
+
+Voice: a neighbor who happens to build websites, texting between jobs. Contractions. Short sentences. It's fine to sound almost blunt. Never introduce yourself or your company in the first sentence — the first sentence is entirely about THEM. Never use the mass-mail phrases every business owner deletes on sight: "I noticed", "I came across", "reaching out", "my name is", "quick question", "just following up", "hope you're doing well", "we specialize in", "free consultation". If you catch yourself opening with "I", rewrite the sentence to start with them ("Your reviews...", "Joe's Plumbing shows up...", "Searched for a plumber in Naples and...").
+
+Structure: (1) the single most specific TRUE observation about this business, and why it's costing them customers — the gap between how good they are and how they look online is the story; (2) one sentence on the fix (we handle everything — plans from $299/month); never quote any other price; (3) ONE question they can answer in a word or two ("worth a look?", "want me to send it over?") plus an easy out ("if not, just say so and I'll leave you be"). No bullet points, zero corporate speak. Sign off with just "{{REP_NAME}}" on its own line — the CRM fills the name in.
+
 - If the facts include an owner name, address them by first name in the email.
-- Never invent facts that are not in the input. If the facts are thin, stay plain rather than making details up.`;
+- Never invent facts that are not in the input. If the facts are thin (no rating, no services), lean on what IS there — a dead site, no site at all, their trade and town — and stay plain rather than making details up.`;
 
 // One company in, one brief out. Hard 15s deadline so a slow/failed AI call
 // can never stall a research batch — the dossier just ships without the brief.
@@ -215,7 +233,7 @@ export async function aiResearchBrief(
         email_body: String(parsed.email_body).slice(0, 3000),
       };
       feedback = draftQualityIssue(brief.email_subject, brief.email_body);
-      if (feedback === null) return brief;
+      if (feedback === null) return { ...brief, v: AI_PROMPT_VERSION };
     }
     return null; // two strikes — ship the dossier without a draft
   } catch {

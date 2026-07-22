@@ -237,6 +237,28 @@ const BANNED_PHRASES = [
   "revolutionize",
   "i wanted to reach out",
 ];
+// The phrases that make a reader delete without finishing the first line —
+// every mass cold email opens with one of these. A tailored draft has no
+// reason to use them: it opens with something true about THIS business.
+// Added 2026-07-21 after Barry flagged the drafts all "sound like cold
+// emails"; the display-time gate means existing drafts using these fall back
+// to templates until the redraft pass rewrites them.
+const COLD_CLICHES = [
+  "i noticed",
+  "i came across",
+  "i was browsing",
+  "i stumbled",
+  "reaching out",
+  "my name is",
+  "just following up",
+  "quick question",
+  "hope you're doing well",
+  "hope you are doing well",
+  "i help businesses",
+  "we specialize in",
+  "don't want to take up",
+  "free consultation",
+];
 
 export function draftQualityIssue(subject: string, body: string): string | null {
   if (!subject.trim()) return "empty subject";
@@ -249,6 +271,10 @@ export function draftQualityIssue(subject: string, body: string): string | null 
   const lower = `${subject}\n${body}`.toLowerCase();
   for (const phrase of BANNED_PHRASES) {
     if (lower.includes(phrase)) return `banned corporate phrase: "${phrase}"`;
+  }
+  for (const phrase of COLD_CLICHES) {
+    if (lower.includes(phrase))
+      return `cold-email cliché: "${phrase}" — open with a specific true fact about this business instead`;
   }
   for (const m of `${subject}\n${body}`.matchAll(MONTHLY_PRICE_RE)) {
     const amount = m[1].replaceAll(",", "");

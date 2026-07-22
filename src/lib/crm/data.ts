@@ -35,7 +35,8 @@ import {
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
 import { isStripeConfigured, stripeFetch } from "./stripe.server";
-import { aiComplete, aiDefaultModel, aiResearchBrief, isAiConfigured, type AiBrief } from "./ai.server";
+import { aiComplete, aiDefaultModel, aiResearchBrief, isAiConfigured, AI_PROMPT_VERSION, type AiBrief } from "./ai.server";
+import { draftQualityIssue } from "./emails";
 import { fetchNewFilings, isSunbizConfigured, titleCaseBusiness } from "./sunbiz.server";
 import { fetchDomainContacts, isOutscraperConfigured, websiteDomain } from "./outscraper.server";
 import { isPlacesConfigured, fetchPlaceRatings } from "./places.server";
@@ -5379,6 +5380,84 @@ export const runOutscraperEnrich = createServerFn({ method: "POST" }).handler(as
   return { ok: true as const, ...res };
 });
 
+// Redraft pass: when the email-writing prompt levels up (AI_PROMPT_VERSION
+// bump), every stored draft written under the old prompt is stale — Barry's
+// 2026-07-21 complaint was exactly this ("they all sound like cold emails").
+// This walks companies whose brief carries an older version and rewrites JUST
+// the AI layer from the saved dossier — no re-crawl, no ratings calls, a
+// fraction of the cost of full re-research. Emailable companies first: their
+// drafts are the ones reps actually send.
+async function redraftAiEmailsCore(
+  cap = 6,
+): Promise<{ configured: boolean; scanned: number; redrafted: number; remaining: number }> {
+  if (!isAiConfigured()) return { configured: false, scanned: 0, redrafted: 0, remaining: 0 };
+  await ensureExtraSchema();
+  // `"v":N` can only appear as our own stamp inside the ai object (JSON
+  // escapes quotes in user text) — same top-level-key LIKE trick as "ai"/
+  // "outscraper". Missing stamp = v1 draft = needs the rewrite.
+  const STALE_DRAFT_SQL = `archived_at IS NULL AND research LIKE '%"ai":{%'
+          AND research NOT LIKE '%"v":${AI_PROMPT_VERSION}%'`;
+  const { results } = await db()
+    .prepare(
+      `SELECT c.id, c.name, c.city, c.industry, c.research FROM companies c
+        WHERE ${STALE_DRAFT_SQL}
+        ORDER BY CASE WHEN EXISTS (
+                   SELECT 1 FROM contacts ct
+                    WHERE ct.company_id = c.id AND ct.archived_at IS NULL
+                      AND ct.email IS NOT NULL AND ct.email <> ''
+                 ) THEN 0 ELSE 1 END,
+                 created_at DESC
+        LIMIT ?`,
+    )
+    .bind(cap)
+    .all<{ id: string; name: string; city: string | null; industry: string | null; research: string }>();
+  const rows = results ?? [];
+  let redrafted = 0;
+  await Promise.allSettled(
+    rows.map(async (c) => {
+      let dossier: ResearchDossier;
+      try {
+        dossier = JSON.parse(c.research) as ResearchDossier;
+      } catch {
+        return; // unparseable dossier — leave it for full re-research
+      }
+      const fresh = await aiResearchBrief(
+        { name: c.name, city: c.city, industry: c.industry },
+        dossier,
+      );
+      if (fresh) {
+        dossier.ai = fresh;
+      } else {
+        // The rewrite didn't clear the bar (or the AI call hiccuped). If the
+        // OLD draft still passes today's quality bar it keeps working — leave
+        // it unstamped so tomorrow's cron retries the rewrite. If the old
+        // draft is below the bar it was never being shown anyway (display
+        // gate), so blank it and stamp: templates take over cleanly instead
+        // of burning tokens on the same hopeless dossier every night.
+        const old = dossier.ai;
+        if (old && draftQualityIssue(old.email_subject ?? "", old.email_body ?? "") === null) return;
+        dossier.ai = old
+          ? { ...old, email_subject: "", email_body: "", v: AI_PROMPT_VERSION }
+          : { brief: "", email_subject: "", email_body: "", v: AI_PROMPT_VERSION };
+      }
+      await db().prepare(`UPDATE companies SET research = ? WHERE id = ?`).bind(JSON.stringify(dossier), c.id).run();
+      if (fresh) redrafted += 1;
+    }),
+  );
+  const r = await db()
+    .prepare(`SELECT COUNT(*)::int AS n FROM companies WHERE ${STALE_DRAFT_SQL}`)
+    .first<{ n: number }>();
+  return { configured: true, scanned: rows.length, redrafted, remaining: r?.n ?? 0 };
+}
+
+// Admin trigger — the Team page loops this until remaining hits zero, so
+// "make the emails better" is one button instead of waiting nights of cron.
+export const runRedraftEmailsBatch = createServerFn({ method: "POST" }).handler(async () => {
+  await requireAdmin();
+  await ensureExtraSchema();
+  return { ok: true as const, ...(await redraftAiEmailsCore(6)) };
+});
+
 // Refresh pass for dossiers written BEFORE the AI layer existed: they have no
 // "ai" key in their JSON, so this walks exactly those companies and re-runs
 // the full dig (which now attaches the brief + drafted email). Refuses to run
@@ -6748,6 +6827,14 @@ export const runDueSweeps = createServerOnlyFn(
       await aiQualifyCore(6);
     } catch {
       /* rating is a bonus, never a blocker */
+    }
+    // Draft refresh: any stored email written under an older prompt version
+    // gets rewritten overnight, emailable companies first — so a prompt
+    // improvement reaches every draft without anyone re-researching by hand.
+    try {
+      await redraftAiEmailsCore(6);
+    } catch {
+      /* redrafting is a bonus, never a blocker */
     }
     // Dead-site watch: re-probe the stalest checked websites so a prospect
     // whose site just went down gets flagged within a day — the hottest lead

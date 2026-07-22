@@ -13,6 +13,7 @@ import {
   adminReassignBook,
   runResearchBatch,
   runReResearchBatch,
+  runRedraftEmailsBatch,
   runFullReResearchBatch,
   type TeamMemberRow,
   type RepActivityRow,
@@ -163,6 +164,61 @@ function ReResearchButton() {
   return (
     <Button variant="outline" onClick={run}>
       {running ? (left !== null ? `Refreshing… ${left} left (click to stop)` : "Refreshing… (click to stop)") : "✨ Add AI briefs"}
+    </Button>
+  );
+}
+
+// Same loop again for prompt upgrades: rewrites every email draft written
+// under an older prompt version (server tracks this per-draft) straight from
+// the saved dossier — no re-crawl, so it's fast and cheap. This is the
+// "make the emails better right now" button.
+function RedraftEmailsButton() {
+  const [running, setRunning] = useState(false);
+  const [left, setLeft] = useState<number | null>(null);
+  const stopRef = useRef(false);
+  const run = async () => {
+    if (running) {
+      stopRef.current = true;
+      setRunning(false);
+      toast("⏸ Redraft stopped — every email rewritten so far is saved.");
+      return;
+    }
+    setRunning(true);
+    stopRef.current = false;
+    let total = 0;
+    try {
+      for (let i = 0; i < 200; i++) {
+        const res = await runRedraftEmailsBatch();
+        if (!res.configured) {
+          toast("AI isn't set up yet — add OPENROUTER_API_KEY (or ANTHROPIC_API_KEY) in Vercel first, then run this.", "error");
+          return;
+        }
+        total += res.redrafted;
+        setLeft(res.remaining);
+        if (stopRef.current) return;
+        // redrafted === 0 means this batch made no progress (AI hiccup or
+        // kept-good-drafts) — stop instead of hammering the same companies.
+        if (res.remaining === 0 || res.redrafted === 0) break;
+      }
+      toast(
+        total === 0
+          ? "✍️ All caught up — every email draft is already on the latest style."
+          : `✍️ Done — rewrote ${total} email draft${total === 1 ? "" : "s"} in the new tailored style. Check any company in Outreach.`,
+      );
+    } catch {
+      toast(
+        total > 0
+          ? `Redraft hit a snag after ${total} emails — click again to continue.`
+          : "Redraft failed to start — try again in a moment.",
+      );
+    } finally {
+      setRunning(false);
+      setLeft(null);
+    }
+  };
+  return (
+    <Button variant="outline" onClick={run}>
+      {running ? (left !== null ? `Rewriting… ${left} left (click to stop)` : "Rewriting… (click to stop)") : "✍️ Re-draft emails"}
     </Button>
   );
 }
@@ -407,6 +463,7 @@ function TeamPage() {
           <div className="flex flex-wrap gap-2">
             <ResearchBatchButton />
             <ReResearchButton />
+            <RedraftEmailsButton />
             <FullReResearchButton />
             <Button onClick={() => setAddOpen(true)}>+ Add teammate</Button>
           </div>

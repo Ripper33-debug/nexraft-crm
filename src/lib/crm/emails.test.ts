@@ -80,6 +80,17 @@ describe("the draft quality bar (draftQualityIssue)", () => {
     expect(draftQualityIssue("hi", `${"word ".repeat(140)}? {{REP_NAME}}`)).toMatch(/too long/);
     expect(draftQualityIssue("hi", GOOD_BODY.replace("{{REP_NAME}}", "Barry"))).toMatch(/REP_NAME/);
   });
+  it("rejects the cold-email clichés — the mass-sent voice Barry flagged", () => {
+    expect(draftQualityIssue("hi", GOOD_BODY.replace("Saw the", "I noticed the"))).toMatch(/cliché/);
+    expect(draftQualityIssue("hi", GOOD_BODY.replace("Saw the", "My name is Sam — saw the"))).toMatch(/cliché/);
+    expect(draftQualityIssue("quick question", GOOD_BODY)).toMatch(/cliché/);
+    expect(
+      draftQualityIssue("hi", GOOD_BODY.replace("Worth a look?", "Just following up — worth a look?")),
+    ).toMatch(/cliché/);
+    expect(
+      draftQualityIssue("hi", GOOD_BODY.replace("We build and run", "We specialize in building")),
+    ).toMatch(/cliché/);
+  });
   it("rejects drafts with no question or with corporate speak", () => {
     expect(draftQualityIssue("hi", GOOD_BODY.replaceAll("?", "."))).toMatch(/question/);
     expect(draftQualityIssue("hi", GOOD_BODY.replace("Saw the", "Hope this finds you well — saw the"))).toMatch(

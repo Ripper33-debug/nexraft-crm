@@ -681,3 +681,35 @@ describe("Outscraper enrichment spends credits carefully and never blocks", () =
     expect(fnBody("runOutscraperEnrich")).toContain("requireAdmin()");
   });
 });
+
+describe("prompt upgrades reach every stored email draft (redraft pass)", () => {
+  const body = helperBody("redraftAiEmailsCore");
+  it("is gated on an AI key — no key, no token spend, clean no-op", () => {
+    expect(body).toContain("isAiConfigured()");
+    expect(body).toContain("configured: false");
+  });
+  it("targets only drafts written under an older prompt version, emailable companies first", () => {
+    expect(body).toContain(`LIKE '%"ai":{%'`);
+    expect(body).toContain(`NOT LIKE '%"v":`);
+    expect(body).toContain("ct.email IS NOT NULL");
+  });
+  it("a failed rewrite keeps a still-good old draft (and retries later), only blanks below-bar ones", () => {
+    expect(body).toContain("draftQualityIssue(old.email_subject");
+    expect(body).toContain(`email_subject: ""`);
+  });
+  it("every fresh draft is stamped with the prompt version so the pool drains", () => {
+    const aiSource = readFileSync(join(__dirname, "ai.server.ts"), "utf8");
+    expect(aiSource).toContain("export const AI_PROMPT_VERSION");
+    expect(aiSource).toContain("{ ...brief, v: AI_PROMPT_VERSION }");
+  });
+  it("runs nightly from the cron and the on-demand batch is admin-only", () => {
+    expect(fnBody("runDueSweeps")).toContain("redraftAiEmailsCore(6)");
+    expect(fnBody("runRedraftEmailsBatch")).toContain("requireAdmin()");
+  });
+  it("the prompt itself forbids the mass-mail voice Barry flagged", () => {
+    const aiSource = readFileSync(join(__dirname, "ai.server.ts"), "utf8");
+    expect(aiSource).toContain("if this email could be sent to a different business by swapping the name, it is WRONG");
+    expect(aiSource).toContain(`"I noticed"`);
+    expect(aiSource).toContain("plans from $299/month");
+  });
+});
