@@ -756,3 +756,45 @@ describe("the bulk lead hunt only imports fully contactable businesses", () => {
     expect(teamPage).toContain("<HuntLeadsButton />");
   });
 });
+
+describe("the 2026-07-21 statewide hunt seeds itself into the CRM exactly once", () => {
+  const body = helperBody("runSeedFlHuntLeads");
+  const seed = readFileSync(join(__dirname, "fl-hunt-seed.server.ts"), "utf8");
+  it("run-once lock with a resumable progress cursor (never a 30s timeout gamble)", () => {
+    expect(source).toContain(`const FL_HUNT_TASK_KEY = "task_seed_fl_hunt_2026_07_21"`);
+    expect(body).toContain("ON CONFLICT (key) DO NOTHING RETURNING key");
+    expect(body).toContain('startsWith("progress:")');
+    expect(body).toContain("FL_HUNT_LEADS.slice(offset, offset + FL_HUNT_CHUNK)");
+  });
+  it("dedupes against every company including trashed ones", () => {
+    expect(body).toContain("SELECT name, phone FROM companies");
+    expect(body).not.toContain("SELECT name, phone FROM companies WHERE archived_at IS NULL");
+    expect(body).toContain("companyNameKey(lead.name)");
+  });
+  it("each lead lands pool-owned with a To Call deal AND an email contact", () => {
+    expect(body).toContain("TO_CALL_STAGE");
+    expect(body).toContain("INSERT INTO contacts");
+    expect(body).toContain("lead.email.toLowerCase()");
+    expect(body).toContain("open pool: reps claim them like radar finds");
+  });
+  it("is wired into the one-time task runner", () => {
+    expect(helperBody("runPendingOneTimeTasks")).toContain("runSeedFlHuntLeads()");
+  });
+  it("every seeded lead honors Barry's rules: phone, email, and a reason they need us", () => {
+    const leads = JSON.parse(seed.slice(seed.indexOf("= [") + 2, seed.lastIndexOf("]") + 1)) as {
+      name: string; phone: string; email: string; why: string;
+    }[];
+    expect(leads.length).toBeGreaterThanOrEqual(200);
+    for (const l of leads) {
+      expect(l.name.length).toBeGreaterThan(2);
+      expect(l.phone.replace(/\D/g, "").length).toBeGreaterThanOrEqual(7);
+      expect(l.email).toMatch(/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/);
+      expect(l.why.length).toBeGreaterThan(5);
+    }
+    // No duplicates within the seed itself.
+    const names = leads.map((l) => l.name.toLowerCase().replace(/[^a-z0-9]/g, ""));
+    expect(new Set(names).size).toBe(leads.length);
+    const emails = leads.map((l) => l.email.toLowerCase());
+    expect(new Set(emails).size).toBe(leads.length);
+  });
+});

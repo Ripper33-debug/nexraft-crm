@@ -39,6 +39,7 @@ import { aiComplete, aiDefaultModel, aiResearchBrief, isAiConfigured, AI_PROMPT_
 import { draftQualityIssue } from "./emails";
 import { fetchNewFilings, isSunbizConfigured, titleCaseBusiness } from "./sunbiz.server";
 import { fetchDomainContacts, isOutscraperConfigured, websiteDomain } from "./outscraper.server";
+import { FL_HUNT_LEADS } from "./fl-hunt-seed.server";
 import { isPlacesConfigured, fetchPlaceRatings } from "./places.server";
 import { isYelpConfigured, fetchYelpRatings } from "./yelp.server";
 
@@ -4722,6 +4723,167 @@ async function runPendingOneTimeTasks(): Promise<void> {
   await runMichaelRebalance();
   await runMoveArcticAirToMichael();
   await runSeedWebHuntLeads();
+  await runSeedFlHuntLeads();
+}
+
+// One-time seed (owner's ask, 2026-07-21): "send this to the crm" — the 237
+// statewide-hunt leads in fl-hunt-seed.server.ts. Every one publicly lists
+// BOTH a phone and an email, and every one NEEDS Nexraft (no site, dead
+// domain, Facebook-only, free builder, or http-only). They land in the open
+// pool with a $0 To Call deal (same treatment as scanner finds) plus an
+// email-bearing contact so they're emailable from Outreach on day one, and
+// the "why they need us" pitch angle in the company notes.
+// Chunked: at most FL_HUNT_CHUNK per invocation, with a progress cursor kept
+// in the lock value — 237 × 3 inserts in one serverless request would flirt
+// with the 30s kill limit, so later cron hits / page loads resume the import
+// until it marks itself done. Dedupe sets are rebuilt from the DB on every
+// chunk (all companies incl. trashed, same rule as the radar), so retries and
+// overlaps can never create doubles.
+const FL_HUNT_TASK_KEY = "task_seed_fl_hunt_2026_07_21";
+const FL_HUNT_CHUNK = 80;
+
+async function runSeedFlHuntLeads(): Promise<void> {
+  try {
+    const claim = await db()
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES (?, 'progress:0')
+         ON CONFLICT (key) DO NOTHING RETURNING key`,
+      )
+      .bind(FL_HUNT_TASK_KEY)
+      .first<{ key: string }>();
+    let offset = 0;
+    if (!claim) {
+      const cur = await db()
+        .prepare(`SELECT value FROM app_settings WHERE key = ?`)
+        .bind(FL_HUNT_TASK_KEY)
+        .first<{ value: string }>();
+      if (!cur?.value?.startsWith("progress:")) return; // finished (or skipped)
+      offset = parseInt(cur.value.slice("progress:".length), 10) || 0;
+    }
+    const chunk = FL_HUNT_LEADS.slice(offset, offset + FL_HUNT_CHUNK);
+    if (chunk.length === 0) {
+      await db()
+        .prepare(`UPDATE app_settings SET value=? WHERE key=?`)
+        .bind(`done: seeded through ${FL_HUNT_LEADS.length}`, FL_HUNT_TASK_KEY)
+        .run();
+      return;
+    }
+
+    // Same identity rules as the radar import: normalized name or phone match
+    // against EVERY company — including trashed ones, so a lead a rep already
+    // dismissed stays dismissed.
+    const { results: existing } = await db()
+      .prepare(`SELECT name, phone FROM companies`)
+      .all<{ name: string; phone: string | null }>();
+    const seenNames = new Set((existing ?? []).map((c) => companyNameKey(c.name)));
+    const seenPhones = new Set((existing ?? []).map((c) => phoneKey(c.phone)).filter(Boolean));
+
+    let added = 0;
+    let skipped = 0;
+    for (const lead of chunk) {
+      const nameKey = companyNameKey(lead.name);
+      const phKey = phoneKey(lead.phone);
+      if (seenNames.has(nameKey) || (phKey && seenPhones.has(phKey))) {
+        skipped++;
+        continue;
+      }
+      seenNames.add(nameKey);
+      if (phKey) seenPhones.add(phKey);
+      const est = estimateDealValue(
+        discoveryScore({
+          hasWebsite: Boolean(lead.website),
+          industry: lead.industry,
+          rating: null,
+          reviews: null,
+          hasPhone: true,
+        }).band,
+      );
+      const companyId = uid();
+      await db()
+        .prepare(
+          `INSERT INTO companies (id, name, industry, website, phone, city, source, notes, owner_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          companyId,
+          lead.name,
+          lead.industry,
+          lead.website,
+          lead.phone,
+          lead.city,
+          "Lead hunt",
+          `Statewide hunt 2026-07-21 — ${lead.why}. Phone + email are both publicly listed by the business.`,
+          null, // open pool: reps claim them like radar finds
+        )
+        .run();
+      const now = new Date().toISOString();
+      await db()
+        .prepare(
+          `INSERT INTO deals (id, name, company_id, contact_id, owner_id, stage, value, expected_close, next_step, notes, lost_reason, win_reason, monthly_value, renewal_date, links, proposal_status, proposal_sent_at, created_at, updated_at, stage_changed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          uid(),
+          `${lead.name} — Website`,
+          companyId,
+          null,
+          null,
+          TO_CALL_STAGE,
+          est.value,
+          null,
+          "Reach out & qualify",
+          null,
+          null,
+          null,
+          est.monthly,
+          null,
+          null,
+          "none",
+          null,
+          now,
+          now,
+          now,
+        )
+        .run();
+      await db()
+        .prepare(
+          `INSERT INTO contacts (id, first_name, last_name, email, phone, title, company_id, owner_id, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          uid(),
+          "Office",
+          lead.name,
+          lead.email.toLowerCase(),
+          lead.phone,
+          "Main inbox",
+          companyId,
+          null,
+          "Publicly listed by the business — found by the 2026-07-21 statewide lead hunt.",
+        )
+        .run();
+      added++;
+    }
+
+    const next = offset + chunk.length;
+    await db()
+      .prepare(`UPDATE app_settings SET value=? WHERE key=?`)
+      .bind(
+        next >= FL_HUNT_LEADS.length ? `done: seeded through ${FL_HUNT_LEADS.length}` : `progress:${next}`,
+        FL_HUNT_TASK_KEY,
+      )
+      .run();
+    if (added > 0) {
+      await logEvent({
+        actorId: null,
+        verb: "imported",
+        entityType: "companies",
+        summary: `Lead hunt: ${added} Florida lead${added === 1 ? "" : "s"} with a phone AND an email dropped in the pool${skipped ? ` (${skipped} skipped as duplicates)` : ""} — ${Math.min(next, FL_HUNT_LEADS.length)}/${FL_HUNT_LEADS.length} processed`,
+      });
+    }
+  } catch {
+    /* progress cursor stays where it last saved — the next cron hit resumes */
+  }
 }
 
 // One-time seed (owner's ask, 2026-07-21): 14 hand-verified SW Florida trade
