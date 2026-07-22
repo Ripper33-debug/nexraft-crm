@@ -824,3 +824,28 @@ describe("moneypath: reps can run & read AI research without leaving the pipelin
     expect(pipeline).toContain("Research done — intel & drafted email inside");
   });
 });
+
+describe("moneypath: the simplified pipeline reads To Call → Lost → Proposal → Negotiation", () => {
+  const constants = readFileSync(join(__dirname, "constants.ts"), "utf8");
+
+  it("Lost sits right next to To Call and Lead/Discovery are gone", () => {
+    const names = [...constants.matchAll(/\{ name: "([^"]+)", prob:/g)].map((m) => m[1]);
+    expect(names).toEqual(["To Call", "Lost", "Proposal", "Negotiation", "In Build", "Launched"]);
+  });
+  it("a one-time task sweeps deals parked in the retired stages back to To Call", () => {
+    const body = helperBody("runRetireLeadDiscoveryStages");
+    expect(body).toContain("ON CONFLICT (key) DO NOTHING RETURNING key");
+    expect(body).toContain("WHERE stage IN ('Lead','Discovery')");
+    expect(body).toContain("TO_CALL_STAGE");
+    expect(helperBody("runPendingOneTimeTasks")).toContain("runRetireLeadDiscoveryStages()");
+  });
+  it("an interested call now advances a To Call deal straight to Proposal", () => {
+    expect(source).toContain('.bind("Proposal", now, now, deal.id)');
+    expect(source).not.toContain('.bind("Lead", now, now, deal.id)');
+  });
+  it("new deals default to the To Call entry stage, not a retired one", () => {
+    const pipeline = readFileSync(join(__dirname, "../../routes/_app/pipeline.tsx"), "utf8");
+    expect(pipeline).toContain('String(fd.get("stage") || "To Call")');
+    expect(pipeline).not.toContain('|| "Lead"');
+  });
+});

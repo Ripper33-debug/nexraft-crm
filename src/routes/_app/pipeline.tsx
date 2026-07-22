@@ -743,7 +743,7 @@ function DealModal({
   canEdit?: boolean;
 }) {
   const [saving, setSaving] = useState(false);
-  const [stage, setStage] = useState<string>((deal?.stage as string) || "Lead");
+  const [stage, setStage] = useState<string>((deal?.stage as string) || "To Call");
   const [links, setLinks] = useState<DealLink[]>(parseLinks(deal?.links as string));
 
   // The deal's company row (carries the research dossier) — lets the rep read
@@ -758,7 +758,7 @@ function DealModal({
   const [lastKey, setLastKey] = useState(dealKey);
   if (lastKey !== dealKey) {
     setLastKey(dealKey);
-    setStage((deal?.stage as string) || "Lead");
+    setStage((deal?.stage as string) || "To Call");
     setLinks(parseLinks(deal?.links as string));
   }
 
@@ -782,7 +782,7 @@ function DealModal({
       company_id: (fd.get("company_id") as string) || null,
       contact_id: (fd.get("contact_id") as string) || null,
       owner_id: (fd.get("owner_id") as string) || null,
-      stage: String(fd.get("stage") || "Lead"),
+      stage: String(fd.get("stage") || "To Call"),
       value: parseFloat(String(fd.get("value") || "0")) || 0,
       monthly_value: parseFloat(String(fd.get("monthly_value") || "0")) || 0,
       renewal_date: (fd.get("renewal_date") as string) || null,

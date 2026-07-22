@@ -1375,18 +1375,19 @@ export const setCompanyCallOutcome = createServerFn({ method: "POST" })
           .run();
       }
     } else if (data.outcome === "interested" || data.outcome === "maybe") {
-      // A "yes"/"maybe" advances a fresh To Call deal to Lead (don't rewind a
-      // deal a rep has already pushed further along).
+      // A "yes"/"maybe" advances a fresh To Call deal to Proposal — the next
+      // real step in the simplified pipeline (don't rewind a deal a rep has
+      // already pushed further along).
       if (deal && deal.stage === TO_CALL_STAGE) {
         await db()
           .prepare(`UPDATE deals SET stage=?, stage_changed_at=?, updated_at=? WHERE id=?`)
-          .bind("Lead", now, now, deal.id)
+          .bind("Proposal", now, now, deal.id)
           .run();
       }
     } else if (data.outcome === null) {
       // Reset: send a triage-moved deal back to To Call (but never a won deal or
-      // one a rep has advanced past Lead on their own).
-      if (deal && (deal.stage === LOST_STAGE || deal.stage === "Lead")) {
+      // one a rep has advanced past Proposal on their own).
+      if (deal && (deal.stage === LOST_STAGE || deal.stage === "Proposal")) {
         await db()
           .prepare(`UPDATE deals SET stage=?, stage_changed_at=?, updated_at=? WHERE id=?`)
           .bind(TO_CALL_STAGE, now, now, deal.id)
@@ -4724,6 +4725,55 @@ async function runPendingOneTimeTasks(): Promise<void> {
   await runMoveArcticAirToMichael();
   await runSeedWebHuntLeads();
   await runSeedFlHuntLeads();
+  await runRetireLeadDiscoveryStages();
+}
+
+// One-time migration (owner's ask, 2026-07-22): the Lead and Discovery stages
+// were removed from the pipeline (board now reads To Call → Lost → Proposal →
+// Negotiation → In Build → Launched). Any deal still parked in Lead or
+// Discovery would vanish from the kanban — its column no longer renders — so
+// this sweeps them back to To Call, which is where an early-stage deal belongs
+// in the simplified flow.
+const RETIRE_STAGES_TASK_KEY = "task_retire_lead_discovery_2026_07_22";
+
+async function runRetireLeadDiscoveryStages(): Promise<void> {
+  try {
+    const row = await db()
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES (?, 'running')
+         ON CONFLICT (key) DO NOTHING RETURNING key`,
+      )
+      .bind(RETIRE_STAGES_TASK_KEY)
+      .first<{ key: string }>();
+    if (!row) return; // already ran (or another instance is on it)
+
+    const now = new Date().toISOString();
+    const moved =
+      (
+        await db()
+          .prepare(
+            `UPDATE deals SET stage=?, stage_changed_at=?, updated_at=? WHERE stage IN ('Lead','Discovery') RETURNING id`,
+          )
+          .bind(TO_CALL_STAGE, now, now)
+          .all<{ id: string }>()
+      ).results ?? [];
+    const n = moved.length;
+    await db()
+      .prepare(`UPDATE app_settings SET value=? WHERE key=?`)
+      .bind(`done: moved ${n} deals from Lead/Discovery to To Call`, RETIRE_STAGES_TASK_KEY)
+      .run();
+    if (n > 0) {
+      await logEvent({
+        actorId: null,
+        verb: "updated",
+        entityType: "deal",
+        entityId: null,
+        summary: `Pipeline cleanup moved ${n} deal${n === 1 ? "" : "s"} from the retired Lead/Discovery stages back to To Call`,
+      });
+    }
+  } catch {
+    // Best-effort — next cron hit / page load retries if the claim didn't stick.
+  }
 }
 
 // One-time seed (owner's ask, 2026-07-21): "send this to the crm" — the 237

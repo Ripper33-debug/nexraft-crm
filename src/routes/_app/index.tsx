@@ -448,7 +448,7 @@ function Dashboard() {
         </div>
         <p className="mt-3 text-xs text-mute">
           How it works: each open deal's monthly value is multiplied by its stage's chance of
-          closing (Discovery 25%, Proposal 50%, Negotiation 70%, In Build 90%…), then summed.
+          closing (Proposal 50%, Negotiation 70%, In Build 90%…), then summed.
           Deals not yet priced are counted at the {formatMoney(299)}/mo Starter floor, so the
           number stays deliberately cautious.
         </p>

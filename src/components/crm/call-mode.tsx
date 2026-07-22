@@ -164,10 +164,7 @@ function buildScript(opts: {
 
   // --- Why you're calling --------------------------------------------------
   const why: Line[] = [];
-  if (stage === "Lead" || stage === "Discovery") {
-    why.push({ kind: "say", text: `I wanted to learn a bit more about what you're hoping a new site could do for you.` });
-    why.push({ kind: "tip", text: `Early stage — this call is about listening and qualifying, not pitching.` });
-  } else if (stage === "Proposal") {
+  if (stage === "Proposal") {
     why.push({ kind: "say", text: `I'm following up on the proposal we sent over for ${dn} — wanted to walk through it and answer anything.` });
     why.push({ kind: "tip", text: `They've seen numbers. Surface hesitations early.` });
   } else if (stage === "Negotiation") {

@@ -10,15 +10,17 @@ export type StageInfo = {
 // Pipeline tuned for a web-design studio (Nexraft builds websites).
 // "To Call" is the entry stage: every new company lands here automatically so
 // reps have a ready-to-work queue and nothing slips through the cracks.
+// Owner's ask (2026-07-22): board reads To Call → Lost → Proposal →
+// Negotiation, with Lost sitting right next to To Call so reps see the "no"s
+// while they dial. The old Lead/Discovery stages are gone — a one-time task in
+// data.ts moves any deals still parked there back to To Call.
 export const STAGES: StageInfo[] = [
   { name: "To Call", prob: 0.05, kind: "open", color: "#94a3b8" },
-  { name: "Lead", prob: 0.1, kind: "open", color: "#64748b" },
-  { name: "Discovery", prob: 0.25, kind: "open", color: "#38bdf8" },
+  { name: "Lost", prob: 0.0, kind: "lost", color: "#ef4444" },
   { name: "Proposal", prob: 0.5, kind: "open", color: "#6366f1" },
   { name: "Negotiation", prob: 0.7, kind: "open", color: "#a855f7" },
   { name: "In Build", prob: 0.9, kind: "open", color: "#f59e0b" },
   { name: "Launched", prob: 1.0, kind: "won", color: "#22c55e" },
-  { name: "Lost", prob: 0.0, kind: "lost", color: "#ef4444" },
 ];
 
 export const STAGE_NAMES = STAGES.map((s) => s.name);
