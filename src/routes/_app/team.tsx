@@ -1,4 +1,4 @@
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 
 import {
@@ -876,15 +876,25 @@ function MemberDetailModal({
             ) : (
               <ul className="divide-y divide-line/60 rounded-lg border border-line">
                 {detail.deals.map((d) => (
-                  <li key={d.id as string} className="flex items-center justify-between gap-2 px-3 py-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm text-bone">{d.name as string}</div>
-                      <div className="truncate text-xs text-faint">{(d.company_name as string) || "No company"}</div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <span className="font-mono text-xs text-signal">{formatMoney(Number(d.value))}</span>
-                      <StageBadge stage={d.stage as string} />
-                    </div>
+                  <li key={d.id as string}>
+                    {/* Owner's ask (2026-07-22): from this panel, click through to the
+                        deal itself — notes, calls, and the full timeline live there. */}
+                    <Link
+                      to="/deals/$dealId"
+                      params={{ dealId: d.id as string }}
+                      title="Open this deal — notes, calls, and full history"
+                      className="flex items-center justify-between gap-2 px-3 py-2 transition-colors hover:bg-surface-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm text-bone">{d.name as string}</div>
+                        <div className="truncate text-xs text-faint">{(d.company_name as string) || "No company"}</div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className="font-mono text-xs text-signal">{formatMoney(Number(d.value))}</span>
+                        <StageBadge stage={d.stage as string} />
+                        <span className="text-xs text-faint">→</span>
+                      </div>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -898,8 +908,16 @@ function MemberDetailModal({
               ) : (
                 <ul className="space-y-1">
                   {detail.companies.map((c) => (
-                    <li key={c.id as string} className="text-sm text-bone">
-                      {c.name as string}
+                    <li key={c.id as string} className="text-sm">
+                      <Link
+                        to="/companies/$companyId"
+                        params={{ companyId: c.id as string }}
+                        search={{ focus: undefined, new: undefined }}
+                        title="Open this company — notes, research, deals, and history"
+                        className="text-bone hover:text-signal hover:underline"
+                      >
+                        {c.name as string}
+                      </Link>
                       {c.city ? <span className="text-faint"> · {c.city as string}</span> : null}
                     </li>
                   ))}
@@ -912,8 +930,16 @@ function MemberDetailModal({
               ) : (
                 <ul className="space-y-1">
                   {detail.contacts.map((c) => (
-                    <li key={c.id as string} className="text-sm text-bone">
-                      {`${c.first_name as string} ${(c.last_name as string) || ""}`.trim()}
+                    <li key={c.id as string} className="text-sm">
+                      <Link
+                        to="/contacts/$contactId"
+                        params={{ contactId: c.id as string }}
+                        search={{ focus: undefined, new: undefined }}
+                        title="Open this contact — details and history"
+                        className="text-bone hover:text-signal hover:underline"
+                      >
+                        {`${c.first_name as string} ${(c.last_name as string) || ""}`.trim()}
+                      </Link>
                       {c.title ? <span className="text-faint"> · {c.title as string}</span> : null}
                     </li>
                   ))}
@@ -933,7 +959,25 @@ function MemberDetailModal({
                       <div className={"truncate text-sm " + (a.status === "done" ? "text-faint line-through" : "text-bone")}>
                         {a.subject as string}
                       </div>
-                      <div className="text-xs text-faint">{a.type as string}{a.deal_name ? ` · ${a.deal_name as string}` : ""}</div>
+                      <div className="text-xs text-faint">
+                        {a.type as string}
+                        {a.deal_name && a.deal_id ? (
+                          <>
+                            {" · "}
+                            <Link
+                              to="/deals/$dealId"
+                              params={{ dealId: a.deal_id as string }}
+                              className="hover:text-signal hover:underline"
+                            >
+                              {a.deal_name as string}
+                            </Link>
+                          </>
+                        ) : a.deal_name ? (
+                          ` · ${a.deal_name as string}`
+                        ) : (
+                          ""
+                        )}
+                      </div>
                     </div>
                     {a.due_date ? <Pill tone="neutral">{String(a.due_date).slice(0, 10)}</Pill> : null}
                   </li>

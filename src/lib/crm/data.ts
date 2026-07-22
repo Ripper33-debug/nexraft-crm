@@ -2595,6 +2595,7 @@ export type UserActivityRow = {
   subject: string;
   status: string;
   due_date: string | null;
+  deal_id: string | null;
   deal_name: string | null;
 };
 
@@ -2633,7 +2634,7 @@ export const getUserDetail = createServerFn({ method: "GET" })
         .all<UserContactRow>(),
       database
         .prepare(
-          `SELECT a.id, a.type, a.subject, a.status, a.due_date, d.name AS deal_name
+          `SELECT a.id, a.type, a.subject, a.status, a.due_date, a.deal_id, d.name AS deal_name
            FROM activities a LEFT JOIN deals d ON d.id = a.deal_id
            WHERE a.owner_id = ? ORDER BY (a.status='open') DESC, COALESCE(a.due_date, a.created_at) ASC`,
         )
