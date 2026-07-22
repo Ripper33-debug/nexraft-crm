@@ -115,7 +115,7 @@ function ProposalPage() {
       <section className="relative mx-auto max-w-4xl px-5 pb-14 pt-8">
         <div
           className="pointer-events-none absolute inset-x-0 -top-24 h-72"
-          style={{ background: "radial-gradient(60% 100% at 50% 0%, rgba(255,77,28,0.14), transparent 70%)" }}
+          style={{ background: "radial-gradient(60% 100% at 50% 0%, rgba(168,132,44,0.14), transparent 70%)" }}
         />
         <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-signal">
           Prepared for {company}
@@ -157,7 +157,7 @@ function ProposalPage() {
                 className={cx(
                   "relative rounded-2xl border p-5",
                   hot
-                    ? "border-signal/60 bg-signal-soft shadow-[0_0_40px_rgba(255,77,28,0.15)]"
+                    ? "border-signal/60 bg-signal-soft shadow-[0_0_40px_rgba(168,132,44,0.15)]"
                     : "border-line bg-surface",
                 )}
               >

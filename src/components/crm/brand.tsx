@@ -3,9 +3,11 @@
 // wordmark whose trailing period is the signature red-orange dot — no tile, no
 // underline. The compact monogram carries the same bone "N" + orange dot.
 
-const TILE = "#0e0e13"; // cool near-black tile — the logo chip stays dark on the light UI
-const ACCENT = "#ff4d1c"; // Nexraft red-orange (the "." dot)
-const BONE = "#e9e5db"; // cream — only used INSIDE the dark tile, where it still reads
+// Ivory & Brass recolor: the CRM's marks trade the site's red-orange for the
+// theme's brass-gold, and the tile warms up to match the ink used app-wide.
+const TILE = "#1f1a10"; // warm near-black tile — matches --color-bone
+const ACCENT = "#c9a648"; // brass-gold (the "." dot) — bright enough on the dark tile
+const BONE = "#f0e5cf"; // cream — only used INSIDE the dark tile, where it still reads
 const WORD = "var(--color-bone)"; // wordmark text follows the app's primary text color
 
 // Square monogram tile (sidebar, favicon, mobile bar): bone "N" over the warm
@@ -31,21 +33,16 @@ export function LogoMark({ size = 32, radius = 8 }: { size?: number; radius?: nu
   );
 }
 
-// Full wordmark for the auth screens: bone "NEX", orange "RAFT" (Barry's call).
+// Full wordmark for the auth screens: serif "Nexraft" in ink with the brass
+// period — private-bank stationery, not a tech logotype.
 export function FullLogo({ className = "" }: { className?: string }) {
   return (
     <div className={"inline-flex items-baseline " + className}>
-      <span
-        className="font-display text-3xl font-extrabold uppercase tracking-[0.16em]"
-        style={{ color: WORD }}
-      >
-        Nex
+      <span className="font-display text-3xl font-semibold tracking-[-0.01em]" style={{ color: WORD }}>
+        Nexraft
       </span>
-      <span
-        className="font-display text-3xl font-extrabold uppercase tracking-[0.16em]"
-        style={{ color: ACCENT }}
-      >
-        raft
+      <span className="font-display text-3xl font-semibold" style={{ color: ACCENT }}>
+        .
       </span>
     </div>
   );
@@ -53,18 +50,27 @@ export function FullLogo({ className = "" }: { className?: string }) {
 
 // Sidebar / header lockup: monogram + product name. The mark tips in 3D toward
 // the cursor on hover — a small "alive" moment every time you glance at it.
-export function Wordmark({ small }: { small?: boolean }) {
+// `onDark` renders the cream-on-ink version for the dark sidebar anchor.
+export function Wordmark({ small, onDark }: { small?: boolean; onDark?: boolean }) {
   return (
     <div className="group flex items-center gap-2.5" style={{ perspective: "480px" }}>
       <span className="inline-flex transition-transform duration-300 ease-out will-change-transform group-hover:[transform:rotateY(-16deg)_rotateX(8deg)_scale(1.06)]">
         <LogoMark size={small ? 28 : 32} radius={small ? 7 : 8} />
       </span>
       <div className="leading-tight">
-        <div className="font-display text-sm font-extrabold uppercase tracking-[0.08em] text-bone">
-          Nex<span className="text-signal">raft</span>
+        <div
+          className="font-display text-[15px] font-semibold tracking-[-0.01em]"
+          style={{ color: onDark ? BONE : "var(--color-bone)" }}
+        >
+          Nexraft<span style={{ color: ACCENT }}>.</span>
         </div>
         {!small ? (
-          <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">Sales OS</div>
+          <div
+            className="font-mono text-[10px] uppercase tracking-[0.14em]"
+            style={{ color: onDark ? "#9a8a67" : "var(--color-faint)" }}
+          >
+            Sales OS
+          </div>
         ) : null}
       </div>
     </div>

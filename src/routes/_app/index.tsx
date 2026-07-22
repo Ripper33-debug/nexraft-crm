@@ -46,7 +46,7 @@ export const Route = createFileRoute("/_app/")({
 
 // Tiny inline SVG sparkline — a filled area under a 30-point trend line. No
 // axes, no library; just a quick "which way is this heading" cue on a KPI.
-function Sparkline({ data, color = "#ff4d1c" }: { data: number[]; color?: string }) {
+function Sparkline({ data, color = "#a8842c" }: { data: number[]; color?: string }) {
   const w = 120;
   const h = 32;
   const pad = 2;
@@ -207,7 +207,7 @@ function feedDot(verb: string): string {
   if (verb === "completed") return "#a855f7";
   if (verb === "invoiced") return "#f59e0b";
   if (verb === "flagged") return "#fb7185";
-  if (verb === "radar") return "#ff4d1c";
+  if (verb === "radar") return "#a8842c";
   return "#8a978f";
 }
 
@@ -233,8 +233,8 @@ function Dashboard() {
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-3xl font-extrabold uppercase leading-none tracking-[0.01em]">
-            <span className="text-sheen">
+          <h1 className="font-display text-3xl font-semibold leading-none tracking-[-0.01em]">
+            <span className="text-bone">
               {greeting}, {firstName}
             </span>
             <span className="text-signal">.</span>
@@ -783,7 +783,7 @@ function Radar() {
   return (
     <div
       aria-hidden="true"
-      className="relative hidden h-28 w-28 shrink-0 overflow-hidden rounded-full border border-signal/25 bg-[radial-gradient(circle,rgba(255,77,28,0.07),transparent_70%)] md:block"
+      className="relative hidden h-28 w-28 shrink-0 overflow-hidden rounded-full border border-signal/25 bg-[radial-gradient(circle,rgba(168,132,44,0.07),transparent_70%)] md:block"
     >
       <span className="absolute inset-[25%] rounded-full border border-signal/15" />
       <span className="absolute inset-[45%] rounded-full border border-signal/10" />
@@ -791,7 +791,7 @@ function Radar() {
       {blips.map(([top, left], i) => (
         <span
           key={i}
-          className="absolute h-1 w-1 rounded-full bg-signal shadow-[0_0_6px_rgba(255,77,28,0.9)]"
+          className="absolute h-1 w-1 rounded-full bg-signal shadow-[0_0_6px_rgba(168,132,44,0.9)]"
           style={{ top, left }}
         />
       ))}
@@ -833,7 +833,7 @@ function Leaderboard({ rows }: { rows: LeaderboardRow[] }) {
                     className={
                       callPct >= 100
                         ? "h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.55)] transition-[width] duration-700 ease-out"
-                        : "h-full rounded-full bg-gradient-to-r from-signal-strong to-signal shadow-[0_0_10px_rgba(255,77,28,0.5)] transition-[width] duration-700 ease-out"
+                        : "h-full rounded-full bg-gradient-to-r from-signal-strong to-signal shadow-[0_0_10px_rgba(168,132,44,0.5)] transition-[width] duration-700 ease-out"
                     }
                     style={{ width: `${Math.max(2, callPct)}%` }}
                   />

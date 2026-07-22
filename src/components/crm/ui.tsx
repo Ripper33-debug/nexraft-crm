@@ -80,19 +80,16 @@ export function Button({
   return (
     <button
       className={cx(
-        // nexraft.com's .nav-cta language: near-square corners, uppercase
-        // JetBrains Mono with wide tracking — buttons read like commands.
-        "inline-flex items-center justify-center gap-2 rounded-[3px] font-mono font-medium uppercase tracking-[0.1em] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/40 focus-visible:ring-offset-2 focus-visible:ring-offset-ink",
-        size === "sm" ? "px-2.5 py-1.5 text-[10px]" : "px-3.5 py-2 text-[11px]",
+        // Ivory & Brass controls: soft-rounded, sentence case, quiet press.
+        // Buttons read like invitations from expensive stationery, not shouted
+        // terminal commands — the mono-uppercase era is retired.
+        "inline-flex items-center justify-center gap-2 rounded-lg font-medium tracking-[0.01em] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/40 focus-visible:ring-offset-2 focus-visible:ring-offset-ink",
+        size === "sm" ? "px-3 py-1.5 text-xs" : "px-4 py-2 text-sm",
         btnStyles[variant],
         className,
       )}
       {...props}
     >
-      {variant === "primary" ? (
-        // The site CTA's square ink dot — tiny, but it's the signature.
-        <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 bg-ink" />
-      ) : null}
       {children}
     </button>
   );
@@ -138,7 +135,7 @@ export function Card({
         tilt
           ? "will-change-transform transition-[border-color,box-shadow,transform] duration-300"
           : "transition-[border-color,box-shadow] duration-300",
-        "nx-spot rounded-xl border border-line bg-gradient-to-br from-[#fbfbfa] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.1),0_8px_24px_-16px_rgba(0,0,0,0.12),inset_0_1px_0_0_rgba(255,255,255,0.03)] hover:border-line-strong hover:shadow-[0_16px_40px_-14px_rgba(0,0,0,0.12),0_0_0_1px_rgba(255,77,28,0.1)]",
+        "nx-spot rounded-xl border border-line bg-gradient-to-br from-[#fffdf8] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.1),0_8px_24px_-16px_rgba(0,0,0,0.12),inset_0_1px_0_0_rgba(255,255,255,0.03)] hover:border-line-strong hover:shadow-[0_16px_40px_-14px_rgba(0,0,0,0.12),0_0_0_1px_rgba(168,132,44,0.1)]",
         className,
       )}
     >
@@ -188,10 +185,11 @@ export function PageHeader({
     <div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-extrabold uppercase tracking-[0.01em]">
-            {/* Top-lit sheen + the wordmark's orange period — same headline
-                treatment as nexraft.com's display titles. */}
-            <span className="text-sheen">{title}</span>
+          <h1 className="font-display text-[1.7rem] font-semibold tracking-[-0.01em]">
+            {/* Fraunces serif in ink with the brass period — the Ivory & Brass
+                headline treatment: quiet, warm, expensive. No uppercase; serifs
+                want their lowercase letterforms. */}
+            <span className="text-bone">{title}</span>
             <span className="text-signal">.</span>
           </h1>
           {subtitle ? <p className="mt-1 text-sm text-mute">{subtitle}</p> : null}
@@ -238,35 +236,37 @@ export function SummaryCard({
       className={cx(
         "nx-spot group relative overflow-hidden rounded-md border p-4 transition-[border-color,box-shadow,transform] duration-300 will-change-transform",
         accent
-          ? "border-signal/25 bg-gradient-to-br from-signal-soft/50 via-surface to-surface shadow-[0_8px_30px_-18px_rgba(255,77,28,0.6)] hover:shadow-[0_14px_36px_-16px_rgba(255,77,28,0.7)]"
-          : "border-line bg-gradient-to-br from-[#fbfbfa] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.1)] hover:border-line-strong hover:shadow-[0_12px_30px_-16px_rgba(0,0,0,0.15)]",
+          ? // Ivory & Brass hero tile: the one dark ink card among the cream —
+            // gold numerals on near-black, exactly the mock's "Signed" KPI.
+            "border-[#1f1a10] bg-gradient-to-br from-[#292214] via-[#1f1a10] to-[#1f1a10] shadow-[0_14px_36px_-16px_rgba(31,26,16,0.55)] hover:shadow-[0_18px_44px_-16px_rgba(31,26,16,0.65)]"
+          : "border-line bg-gradient-to-br from-[#fffdf8] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.1)] hover:border-line-strong hover:shadow-[0_12px_30px_-16px_rgba(0,0,0,0.15)]",
       )}
     >
       <span className="nx-edge" aria-hidden="true" />
-      {/* Command Deck corner bracket — the "instrument panel" tell. */}
+      {/* Corner bracket — the quiet "instrument panel" tell. */}
       <span
         aria-hidden="true"
         className={cx(
           "pointer-events-none absolute right-0 top-0 h-2.5 w-2.5 border-r-2 border-t-2",
-          accent ? "border-signal" : "border-line-strong",
+          accent ? "border-[#c9a648]" : "border-line-strong",
         )}
       />
       {accent ? (
-        <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-signal/20 blur-2xl" />
+        <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-[#c9a648]/20 blur-2xl" />
       ) : null}
-      <Eyebrow className="flex items-center">
+      <Eyebrow className={cx("flex items-center", accent ? "text-[#cbb987]" : undefined)}>
         {label}
         {hint ? <InfoDot text={hint} /> : null}
       </Eyebrow>
       <div
         className={cx(
-          "tnum mt-2 font-mono text-[1.55rem] font-semibold leading-none tracking-tight",
-          accent ? "nx-molten" : "text-bone",
+          "tnum mt-2 font-display text-[1.6rem] font-semibold leading-none tracking-tight",
+          accent ? "text-[#e9c96a]" : "text-bone",
         )}
       >
         <CountUp value={value} />
       </div>
-      {sub ? <div className="mt-1.5 text-xs text-faint">{sub}</div> : null}
+      {sub ? <div className={cx("mt-1.5 text-xs", accent ? "text-[#cbb987]" : "text-faint")}>{sub}</div> : null}
     </div>
   );
 }

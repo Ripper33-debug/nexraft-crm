@@ -27,7 +27,7 @@ function RouteProgress() {
           "h-full bg-signal transition-all duration-300 ease-out " +
           (show ? "w-2/3 opacity-100" : "w-full opacity-0")
         }
-        style={{ boxShadow: "0 0 8px rgba(255,77,28,0.6)" }}
+        style={{ boxShadow: "0 0 8px rgba(168,132,44,0.6)" }}
       />
     </div>
   );
@@ -166,12 +166,13 @@ function NavLink({
       to={item.to}
       onClick={onNavigate}
       className={
-        // Command Deck nav: mono uppercase readouts with a hard orange rail on
-        // the active item — mission control, not a consumer app.
-        "group relative flex items-center gap-3 rounded-r-md border-l-2 px-3 py-2.5 font-mono text-[11px] font-medium uppercase tracking-[0.1em] transition-all duration-150 md:py-2 " +
+        // Ivory & Brass nav on the dark ink sidebar: quiet sentence-case rows,
+        // the active one lit in gold with a brass rail — private-club menu, not
+        // mission control. (These colors assume the dark sidebar container.)
+        "group relative flex items-center gap-3 rounded-lg border-l-2 px-3 py-2.5 text-[13px] font-medium transition-all duration-150 md:py-2 " +
         (active
-          ? "border-signal bg-gradient-to-r from-signal-soft/70 to-transparent text-signal"
-          : "border-transparent text-faint hover:bg-surface-2 hover:text-bone")
+          ? "border-[#c9a648] bg-white/[0.07] text-[#e9c96a]"
+          : "border-transparent text-[#b3a58a] hover:bg-white/5 hover:text-[#f0e5cf]")
       }
     >
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -180,7 +181,7 @@ function NavLink({
       {item.label}
       {badge && badge > 0 ? (
         <span
-          className="ml-auto inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500/20 px-1.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-500/30"
+          className="ml-auto inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-[#e9c96a]/15 px-1.5 text-[11px] font-semibold text-[#e9c96a] ring-1 ring-[#e9c96a]/30"
           title={`${badge} thing${badge === 1 ? "" : "s"} waiting on you here`}
         >
           {badge > 99 ? "99+" : badge}
@@ -211,7 +212,7 @@ function NavLinks({
         return (
           <div key={gi} className="flex flex-col gap-1">
             {group.label ? (
-              <div className="px-3 pb-0.5 pt-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-faint">
+              <div className="px-3 pb-0.5 pt-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-[#8a7a5c]">
                 {group.label}
               </div>
             ) : null}
@@ -369,30 +370,32 @@ function AppLayout() {
       <WelcomeTour name={user.name} />
       <CommandPalette isAdmin={isAdmin} />
       {/* Sidebar (desktop) */}
-      <aside className="hidden w-60 flex-col border-r border-line bg-surface md:flex">
-        <div className="border-b border-line/60 px-5 py-4">
-          <Wordmark />
+      {/* The dark ink rail is the theme's anchor: cream everywhere needs one
+          near-black mass to sit against or the page drifts toward beige. */}
+      <aside className="hidden w-60 flex-col border-r border-black/20 bg-bone md:flex">
+        <div className="border-b border-white/10 px-5 py-4">
+          <Wordmark onDark />
         </div>
         <nav className="flex flex-1 flex-col gap-1 px-3 py-2">
           <NavLinks pathname={pathname} isAdmin={isAdmin} followupCount={followupCount} taskCount={taskCount} />
         </nav>
-        <div className="border-t border-line px-3 py-3">
+        <div className="border-t border-white/10 px-3 py-3">
           <div className="flex items-center gap-2.5 px-2 pb-2">
             <Avatar name={user.name} size={30} />
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="truncate text-sm font-medium text-bone">{user.name}</span>
+                <span className="truncate text-sm font-medium text-[#f0e5cf]">{user.name}</span>
                 {isAdmin ? (
-                  <span className="rounded-sm bg-signal-soft px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider text-signal">
+                  <span className="rounded-sm bg-white/10 px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider text-[#e9c96a]">
                     Admin
                   </span>
                 ) : null}
               </div>
-              <div className="truncate text-xs text-faint">{user.email}</div>
+              <div className="truncate text-xs text-[#8a7a5c]">{user.email}</div>
             </div>
           </div>
           <form method="post" action="/api/auth/logout">
-            <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-mute hover:bg-surface-2 hover:text-bone">
+            <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[#b3a58a] hover:bg-white/5 hover:text-[#f0e5cf]">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
               </svg>
@@ -443,15 +446,15 @@ function AppLayout() {
               style={{ animation: "nx-fade-in 150ms ease-out" }}
             />
             <div
-              className="absolute inset-y-0 left-0 flex w-[82%] max-w-xs flex-col border-r border-line bg-surface shadow-2xl shadow-black/50"
+              className="absolute inset-y-0 left-0 flex w-[82%] max-w-xs flex-col border-r border-black/20 bg-bone shadow-2xl shadow-black/50"
               style={{ animation: "nx-drawer-in 200ms ease-out" }}
             >
-              <div className="flex items-center justify-between border-b border-line/60 px-5 py-4">
-                <Wordmark />
+              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+                <Wordmark onDark />
                 <button
                   onClick={() => setMenuOpen(false)}
                   aria-label="Close menu"
-                  className="flex h-8 w-8 items-center justify-center rounded-lg text-mute hover:bg-surface-2 hover:text-bone"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-[#b3a58a] hover:bg-white/5 hover:text-[#f0e5cf]"
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M18 6L6 18M6 6l12 12" />
@@ -461,23 +464,23 @@ function AppLayout() {
               <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-3">
                 <NavLinks pathname={pathname} isAdmin={isAdmin} followupCount={followupCount} taskCount={taskCount} onNavigate={() => setMenuOpen(false)} />
               </nav>
-              <div className="border-t border-line px-3 py-3">
+              <div className="border-t border-white/10 px-3 py-3">
                 <div className="flex items-center gap-2.5 px-2 pb-2">
                   <Avatar name={user.name} size={30} />
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <span className="truncate text-sm font-medium text-bone">{user.name}</span>
+                      <span className="truncate text-sm font-medium text-[#f0e5cf]">{user.name}</span>
                       {isAdmin ? (
-                        <span className="rounded-sm bg-signal-soft px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider text-signal">
+                        <span className="rounded-sm bg-white/10 px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider text-[#e9c96a]">
                           Admin
                         </span>
                       ) : null}
                     </div>
-                    <div className="truncate text-xs text-faint">{user.email}</div>
+                    <div className="truncate text-xs text-[#8a7a5c]">{user.email}</div>
                   </div>
                 </div>
                 <form method="post" action="/api/auth/logout">
-                  <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-mute hover:bg-surface-2 hover:text-bone">
+                  <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[#b3a58a] hover:bg-white/5 hover:text-[#f0e5cf]">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
                     </svg>

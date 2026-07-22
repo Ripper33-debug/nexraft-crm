@@ -50,28 +50,29 @@
    * utilities; `font-mono` now resolves the eyebrow labels to IBM Plex Mono,
    * and the new `font-display` gives headings + KPI numbers real character. */
   --font-sans: "Geist", "Inter", system-ui, -apple-system, sans-serif;
-  --font-display: "Bricolage Grotesque", "Geist", system-ui, sans-serif;
+  --font-display: "Fraunces", "Georgia", serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* ---- Nexraft palette — "Clean Studio" light theme (owner's ask 2026-07-22:
-   * make the CRM read like thrasker.com — crisp white canvas, dark type,
-   * minimal chrome). The token NAMES keep their original dark-era meanings
-   * (ink = page canvas, bone = primary text) so every component flips with
-   * zero markup changes; only the VALUES moved to the light side. The
-   * #ff4d1c signal orange stays — that's the Nexraft brand. */
-  --color-ink: #f7f7f5; /* app background base — warm off-white canvas */
-  --color-surface: #ffffff; /* cards, sidebar, modals — pure white */
-  --color-surface-2: #f2f2f0; /* inputs, hover rows — a step below white */
-  --color-line: #e6e5e1; /* hairline borders */
-  --color-line-strong: #d5d4cf; /* stronger dividers */
-  --color-bone: #1a1a1e; /* primary text — near-black ink */
-  --color-mute: #55555c; /* secondary text */
-  --color-faint: #9b9aa0; /* tertiary / placeholders */
-  --color-signal: #ff4d1c; /* Nexraft signal orange (unchanged) */
-  --color-signal-strong: #d63c10; /* accent hover / pressed */
-  --color-signal-soft: #ffede6; /* tinted accent background (light) */
-  --color-sunk: #ececea; /* deepest recess (wells, insets) */
-  --color-signal-top: #ff7a45; /* light top-stop for any residual gradient */
+  /* ---- Nexraft palette — "Ivory & Brass" theme (owner's pick 2026-07-22 from
+   * four mockup directions: warm cream canvas, near-black ink, brass-gold
+   * accent — the private-bank look). Token NAMES keep their original dark-era
+   * meanings (ink = page canvas, bone = primary text) so every component
+   * flips with zero markup changes; only the VALUES moved.
+   * NOTE: `signal` is now BRASS (#a8842c), not orange — the CRM deliberately
+   * departs from the site's orange for a more premium in-house feel. */
+  --color-ink: #f6f1e7; /* app background base — warm cream canvas */
+  --color-surface: #fffdf8; /* cards, modals — warm near-white */
+  --color-surface-2: #efe8da; /* inputs, hover rows — a step below */
+  --color-line: #e6dcc6; /* hairline borders — warm sand */
+  --color-line-strong: #dccb9e; /* stronger dividers */
+  --color-bone: #1f1a10; /* primary text — warm near-black ink */
+  --color-mute: #6b5f47; /* secondary text — warm brown-gray */
+  --color-faint: #9a8a67; /* tertiary / placeholders */
+  --color-signal: #a8842c; /* brass-gold accent */
+  --color-signal-strong: #8a6d1f; /* brass hover / pressed */
+  --color-signal-soft: #f0e5cf; /* tinted brass background */
+  --color-sunk: #ece4d2; /* deepest recess (wells, insets) */
+  --color-signal-top: #c9a648; /* light top-stop for any residual gradient */
 }
 
 @theme inline {
@@ -123,14 +124,14 @@
 :root {
   --radius: 0.625rem;
 
-  /* ---- Themeable app-shell surfaces (Clean Studio light is the default) ---- */
+  /* ---- Themeable app-shell surfaces (Ivory & Brass is the default) ---- */
   color-scheme: light;
-  --nx-body-bg: #f7f7f5;
-  /* A whisper of warm signal at the top-left keeps the white canvas from
-   * feeling sterile — same light source as before, turned way down. */
+  --nx-body-bg: #f6f1e7;
+  /* A whisper of warm brass light at the top-left keeps the cream canvas from
+   * feeling flat — turned way down so it reads as daylight, not tint. */
   --nx-body-glow:
-    radial-gradient(1100px 520px at 18% -8%, rgba(255, 77, 28, 0.05), transparent 62%),
-    radial-gradient(900px 700px at 100% 110%, rgba(255, 77, 28, 0.025), transparent 60%);
+    radial-gradient(1100px 520px at 18% -8%, rgba(168, 132, 44, 0.06), transparent 62%),
+    radial-gradient(900px 700px at 100% 110%, rgba(168, 132, 44, 0.03), transparent 60%);
   /* Fine film grain — echoes the noise texture on nexraft.com's hero. */
   --nx-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
 }
@@ -166,15 +167,15 @@
     border-color: var(--color-line);
   }
 
-  /* Real type hierarchy: Archivo gives headings the heavier, wider grotesque
-   * "poster" feel from nexraft.com; tighter tracking + weight reads deliberate
-   * rather than the generic OS default. */
+  /* Real type hierarchy: Fraunces gives headings the warm editorial serif
+   * feel of the Ivory & Brass direction — old-money stationery, not startup
+   * dashboard. Slightly relaxed tracking; serifs don't want to be squeezed. */
   h1,
   h2,
   h3 {
     font-family: var(--font-display);
-    font-weight: 700;
-    letter-spacing: -0.015em;
+    font-weight: 600;
+    letter-spacing: -0.01em;
   }
 
   ::selection {
@@ -251,7 +252,7 @@
   position: absolute;
   inset: 0;
   border-radius: 9999px;
-  background: conic-gradient(from 0deg, rgba(255, 77, 28, 0.45), transparent 70deg);
+  background: conic-gradient(from 0deg, rgba(168, 132, 44, 0.45), transparent 70deg);
   animation: nx-radar-spin 3.4s linear infinite;
 }
 @keyframes nx-radar-spin {
@@ -302,7 +303,7 @@
   z-index: 1;
   background: radial-gradient(
     340px circle at var(--mx, 50%) var(--my, 50%),
-    rgba(255, 77, 28, 0.05),
+    rgba(168, 132, 44, 0.06),
     transparent 65%
   );
 }
@@ -323,7 +324,7 @@
   z-index: 2;
   background: radial-gradient(
     240px circle at var(--mx, 50%) var(--my, 50%),
-    rgba(255, 77, 28, 0.4),
+    rgba(168, 132, 44, 0.4),
     transparent 70%
   );
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -341,7 +342,7 @@
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 14px rgba(255, 77, 28, 0.12));
+  filter: drop-shadow(0 0 14px rgba(168, 132, 44, 0.14));
 }
 
 /* Live ticker tape: edge-faded, pauses on hover. */
