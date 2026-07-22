@@ -30,6 +30,7 @@ import {
   PageSkeleton,
 } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
+import { ResearchPanel } from "../../components/crm/research-panel";
 import { RecordAccessButton } from "../../components/crm/record-access";
 import { ArchivedPanel } from "../../components/crm/archived";
 import { fireConfetti } from "../../lib/crm/confetti";
@@ -136,6 +137,13 @@ function PipelinePage() {
   const [ownerFilter, setOwnerFilter] = useState("");
 
   const refresh = () => router.invalidate();
+
+  // Companies with a saved research dossier — the board flags their deals with
+  // a 🔎 pill so reps know which cards come with ready-made intel + a drafted
+  // email before they even open them.
+  const researched = new Set(
+    (companies as Row[]).filter((c) => Boolean(c.research)).map((c) => c.id as string),
+  );
 
   function startAdd() {
     setEditing(null);
@@ -348,6 +356,7 @@ function PipelinePage() {
           onEdit={startEdit}
           users={users as Row[]}
           me={me}
+          researched={researched}
           onAccessDone={() => router.invalidate()}
         />
       ) : (
@@ -393,6 +402,7 @@ function KanbanBoard({
   onEdit,
   users,
   me,
+  researched,
   onAccessDone,
 }: {
   deals: Row[];
@@ -401,6 +411,7 @@ function KanbanBoard({
   onEdit: (d: Row) => void;
   users: Row[];
   me: { id: string; role: string };
+  researched: Set<string>;
   onAccessDone: () => void;
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
@@ -483,7 +494,12 @@ function KanbanBoard({
                         ) : null}
                         <div className="min-w-0 text-sm font-medium text-bone">{d.name as string}</div>
                       </div>
-                      {stale ? <Pill tone="warn">{age}d</Pill> : null}
+                      <div className="flex shrink-0 items-center gap-1">
+                        {researched.has((d.company_id as string) ?? "") ? (
+                          <span title="Research done — intel & drafted email inside" className="text-xs">🔎</span>
+                        ) : null}
+                        {stale ? <Pill tone="warn">{age}d</Pill> : null}
+                      </div>
                     </div>
                     {d.company_name ? (
                       <div className="mt-0.5 truncate text-xs text-faint">{d.company_name as string}</div>
@@ -730,6 +746,13 @@ function DealModal({
   const [stage, setStage] = useState<string>((deal?.stage as string) || "Lead");
   const [links, setLinks] = useState<DealLink[]>(parseLinks(deal?.links as string));
 
+  // The deal's company row (carries the research dossier) — lets the rep read
+  // the intel and run/copy the AI research right here in the pipeline instead
+  // of jumping over to the company page.
+  const dealCompany = deal?.company_id
+    ? companies.find((c) => c.id === (deal.company_id as string)) ?? null
+    : null;
+
   // Reset the tracked stage + links whenever a different deal opens in the modal.
   const dealKey = (deal?.id as string) || "new";
   const [lastKey, setLastKey] = useState(dealKey);
@@ -800,6 +823,12 @@ function DealModal({
             {deal?.owner_name ? `Owned by ${deal.owner_name as string}.` : "You don't own this record."} You have
             view-only access — ask the owner to hand it off or share edit access to make changes.
           </span>
+        </div>
+      ) : null}
+      {dealCompany ? (
+        <div className="mb-3">
+          {/* Keyed by company so switching deals resets the panel's local dossier state. */}
+          <ResearchPanel key={dealCompany.id as string} company={dealCompany} />
         </div>
       ) : null}
       <form onSubmit={onSubmit} className="space-y-3">

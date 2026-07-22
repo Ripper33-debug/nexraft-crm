@@ -798,3 +798,29 @@ describe("the 2026-07-21 statewide hunt seeds itself into the CRM exactly once",
     expect(new Set(emails).size).toBe(leads.length);
   });
 });
+
+describe("moneypath: reps can run & read AI research without leaving the pipeline", () => {
+  const panel = readFileSync(join(__dirname, "../../components/crm/research-panel.tsx"), "utf8");
+  const pipeline = readFileSync(join(__dirname, "../../routes/_app/pipeline.tsx"), "utf8");
+  const companyPage = readFileSync(join(__dirname, "../../routes/_app/companies_.$companyId.tsx"), "utf8");
+
+  it("the research panel is a shared component that runs research on the real company", () => {
+    expect(panel).toContain("export function ResearchPanel");
+    expect(panel).toContain("researchCompany({ data: { id: company.id as string } })");
+    expect(panel).toContain("Copy email draft");
+  });
+  it("the company page uses the shared panel instead of its own copy", () => {
+    expect(companyPage).toContain('import { ResearchPanel } from "../../components/crm/research-panel"');
+    expect(companyPage).not.toContain("function ResearchPanel(");
+  });
+  it("opening a deal shows the company's intel panel, keyed so switching deals resets it", () => {
+    expect(pipeline).toContain('import { ResearchPanel } from "../../components/crm/research-panel"');
+    expect(pipeline).toContain("<ResearchPanel key={dealCompany.id as string} company={dealCompany} />");
+    expect(pipeline).toContain("companies.find((c) => c.id === (deal.company_id as string))");
+  });
+  it("kanban cards flag deals that already have a dossier", () => {
+    expect(pipeline).toContain("Boolean(c.research)");
+    expect(pipeline).toContain("researched.has((d.company_id as string)");
+    expect(pipeline).toContain("Research done — intel & drafted email inside");
+  });
+});
