@@ -12,6 +12,7 @@ import {
   verifyCompanyWebsites,
   claimCompany,
   backfillResearchEmails,
+  runOutscraperEnrich,
   tagFacebookOnlyCompanies,
   archiveGoodSiteCompanies,
   pruneWeakLeads,
@@ -113,6 +114,7 @@ function CompaniesPage() {
   const [calling, setCalling] = useState<Row | null>(null);
   const [checkingSites, setCheckingSites] = useState(false);
   const [pullingEmails, setPullingEmails] = useState(false);
+  const [outscraping, setOutscraping] = useState(false);
   const [taggingFb, setTaggingFb] = useState(false);
   const [clearingGoodSites, setClearingGoodSites] = useState(false);
   const [pruning, setPruning] = useState(false);
@@ -233,6 +235,38 @@ function CompaniesPage() {
                 }}
               >
                 {pullingEmails ? "Pulling emails…" : "Pull emails from research"}
+              </Button>
+            ) : null}
+            {isAdmin ? (
+              <Button
+                variant="outline"
+                disabled={outscraping}
+                onClick={async () => {
+                  setOutscraping(true);
+                  try {
+                    const res = await runOutscraperEnrich();
+                    if (!res.configured) {
+                      toast(
+                        "Outscraper isn't connected yet — add OUTSCRAPER_API_KEY in Vercel (outscraper.com → account → API) and this button goes live.",
+                        "info",
+                      );
+                    } else {
+                      toast(
+                        res.contacts > 0
+                          ? `Outscraper found emails for ${res.contacts} compan${res.contacts === 1 ? "y" : "ies"} — they're emailable in Outreach now.`
+                          : `Asked Outscraper about ${res.scanned} compan${res.scanned === 1 ? "y" : "ies"} — no new emails this batch.`,
+                        res.contacts > 0 ? "success" : "info",
+                      );
+                    }
+                    void router.invalidate();
+                  } catch {
+                    toast("Couldn't run the Outscraper enrichment — try again.", "error");
+                  } finally {
+                    setOutscraping(false);
+                  }
+                }}
+              >
+                {outscraping ? "Finding emails…" : "🔎 Find emails (Outscraper)"}
               </Button>
             ) : null}
             {isAdmin ? (

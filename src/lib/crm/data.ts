@@ -37,6 +37,7 @@ import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
 import { isStripeConfigured, stripeFetch } from "./stripe.server";
 import { aiComplete, aiDefaultModel, aiResearchBrief, isAiConfigured, type AiBrief } from "./ai.server";
 import { fetchNewFilings, isSunbizConfigured, titleCaseBusiness } from "./sunbiz.server";
+import { fetchDomainContacts, isOutscraperConfigured, websiteDomain } from "./outscraper.server";
 import { isPlacesConfigured, fetchPlaceRatings } from "./places.server";
 import { isYelpConfigured, fetchYelpRatings } from "./yelp.server";
 
@@ -5253,6 +5254,131 @@ export const runResearchBatch = createServerFn({ method: "POST" }).handler(async
   return { ok: true as const, enriched, remaining: r?.n ?? 0 };
 });
 
+// Outscraper contact enrichment: the scanner (Places/Sunbiz/OSM) finds
+// companies with a website and a phone but almost never an email — which
+// keeps them out of Outreach. This pass sends the domains of researched,
+// email-less companies to Outscraper's Emails & Contacts endpoint and turns
+// what comes back into a contact (email + extra phone) plus research-JSON
+// entries (emails/phones/socials merged in, so the Facebook-only tagger and
+// "Pull emails from research" see them too).
+//
+// Credit discipline (first 500 domains free, then ~$3/1k): each company is
+// asked about exactly ONCE — a successful call stamps `"outscraper":` into
+// the research JSON (same top-level-key LIKE trick as the "ai" key) whether
+// or not anything was found, and stamped companies never re-enter the pool.
+// A failed call stamps nothing, so a network blip just retries another night.
+async function outscraperEnrichCore(
+  cap = 6,
+): Promise<{ configured: boolean; scanned: number; enriched: number; contacts: number }> {
+  if (!isOutscraperConfigured()) return { configured: false, scanned: 0, enriched: 0, contacts: 0 };
+  const { results } = await db()
+    .prepare(
+      `SELECT c.id, c.name, c.owner_id, c.website, c.research FROM companies c
+        WHERE c.archived_at IS NULL
+          AND c.website IS NOT NULL AND c.website <> ''
+          AND c.research IS NOT NULL
+          AND c.research NOT LIKE '%"outscraper":%'
+          AND NOT EXISTS (
+            SELECT 1 FROM contacts ct
+             WHERE ct.company_id = c.id AND ct.archived_at IS NULL
+               AND ct.email IS NOT NULL AND ct.email <> ''
+          )
+        ORDER BY c.created_at DESC
+        LIMIT ?`,
+    )
+    .bind(cap)
+    .all<{ id: string; name: string; owner_id: string | null; website: string; research: string }>();
+  const rows = results ?? [];
+  // One company per domain (two branches sharing a site would double-spend a
+  // credit); companies whose "website" isn't a usable domain are skipped —
+  // but NOT stamped, in case the website field gets fixed later.
+  const byDomain = new Map<string, (typeof rows)[number]>();
+  for (const c of rows) {
+    const domain = websiteDomain(c.website);
+    if (domain && !byDomain.has(domain)) byDomain.set(domain, c);
+  }
+  if (byDomain.size === 0) return { configured: true, scanned: rows.length, enriched: 0, contacts: 0 };
+  const hits = await fetchDomainContacts([...byDomain.keys()]);
+  if (hits === null) return { configured: true, scanned: rows.length, enriched: 0, contacts: 0 };
+  let enriched = 0;
+  let contacts = 0;
+  const now = new Date().toISOString();
+  for (const [domain, c] of byDomain) {
+    const hit = hits.find((h) => h.query === domain) ?? null;
+    let dossier: Record<string, unknown> = {};
+    try {
+      dossier = JSON.parse(c.research) as Record<string, unknown>;
+    } catch {
+      /* unparseable dossier — still stamp so we never re-spend on it */
+    }
+    if (hit) {
+      // Merge into the same arrays the site crawl fills, deduped, so every
+      // downstream reader (research panel, backfill, taggers) benefits.
+      for (const key of ["emails", "phones", "socials"] as const) {
+        const prior = Array.isArray(dossier[key])
+          ? (dossier[key] as unknown[]).filter((x): x is string => typeof x === "string")
+          : [];
+        dossier[key] = [...prior, ...hit[key].filter((v) => !prior.includes(v))];
+      }
+    }
+    dossier.outscraper = {
+      checked_at: now,
+      emails: hit?.emails.length ?? 0,
+      phones: hit?.phones.length ?? 0,
+      socials: hit?.socials.length ?? 0,
+    };
+    await db().prepare(`UPDATE companies SET research = ? WHERE id = ?`).bind(JSON.stringify(dossier), c.id).run();
+    if (!hit) continue;
+    enriched += 1;
+    // Turn the best email into a contact so the company shows up emailable in
+    // Outreach — same shape and dedupe rule as backfillResearchEmails. Prefer
+    // an address on the company's own domain over gmail/aol forwarders.
+    const email = hit.emails.find((e) => e.endsWith(`@${domain}`)) ?? hit.emails[0];
+    if (!email) continue;
+    const dupe = await db()
+      .prepare("SELECT 1 AS x FROM contacts WHERE lower(email) = ? AND archived_at IS NULL LIMIT 1")
+      .bind(email)
+      .first<{ x: number }>();
+    if (dupe) continue;
+    await db()
+      .prepare(
+        `INSERT INTO contacts (id, first_name, last_name, company_id, title, email, phone, owner_id, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        uid(),
+        "Office",
+        c.name,
+        c.id,
+        "Main inbox",
+        email,
+        hit.phones[0] ?? null,
+        c.owner_id,
+        "Email found by Outscraper domain enrichment.",
+      )
+      .run();
+    contacts += 1;
+  }
+  if (contacts > 0) {
+    await logEvent({
+      actorId: null,
+      verb: "radar",
+      entityType: "company",
+      summary: `🔎 Outscraper found emails for ${contacts} compan${contacts === 1 ? "y" : "ies"} — they're emailable in Outreach now`,
+    });
+  }
+  return { configured: true, scanned: rows.length, enriched, contacts };
+}
+
+// Admin trigger for the same pass the cron runs — enrich a batch right now
+// from the Companies page instead of waiting for tonight.
+export const runOutscraperEnrich = createServerFn({ method: "POST" }).handler(async () => {
+  await requireAdmin();
+  await ensureExtraSchema();
+  const res = await outscraperEnrichCore(8);
+  return { ok: true as const, ...res };
+});
+
 // Refresh pass for dossiers written BEFORE the AI layer existed: they have no
 // "ai" key in their JSON, so this walks exactly those companies and re-runs
 // the full dig (which now attaches the brief + drafted email). Refuses to run
@@ -6602,6 +6728,15 @@ export const runDueSweeps = createServerOnlyFn(
       await enrichNewLeads(10);
     } catch {
       /* research is a bonus, never a blocker */
+    }
+    // Contact enrichment: Outscraper fills in emails/extra phones/socials for
+    // researched companies whose website we know but whose inbox we don't —
+    // the missing piece that makes the scanner's own finds emailable.
+    // Config-gated inside (no OUTSCRAPER_API_KEY = no-op, no credits spent).
+    try {
+      await outscraperEnrichCore(6);
+    } catch {
+      /* enrichment is a bonus, never a blocker */
     }
     // One-time tasks also fire from the cron, in case nobody opens the app
     // right after the deploy. Run-once lock makes double-firing harmless.

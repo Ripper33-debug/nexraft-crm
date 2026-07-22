@@ -648,3 +648,36 @@ describe("the company edit form's email box syncs to the primary contact", () =>
     expect(fnBody("getCompanies")).toContain("AS contact_email");
   });
 });
+
+describe("Outscraper enrichment spends credits carefully and never blocks", () => {
+  const body = helperBody("outscraperEnrichCore");
+  it("is config-gated — no key means a clean no-op, no credits spent", () => {
+    expect(body).toContain("isOutscraperConfigured()");
+    expect(body).toContain("configured: false");
+  });
+  it("only asks about researched, email-less companies it has never asked about", () => {
+    expect(body).toContain(`NOT LIKE '%"outscraper":%'`);
+    expect(body).toContain("ct.email IS NOT NULL");
+    expect(body).toContain("c.website IS NOT NULL");
+  });
+  it("a failed call stamps nothing (retry later); a successful one stamps every queried company", () => {
+    // null = the call failed; bail before any UPDATE so the batch re-enters
+    // the pool another night instead of being buried by a network blip.
+    expect(body).toContain("if (hits === null) return");
+    expect(body).toContain("dossier.outscraper =");
+    expect(body).toContain("UPDATE companies SET research = ?");
+  });
+  it("turns the best email into a contact, deduped against the whole book", () => {
+    expect(body).toContain("INSERT INTO contacts");
+    expect(body).toContain("lower(email) = ?");
+    // Prefer an address on the company's own domain over generic forwarders.
+    expect(body).toContain("endsWith(`@${domain}`)");
+  });
+  it("one company per domain — shared sites never double-spend a credit", () => {
+    expect(body).toContain("byDomain.has(domain)");
+  });
+  it("runs nightly from the cron, capped and best-effort, and the admin trigger is admin-only", () => {
+    expect(fnBody("runDueSweeps")).toContain("outscraperEnrichCore(6)");
+    expect(fnBody("runOutscraperEnrich")).toContain("requireAdmin()");
+  });
+});
