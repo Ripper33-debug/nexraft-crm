@@ -636,7 +636,7 @@ function ArcadeDeck({
       {/* Mission strip */}
       <div className="flex flex-wrap items-center gap-3 border-b border-line bg-signal-soft/20 px-4 py-3">
         <Eyebrow>🎮 Today's mission</Eyebrow>
-        <div className="h-2 min-w-[120px] flex-1 overflow-hidden rounded-full bg-surface-2 shadow-[inset_0_1px_3px_rgba(0,0,0,0.5)]">
+        <div className="h-2 min-w-[120px] flex-1 overflow-hidden rounded-full bg-surface-2 shadow-[inset_0_1px_3px_rgba(0,0,0,0.12)]">
           <div
             className="h-full rounded-full bg-gradient-to-r from-signal-strong via-signal to-[#ff8a5c] shadow-[0_0_12px_rgba(255,77,28,0.7)] transition-[width] duration-500"
             style={{ width: `${Math.max(2, pct)}%` }}
@@ -658,7 +658,7 @@ function ArcadeDeck({
           <div className="px-4 py-5 sm:px-6" style={{ perspective: "1200px" }}>
             <div
               className={cx(
-                "relative mx-auto max-w-xl rounded-2xl border border-line-strong bg-gradient-to-br from-[#16161d] to-surface p-6 shadow-[0_30px_70px_-30px_rgba(0,0,0,0.9),0_0_50px_-30px_rgba(255,77,28,0.6)] transition-all duration-300",
+                "relative mx-auto max-w-xl rounded-2xl border border-line-strong bg-gradient-to-br from-[#fbfbfa] to-surface p-6 shadow-[0_30px_70px_-30px_rgba(0,0,0,0.2),0_0_50px_-30px_rgba(255,77,28,0.6)] transition-all duration-300",
                 phase === "out-left" && "-translate-x-[120%] rotate-[-6deg] opacity-0",
                 phase === "out-up" && "-translate-y-16 rotate-[3deg] scale-105 opacity-0",
               )}

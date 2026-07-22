@@ -193,7 +193,7 @@ function ContactsPage() {
                           </span>
                         ) : null}
                       </div>
-                      {warn ? <div className="text-xs text-amber-400/80">{warn}</div> : null}
+                      {warn ? <div className="text-xs text-amber-600/80">{warn}</div> : null}
                     </td>
                     <td className="px-4 py-2.5 text-mute">{(c.company_name as string) || "—"}</td>
                     <td className="px-4 py-2.5 text-mute">{(c.title as string) || "—"}</td>
@@ -249,7 +249,7 @@ function ContactsPage() {
                           onDone={() => router.invalidate()}
                         />
                         {canEditRecord(me, (c.owner_id as string) ?? null, (c.shared_with as string) ?? null) ? (
-                          <button onClick={() => onArchive(c.id as string)} className="text-xs text-faint hover:text-red-400">
+                          <button onClick={() => onArchive(c.id as string)} className="text-xs text-faint hover:text-red-600">
                             Archive
                           </button>
                         ) : null}

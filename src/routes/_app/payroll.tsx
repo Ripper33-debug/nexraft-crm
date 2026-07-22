@@ -109,7 +109,7 @@ function Gate({ onUnlock }: { onUnlock: () => void }) {
             placeholder="••••"
             className="text-center text-lg tracking-[0.5em]"
           />
-          {err ? <p className="mt-2 text-xs text-red-400">That code didn't match. Try again.</p> : null}
+          {err ? <p className="mt-2 text-xs text-red-600">That code didn't match. Try again.</p> : null}
           <Button type="submit" className="mt-4 w-full">
             Unlock
           </Button>
@@ -368,7 +368,7 @@ function RepCard({
                     </div>
                     <button
                       onClick={() => removePayment(p)}
-                      className="shrink-0 rounded-md px-2 py-1 text-faint transition-colors hover:bg-surface-2 hover:text-red-400"
+                      className="shrink-0 rounded-md px-2 py-1 text-faint transition-colors hover:bg-surface-2 hover:text-red-600"
                       aria-label="Remove payment"
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

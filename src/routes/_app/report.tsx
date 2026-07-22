@@ -18,9 +18,9 @@ export const Route = createFileRoute("/_app/report")({
 });
 
 const GRADE_COLORS: Record<string, string> = {
-  A: "text-emerald-400",
-  B: "text-emerald-400",
-  C: "text-amber-400",
+  A: "text-emerald-600",
+  B: "text-emerald-600",
+  C: "text-amber-600",
   D: "text-signal",
   F: "text-red-500",
 };
@@ -113,7 +113,7 @@ function ReportPage() {
                     inputMode="email"
                   />
                 </Field>
-                {error ? <p className="text-sm text-red-400">{error}</p> : null}
+                {error ? <p className="text-sm text-red-600">{error}</p> : null}
                 <button
                   type="submit"
                   disabled={busy}
@@ -172,13 +172,13 @@ function ReportCard({
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-2">
         <div
-          className={cx("h-full rounded-full", good ? "bg-emerald-400" : "bg-signal")}
+          className={cx("h-full rounded-full", good ? "bg-emerald-500" : "bg-signal")}
           style={{ width: `${Math.max(4, grade.score)}%` }}
         />
       </div>
 
       {report.status === "dead" ? (
-        <p className="mt-5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm text-red-400">
+        <p className="mt-5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm text-red-600">
           Your website didn&apos;t load at all when we checked. Every customer searching for you
           right now is finding nothing — or finding a competitor.
         </p>

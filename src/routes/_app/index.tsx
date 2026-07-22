@@ -840,7 +840,7 @@ function Leaderboard({ rows }: { rows: LeaderboardRow[] }) {
                 </div>
                 <span className="shrink-0 text-xs tabular-nums text-mute">
                   {r.calls} calls · {r.emails} emails ·{" "}
-                  <span className={r.wins > 0 ? "font-semibold text-emerald-400" : ""}>
+                  <span className={r.wins > 0 ? "font-semibold text-emerald-600" : ""}>
                     {r.wins} {r.wins === 1 ? "win" : "wins"}
                   </span>
                 </span>
@@ -868,7 +868,7 @@ function CooBriefing({ flags }: { flags: CooFlag[] }) {
     return (
       <Card className="mt-5 border-emerald-500/25">
         <div className="flex items-center gap-2.5">
-          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+          <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
           <Eyebrow>Needs your attention</Eyebrow>
           <span className="text-sm text-mute">Nothing. Reps active, leads worked, projects moving, invoices current.</span>
         </div>
@@ -889,7 +889,7 @@ function CooBriefing({ flags }: { flags: CooFlag[] }) {
             <span
               className={
                 "mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full " +
-                (f.severity === "red" ? "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.8)]" : "bg-amber-300")
+                (f.severity === "red" ? "bg-red-500 shadow-[0_0_6px_rgba(248,113,113,0.8)]" : "bg-amber-300")
               }
             />
             <span className={f.severity === "red" ? "text-bone" : "text-mute"}>{f.text}</span>

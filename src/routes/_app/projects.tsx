@@ -88,7 +88,7 @@ function ProgressBar({ done, total }: { done: number; total: number }) {
       <span
         className={cx(
           "text-sm font-bold tabular-nums",
-          pct >= 100 ? "text-emerald-400" : "text-signal",
+          pct >= 100 ? "text-emerald-600" : "text-signal",
         )}
         title={`${done} of ${total} checklist steps done`}
       >
@@ -207,7 +207,7 @@ function ProjectCard({
                   </label>
                 ) : (
                   <div className="flex items-start gap-2.5 px-1.5 py-1 text-sm">
-                    <span className={cx("mt-0.5 w-4 text-center text-xs", item.done ? "text-emerald-400" : "text-faint")}>
+                    <span className={cx("mt-0.5 w-4 text-center text-xs", item.done ? "text-emerald-600" : "text-faint")}>
                       {item.done ? "✓" : "○"}
                     </span>
                     <span className={cx("leading-snug", item.done ? "text-faint line-through" : "text-mute")}>

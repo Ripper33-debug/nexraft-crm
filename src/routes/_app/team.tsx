@@ -416,9 +416,9 @@ function RepActivityPanel({
                 <td className="px-4 py-2.5 text-mute">{r.created + r.claims}</td>
                 <td className="px-4 py-2.5 text-mute">{r.stage_moves}</td>
                 <td className="px-4 py-2.5">
-                  <span className="text-emerald-400">{r.won}</span>
+                  <span className="text-emerald-600">{r.won}</span>
                   <span className="text-faint"> / </span>
-                  <span className="text-red-400">{r.lost}</span>
+                  <span className="text-red-600">{r.lost}</span>
                 </td>
                 <td className="px-4 py-2.5 text-mute">{r.notes}</td>
                 <td className="px-4 py-2.5">
@@ -523,7 +523,7 @@ function TeamPage() {
       />
 
       {error ? (
-        <div className="mt-4 rounded-lg bg-red-500/15 px-3 py-2 text-sm text-red-400">{error}</div>
+        <div className="mt-4 rounded-lg bg-red-500/15 px-3 py-2 text-sm text-red-600">{error}</div>
       ) : null}
 
       <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -659,7 +659,7 @@ function TeamPage() {
                       <button
                         disabled={busy}
                         onClick={() => removeUser(r)}
-                        className="text-xs text-faint hover:text-red-400 disabled:opacity-50"
+                        className="text-xs text-faint hover:text-red-600 disabled:opacity-50"
                       >
                         Remove
                       </button>
@@ -786,7 +786,7 @@ function ReassignModal({
     <Modal open onClose={onClose} title={`Reassign ${member.name}'s records`}>
       <div className="space-y-4">
         {error ? (
-          <div className="rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-400">{error}</div>
+          <div className="rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-600">{error}</div>
         ) : null}
 
         <Field label="Hand everything to">
@@ -1027,7 +1027,7 @@ function AddTeammateModal({
   return (
     <Modal open={open} onClose={onClose} title="Add teammate">
       <form onSubmit={onSubmit} className="space-y-3">
-        {error ? <div className="rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-400">{error}</div> : null}
+        {error ? <div className="rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-600">{error}</div> : null}
         <Field label="Full name">
           <Input name="name" required placeholder="Their name" />
         </Field>
@@ -1094,7 +1094,7 @@ function ResetPasswordModal({
   return (
     <Modal open onClose={onClose} title={`Reset password — ${member.name}`}>
       <form onSubmit={onSubmit} className="space-y-3">
-        {error ? <div className="rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-400">{error}</div> : null}
+        {error ? <div className="rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-600">{error}</div> : null}
         <Field label="New password">
           <Input name="password" type="text" required minLength={8} placeholder="At least 8 characters" />
         </Field>

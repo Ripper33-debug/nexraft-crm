@@ -180,7 +180,7 @@ export function USStatePicker({
                 "relative rounded-full border px-3 py-1 text-xs font-medium transition-colors " +
                 (isOpen
                   ? "border-signal/70 bg-signal/15 text-bone"
-                  : "border-white/5 bg-surface-2 text-mute hover:border-signal/40 hover:text-bone") +
+                  : "border-black/5 bg-surface-2 text-mute hover:border-signal/40 hover:text-bone") +
                 (hasSel && !isOpen ? " ring-1 ring-signal/50" : "")
               }
             >
@@ -213,7 +213,7 @@ export function USStatePicker({
                 "relative inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors " +
                 (isSel
                   ? "border-signal bg-signal text-black shadow-[0_0_10px_rgba(255,77,28,0.5)]"
-                  : "border-white/5 bg-surface-2 text-bone hover:border-signal/50 hover:bg-surface-3") +
+                  : "border-black/5 bg-surface-2 text-bone hover:border-signal/50 hover:bg-surface-3") +
                 (isScan && !isSel ? " border-signal/80 ring-1 ring-signal/60" : "")
               }
             >
@@ -222,12 +222,12 @@ export function USStatePicker({
                   <span
                     className={
                       "absolute inline-flex h-2 w-2 animate-ping rounded-full opacity-75 " +
-                      (isSel ? "bg-black/60" : "bg-signal")
+                      (isSel ? "bg-black/30" : "bg-signal")
                     }
                   />
                   <span
                     className={
-                      "relative inline-flex h-2 w-2 rounded-full " + (isSel ? "bg-black/70" : "bg-signal")
+                      "relative inline-flex h-2 w-2 rounded-full " + (isSel ? "bg-black/35" : "bg-signal")
                     }
                   />
                 </span>

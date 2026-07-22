@@ -195,12 +195,12 @@ export function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[90] flex items-start justify-center bg-black/70 p-4 backdrop-blur-md duration-150 animate-in fade-in-0 sm:pt-[12vh]"
+      className="fixed inset-0 z-[90] flex items-start justify-center bg-black/35 p-4 backdrop-blur-md duration-150 animate-in fade-in-0 sm:pt-[12vh]"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) close();
       }}
     >
-      <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_24px_70px_-20px_rgba(0,0,0,0.85)] ring-1 ring-white/5 duration-150 animate-in fade-in-0 zoom-in-95 slide-in-from-top-2">
+      <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_24px_70px_-20px_rgba(0,0,0,0.18)] ring-1 ring-black/5 duration-150 animate-in fade-in-0 zoom-in-95 slide-in-from-top-2">
         <div className="flex items-center gap-2.5 border-b border-line px-4 py-3">
           <svg className="text-faint" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="8" />

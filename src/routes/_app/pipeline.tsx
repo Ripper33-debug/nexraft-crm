@@ -736,7 +736,7 @@ function PipelineTable({
                         {canEditRecord(me, (d.owner_id as string) ?? null, (d.shared_with as string) ?? null) ? (
                           <button
                             onClick={() => onArchive(d.id as string)}
-                            className="text-xs text-faint hover:text-red-400"
+                            className="text-xs text-faint hover:text-red-600"
                           >
                             Archive
                           </button>
@@ -1025,7 +1025,7 @@ function DealModal({
                   <button
                     type="button"
                     onClick={() => removeLink(i)}
-                    className="shrink-0 px-1 text-faint hover:text-red-400"
+                    className="shrink-0 px-1 text-faint hover:text-red-600"
                     aria-label="Remove link"
                   >
                     ✕

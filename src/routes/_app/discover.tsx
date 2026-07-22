@@ -84,7 +84,7 @@ function DiscoverPage() {
           className="pointer-events-none absolute inset-0"
           style={{
             background:
-              "radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 100%)",
+              "radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.12) 100%)",
           }}
         />
 
@@ -111,7 +111,7 @@ function DiscoverPage() {
           </div>
           <div className="mt-1.5 font-mono text-[11px] text-faint">
             {st.imported} leads this session · {st.assigned} fired at the team
-            {st.lastError ? <span className="text-red-400"> · {st.lastError}</span> : null}
+            {st.lastError ? <span className="text-red-600"> · {st.lastError}</span> : null}
           </div>
         </div>
 

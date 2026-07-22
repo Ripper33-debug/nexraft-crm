@@ -168,7 +168,7 @@ function NavLink({
       {item.label}
       {badge && badge > 0 ? (
         <span
-          className="ml-auto inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500/20 px-1.5 text-[11px] font-semibold text-amber-300 ring-1 ring-amber-500/30"
+          className="ml-auto inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500/20 px-1.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-500/30"
           title={`${badge} follow-up${badge === 1 ? "" : "s"} waiting`}
         >
           {badge > 99 ? "99+" : badge}
@@ -249,10 +249,10 @@ function StatusStrip() {
         <span
           className={
             "h-1.5 w-1.5 rounded-full " +
-            (syncing ? "animate-pulse bg-signal" : "bg-emerald-400")
+            (syncing ? "animate-pulse bg-signal" : "bg-emerald-500")
           }
         />
-        <span className={syncing ? "text-signal" : "text-emerald-400/80"}>
+        <span className={syncing ? "text-signal" : "text-emerald-600/80"}>
           {syncing ? "Sync" : "Online"}
         </span>
       </span>
@@ -370,7 +370,7 @@ function AppLayout() {
           <div className="fixed inset-0 z-[120] md:hidden">
             <div
               onClick={() => setMenuOpen(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/30 backdrop-blur-sm"
               style={{ animation: "nx-fade-in 150ms ease-out" }}
             />
             <div

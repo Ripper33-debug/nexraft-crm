@@ -132,7 +132,7 @@ function CallQueue({
           <button
             onClick={() => decide("maybe")}
             disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-300 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
           >
             ~ Maybe
           </button>
@@ -142,7 +142,7 @@ function CallQueue({
           <button
             onClick={() => onNoAnswer(current)}
             disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 transition-colors hover:bg-sky-500/20 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-500/20 disabled:opacity-50"
           >
             ✉ No answer — email them
           </button>
@@ -554,7 +554,7 @@ function NoAnswerModal({
             className="text-sm"
           />
           {!email ? (
-            <p className="mt-1 text-[11px] text-amber-300/90">
+            <p className="mt-1 text-[11px] text-amber-700/90">
               No contact email on file for this company — type one in, or just log the missed call.
             </p>
           ) : null}
@@ -913,7 +913,7 @@ function ListView({
                   <button
                     onClick={() => onNotAFit(r)}
                     title="Mark as No — not a fit"
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-xs font-semibold text-rose-300 transition-colors hover:bg-rose-500/20"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-500/20"
                   >
                     ✕<span className="hidden sm:inline"> Not a fit</span>
                   </button>

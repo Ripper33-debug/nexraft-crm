@@ -62,7 +62,7 @@ function SharePage() {
         <span
           className={cx(
             "text-5xl font-bold tabular-nums tracking-tight",
-            launched || pct >= 100 ? "text-emerald-400" : "text-signal",
+            launched || pct >= 100 ? "text-emerald-600" : "text-signal",
           )}
         >
           {pct}%
@@ -75,7 +75,7 @@ function SharePage() {
         <div
           className={cx(
             "h-full rounded-full transition-all",
-            launched || pct >= 100 ? "bg-emerald-400" : "bg-signal",
+            launched || pct >= 100 ? "bg-emerald-500" : "bg-signal",
           )}
           style={{ width: `${Math.max(4, pct)}%` }}
         />
@@ -88,7 +88,7 @@ function SharePage() {
               className={cx(
                 "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px]",
                 item.done
-                  ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-400"
+                  ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-600"
                   : "border-line text-faint",
               )}
             >
@@ -102,7 +102,7 @@ function SharePage() {
       </ul>
 
       {launched ? (
-        <p className="mt-6 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-400">
+        <p className="mt-6 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
           Your website is live — congratulations! 🎉
         </p>
       ) : (

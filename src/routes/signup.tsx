@@ -22,7 +22,7 @@ function SignupPage() {
         </div>
         <div className="rounded-xl border border-line bg-surface p-6 shadow-xl">
           {error ? (
-            <div className="mb-4 rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-400">{error}</div>
+            <div className="mb-4 rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-600">{error}</div>
           ) : null}
           <form method="post" action="/api/auth/signup" className="space-y-4">
             <Field label="Full name">

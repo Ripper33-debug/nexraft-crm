@@ -138,7 +138,7 @@ export function Card({
         tilt
           ? "will-change-transform transition-[border-color,box-shadow,transform] duration-300"
           : "transition-[border-color,box-shadow] duration-300",
-        "nx-spot rounded-xl border border-line bg-gradient-to-br from-[#14141a] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.3),0_8px_24px_-16px_rgba(0,0,0,0.6),inset_0_1px_0_0_rgba(255,255,255,0.03)] hover:border-line-strong hover:shadow-[0_16px_40px_-14px_rgba(0,0,0,0.6),0_0_0_1px_rgba(255,77,28,0.1)]",
+        "nx-spot rounded-xl border border-line bg-gradient-to-br from-[#fbfbfa] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.1),0_8px_24px_-16px_rgba(0,0,0,0.12),inset_0_1px_0_0_rgba(255,255,255,0.03)] hover:border-line-strong hover:shadow-[0_16px_40px_-14px_rgba(0,0,0,0.12),0_0_0_1px_rgba(255,77,28,0.1)]",
         className,
       )}
     >
@@ -239,7 +239,7 @@ export function SummaryCard({
         "nx-spot group relative overflow-hidden rounded-md border p-4 transition-[border-color,box-shadow,transform] duration-300 will-change-transform",
         accent
           ? "border-signal/25 bg-gradient-to-br from-signal-soft/50 via-surface to-surface shadow-[0_8px_30px_-18px_rgba(255,77,28,0.6)] hover:shadow-[0_14px_36px_-16px_rgba(255,77,28,0.7)]"
-          : "border-line bg-gradient-to-br from-[#14141a] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.3)] hover:border-line-strong hover:shadow-[0_12px_30px_-16px_rgba(0,0,0,0.7)]",
+          : "border-line bg-gradient-to-br from-[#fbfbfa] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.1)] hover:border-line-strong hover:shadow-[0_12px_30px_-16px_rgba(0,0,0,0.15)]",
       )}
     >
       <span className="nx-edge" aria-hidden="true" />
@@ -287,9 +287,9 @@ type PillTone = "neutral" | "signal" | "warn" | "danger" | "ok";
 const pillTones: Record<PillTone, string> = {
   neutral: "bg-surface-2 text-mute",
   signal: "bg-signal-soft text-signal",
-  warn: "bg-amber-500/15 text-amber-400",
-  danger: "bg-red-500/15 text-red-400",
-  ok: "bg-emerald-500/15 text-emerald-400",
+  warn: "bg-amber-500/15 text-amber-600",
+  danger: "bg-red-500/15 text-red-600",
+  ok: "bg-emerald-500/15 text-emerald-600",
 };
 
 export function Pill({ tone = "neutral", children }: { tone?: PillTone; children: ReactNode }) {
@@ -346,7 +346,7 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 }
 
 const fieldCls =
-  "w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-bone placeholder:text-faint outline-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] transition-all duration-150 hover:border-line-strong focus:border-signal/70 focus:ring-2 focus:ring-signal/20";
+  "w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-bone placeholder:text-faint outline-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.08)] transition-all duration-150 hover:border-line-strong focus:border-signal/70 focus:ring-2 focus:ring-signal/20";
 
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cx(fieldCls, props.className)} />;
@@ -376,11 +376,11 @@ export function Modal({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-md duration-200 animate-in fade-in-0 sm:p-8"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/35 p-4 backdrop-blur-md duration-200 animate-in fade-in-0 sm:p-8"
     >
       <div
         className={cx(
-          "mt-4 w-full rounded-2xl border border-line-strong bg-surface shadow-[0_24px_70px_-20px_rgba(0,0,0,0.85)] ring-1 ring-white/5 duration-200 animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 sm:mt-8",
+          "mt-4 w-full rounded-2xl border border-line-strong bg-surface shadow-[0_24px_70px_-20px_rgba(0,0,0,0.18)] ring-1 ring-black/5 duration-200 animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 sm:mt-8",
           wide ? "max-w-2xl" : "max-w-md",
         )}
       >

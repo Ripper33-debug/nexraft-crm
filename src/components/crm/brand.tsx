@@ -3,9 +3,10 @@
 // wordmark whose trailing period is the signature red-orange dot — no tile, no
 // underline. The compact monogram carries the same bone "N" + orange dot.
 
-const TILE = "#0e0e13"; // cool near-black tile (matches --color-surface)
+const TILE = "#0e0e13"; // cool near-black tile — the logo chip stays dark on the light UI
 const ACCENT = "#ff4d1c"; // Nexraft red-orange (the "." dot)
-const BONE = "#e9e5db"; // cream wordmark
+const BONE = "#e9e5db"; // cream — only used INSIDE the dark tile, where it still reads
+const WORD = "var(--color-bone)"; // wordmark text follows the app's primary text color
 
 // Square monogram tile (sidebar, favicon, mobile bar): bone "N" over the warm
 // near-black tile with the signature orange dot in the corner.
@@ -36,7 +37,7 @@ export function FullLogo({ className = "" }: { className?: string }) {
     <div className={"inline-flex items-baseline " + className}>
       <span
         className="font-display text-3xl font-extrabold uppercase tracking-[0.16em]"
-        style={{ color: BONE }}
+        style={{ color: WORD }}
       >
         Nex
       </span>

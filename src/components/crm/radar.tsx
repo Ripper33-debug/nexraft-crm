@@ -125,7 +125,7 @@ export function RadarScope({
 
       <div className="mt-2 text-center text-[11px] text-mute">
         {paused ? (
-          <span className="text-amber-300">Session limit reached — {imported} found</span>
+          <span className="text-amber-700">Session limit reached — {imported} found</span>
         ) : on ? (
           <span>
             {currentType ? (

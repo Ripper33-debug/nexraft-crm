@@ -103,13 +103,13 @@ function RowTriage({ c, canEdit, onDone }: { c: Row; canEdit: boolean; onDone: (
     ) : c.call_outcome === "interested" ? (
       <span className="ml-2 align-middle rounded-full bg-signal-soft px-1.5 py-0.5 text-[10px] font-medium text-signal">Yes</span>
     ) : c.call_outcome === "maybe" ? (
-      <span className="ml-2 align-middle rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Maybe</span>
+      <span className="ml-2 align-middle rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">Maybe</span>
     ) : c.call_outcome === "not_interested" ? (
       <span className="ml-2 align-middle rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-faint">No</span>
     ) : c.call_outcome === "no_answer" ? (
-      <span className="ml-2 align-middle rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">No answer</span>
+      <span className="ml-2 align-middle rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">No answer</span>
     ) : !c.call_outcome ? (
-      <span className="ml-2 align-middle rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Need to call</span>
+      <span className="ml-2 align-middle rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">Need to call</span>
     ) : null;
 
   // "Signed" is final (there's a won deal behind it) — leave that badge alone.
@@ -166,7 +166,7 @@ function RowTriage({ c, canEdit, onDone }: { c: Row; canEdit: boolean; onDone: (
         type="button"
         disabled={busy}
         onClick={() => decide("maybe")}
-        className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300 transition-colors hover:bg-amber-500/30 disabled:opacity-50"
+        className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-700 transition-colors hover:bg-amber-500/30 disabled:opacity-50"
         title="Warm but not sold yet — moves their deal to Proposal"
       >
         Maybe
@@ -175,7 +175,7 @@ function RowTriage({ c, canEdit, onDone }: { c: Row; canEdit: boolean; onDone: (
         type="button"
         disabled={busy}
         onClick={() => decide("not_interested")}
-        className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-faint transition-colors hover:text-red-300 disabled:opacity-50"
+        className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-faint transition-colors hover:text-red-700 disabled:opacity-50"
         title="Not interested — drops their deal to Lost"
       >
         No
@@ -184,7 +184,7 @@ function RowTriage({ c, canEdit, onDone }: { c: Row; canEdit: boolean; onDone: (
         type="button"
         disabled={busy}
         onClick={() => decide("no_answer")}
-        className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-medium text-sky-300 transition-colors hover:bg-sky-500/30 disabled:opacity-50"
+        className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-medium text-sky-700 transition-colors hover:bg-sky-500/30 disabled:opacity-50"
         title="Didn't pick up — keeps them in the call queue"
       >
         No answer
@@ -696,7 +696,7 @@ function CompaniesPage() {
                       ) : null}
                       {goodSiteIds.has(c.id as string) ? (
                         <span
-                          className="ml-2 align-middle rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300"
+                          className="ml-2 align-middle rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
                           title="Research found a live, modern site with nothing to pitch against — hardest sell in the book"
                         >
                           Good site
@@ -711,9 +711,9 @@ function CompaniesPage() {
                         <span
                           className={`ml-2 align-middle rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
                             (c.ai_fit as number) >= 70
-                              ? "bg-emerald-500/15 text-emerald-300"
+                              ? "bg-emerald-500/15 text-emerald-700"
                               : (c.ai_fit as number) >= 40
-                                ? "bg-amber-500/15 text-amber-300"
+                                ? "bg-amber-500/15 text-amber-700"
                                 : "bg-surface-2 text-faint"
                           }`}
                           title={`AI read their research and rated how likely they are to buy: ${c.ai_fit}/100. ${(c.ai_fit_reason as string) ?? ""}`}
@@ -725,12 +725,12 @@ function CompaniesPage() {
                         <div className="flex items-center gap-1.5 text-xs text-faint">
                           {c.website_status === "dead" ? (
                             <span
-                              className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-400"
+                              className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500"
                               title="Website is down — redesign opening"
                             />
                           ) : c.website_status === "live" ? (
                             <span
-                              className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400"
+                              className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
                               title="Website is live"
                             />
                           ) : null}
@@ -738,13 +738,13 @@ function CompaniesPage() {
                           {c.website_status === "dead" ? (
                             isRecentlyDown(c) ? (
                               <span
-                                className="animate-pulse rounded-full bg-red-500/25 px-1.5 py-0.5 text-[10px] font-semibold text-red-300"
+                                className="animate-pulse rounded-full bg-red-500/25 px-1.5 py-0.5 text-[10px] font-semibold text-red-700"
                                 title="Their site was LIVE last week and is down NOW — they know it's broken. Hottest call on the board."
                               >
                                 🚨 Just went down
                               </span>
                             ) : (
-                              <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-300">
+                              <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-700">
                                 Site down
                               </span>
                             )
@@ -752,7 +752,7 @@ function CompaniesPage() {
                         </div>
                       ) : tags.includes("facebook-only") ? (
                         <span
-                          className="rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300"
+                          className="rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-700"
                           title="Marketing on Facebook/Instagram but has NO website — already sold on being online, easiest pitch on the board. Profile link is in their notes."
                         >
                           📘 On socials, no site
@@ -818,7 +818,7 @@ function CompaniesPage() {
                           onDone={() => router.invalidate()}
                         />
                         {canEditRecord(me, (c.owner_id as string) ?? null, (c.shared_with as string) ?? null) ? (
-                          <button onClick={() => onArchive(c.id as string)} className="text-xs text-faint hover:text-red-400">
+                          <button onClick={() => onArchive(c.id as string)} className="text-xs text-faint hover:text-red-600">
                             Archive
                           </button>
                         ) : null}
@@ -1002,7 +1002,7 @@ function CompanyModal({
           <Input name="name" required value={nameVal} onChange={(e) => setNameVal(e.target.value)} />
         </Field>
         {dupMatch ? (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
             <span className="mt-0.5 font-semibold">Possible duplicate</span>
             <span className="text-amber-100/90">
               “{dupMatch.name as string}” is already in the CRM

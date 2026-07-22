@@ -212,9 +212,9 @@ function CompanyDetail() {
                     {website}
                   </a>
                   {c.website_status === "dead" ? (
-                    <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] font-medium text-red-400">Site down</span>
+                    <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] font-medium text-red-600">Site down</span>
                   ) : c.website_status === "live" ? (
-                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-400">Live</span>
+                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-600">Live</span>
                   ) : null}
                 </span>
               ) : <span className="text-faint">—</span>}
@@ -232,7 +232,7 @@ function CompanyDetail() {
             <ReferredByRow company={c} referrers={referrers} />
             <DetailRow label="Added">{c.created_at ? relativeTime(c.created_at as string) : "—"}</DetailRow>
             {Number(c.referrals_made) > 0 ? (
-              <p className="mt-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-400">
+              <p className="mt-2 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
                 🤝 Has sent {Number(c.referrals_made)} referral{Number(c.referrals_made) === 1 ? "" : "s"} our
                 way — worth a thank-you (free month?).
               </p>

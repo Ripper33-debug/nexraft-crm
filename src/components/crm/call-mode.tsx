@@ -420,7 +420,7 @@ function LineRow({ line, covered, onToggle }: { line: Line; covered?: boolean; o
         className={cx(
           "group flex w-full items-start gap-2 border-l-2 pl-3 text-left text-sm leading-relaxed transition-colors",
           border,
-          covered ? "text-faint line-through decoration-faint/50" : "text-bone hover:text-white",
+          covered ? "text-faint line-through decoration-faint/50" : "text-bone hover:text-signal",
         )}
       >
         <span
@@ -434,7 +434,7 @@ function LineRow({ line, covered, onToggle }: { line: Line; covered?: boolean; o
           </svg>
         </span>
         <span className="min-w-0">
-          {isAsk ? <span className="mr-1.5 font-mono text-[10px] uppercase tracking-wider text-sky-400/80">ask</span> : null}
+          {isAsk ? <span className="mr-1.5 font-mono text-[10px] uppercase tracking-wider text-sky-600/80">ask</span> : null}
           {line.text}
         </span>
       </button>
@@ -444,7 +444,7 @@ function LineRow({ line, covered, onToggle }: { line: Line; covered?: boolean; o
   if (isAsk) {
     return (
       <p className="border-l-2 border-sky-500/40 pl-3 text-sm text-bone">
-        <span className="mr-1.5 font-mono text-[10px] uppercase tracking-wider text-sky-400/80">ask</span>
+        <span className="mr-1.5 font-mono text-[10px] uppercase tracking-wider text-sky-600/80">ask</span>
         {line.text}
       </p>
     );
@@ -669,9 +669,9 @@ export function CallMode({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-md duration-200 animate-in fade-in-0 sm:p-8"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-md duration-200 animate-in fade-in-0 sm:p-8"
     >
-      <div className="mt-2 w-full max-w-4xl rounded-2xl border border-line-strong bg-surface shadow-[0_24px_70px_-20px_rgba(0,0,0,0.85)] ring-1 ring-white/5 duration-200 animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 sm:mt-6">
+      <div className="mt-2 w-full max-w-4xl rounded-2xl border border-line-strong bg-surface shadow-[0_24px_70px_-20px_rgba(0,0,0,0.18)] ring-1 ring-black/5 duration-200 animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 sm:mt-6">
         {/* Header — who you're calling + a live pulsing indicator */}
         <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
           <div className="flex items-center gap-3">
@@ -742,7 +742,7 @@ export function CallMode({
                           on
                             ? "bg-signal-soft text-signal ring-1 ring-signal/40"
                             : grp === "buying"
-                              ? "border border-emerald-500/25 bg-emerald-500/5 text-emerald-300/90 hover:border-emerald-500/50 hover:text-emerald-200"
+                              ? "border border-emerald-500/25 bg-emerald-500/5 text-emerald-700/90 hover:border-emerald-500/50 hover:text-emerald-800"
                               : "border border-line bg-surface text-mute hover:border-signal/30 hover:text-bone",
                         )}
                       >
@@ -918,7 +918,7 @@ export function CallMode({
           {outcome ? (
             <div className="mt-3 space-y-3 duration-200 animate-in fade-in-0 slide-in-from-top-1">
               {/not interested/i.test(outcome) && linkDeal && OPEN_STAGES.includes(linkDeal.stage as string) ? (
-                <div className="flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200/90">
+                <div className="flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-800/90">
                   <svg className="mt-0.5 shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M18 6 6 18M6 6l12 12" />
                   </svg>
@@ -947,7 +947,7 @@ export function CallMode({
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     placeholder="Jot the key points while they're fresh…"
-                    className="min-h-16 w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-bone placeholder:text-faint outline-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] transition-all hover:border-line-strong focus:border-signal/70 focus:ring-2 focus:ring-signal/20"
+                    className="min-h-16 w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-bone placeholder:text-faint outline-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.08)] transition-all hover:border-line-strong focus:border-signal/70 focus:ring-2 focus:ring-signal/20"
                   />
                 </label>
                 <label className="block">
@@ -956,7 +956,7 @@ export function CallMode({
                     type="date"
                     value={followup}
                     onChange={(e) => setFollowup(e.target.value)}
-                    className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-bone outline-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] transition-all hover:border-line-strong focus:border-signal/70 focus:ring-2 focus:ring-signal/20"
+                    className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-bone outline-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.08)] transition-all hover:border-line-strong focus:border-signal/70 focus:ring-2 focus:ring-signal/20"
                   />
                   {followup ? (
                     <span className="mt-1 block text-[11px] text-faint">A task will be created for this date.</span>

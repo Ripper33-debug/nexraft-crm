@@ -137,7 +137,7 @@ function ActivitiesPage() {
                   {a.due_date ? (
                     <Pill tone={overdue ? "danger" : "neutral"}>{String(a.due_date).slice(0, 10)}</Pill>
                   ) : null}
-                  <button onClick={() => onDelete(a.id as string)} className="text-xs text-faint hover:text-red-400">
+                  <button onClick={() => onDelete(a.id as string)} className="text-xs text-faint hover:text-red-600">
                     Delete
                   </button>
                 </div>

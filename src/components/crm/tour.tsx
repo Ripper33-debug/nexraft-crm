@@ -111,7 +111,7 @@ export function WelcomeTour({ name }: { name?: string }) {
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/30 backdrop-blur-sm"
         onClick={finish}
         style={{ animation: "nx-tour-fade 150ms ease-out" }}
       />
