@@ -4719,6 +4719,135 @@ async function runPendingOneTimeTasks(): Promise<void> {
   _oneTimeTasksChecked = true;
   await runMichaelRebalance();
   await runMoveArcticAirToMichael();
+  await runSeedWebHuntLeads();
+}
+
+// One-time seed (owner's ask, 2026-07-21): 14 hand-verified SW Florida trade
+// leads found by web research — each one checked to have a weak/dead/missing
+// website plus a REAL email and phone pulled from their own site, Facebook,
+// or Yelp (never guessed). Seeded straight into the CRM, owned by Barry so
+// they top his Outreach composer, each with an email-bearing contact so
+// they're emailable immediately. Same run-once app_settings lock as the
+// other one-time tasks, and the same dedupe rule as the CSV import (skip on
+// matching active company name or phone) so re-deploys and overlaps with
+// the lead engine can never create doubles.
+const WEB_HUNT_TASK_KEY = "task_seed_web_hunt_2026_07_21";
+const WEB_HUNT_LEADS: {
+  name: string;
+  industry: string;
+  website: string | null;
+  phone: string;
+  city: string;
+  email: string;
+}[] = [
+  { name: "Z Plumber, Inc.", industry: "Plumbing", website: "zplumberinc.com", phone: "(941) 676-2161", city: "Punta Gorda", email: "zplumberinc@gmail.com" },
+  { name: "Grizzly Bros Plumbing", industry: "Plumbing", website: "grizzlybrosplumbing.biz", phone: "(941) 232-5444", city: "Punta Gorda", email: "grizzlybros@gmail.com" },
+  { name: "Mills Plumbing & Drain Cleaning LLC", industry: "Plumbing", website: null, phone: "(941) 815-3324", city: "Punta Gorda", email: "gmills2475@gmail.com" },
+  { name: "Henry Plumbing", industry: "Plumbing", website: "henryplumbingservices.com", phone: "(941) 661-7398", city: "Punta Gorda", email: "office@henryplumbingservices.com" },
+  { name: "Floridian HVAC, LLC", industry: "HVAC", website: "floridianhvac.net", phone: "(239) 682-4463", city: "Naples", email: "floridianhvac@gmail.com" },
+  { name: "Plumbing Solutions of Southwest Florida, LLC", industry: "Plumbing", website: "plumbingsolutionsllc.net", phone: "(239) 694-0304", city: "Lehigh Acres", email: "plumbingsolutions1@comcast.net" },
+  { name: "Franklin's Plumbing, LLC", industry: "Plumbing", website: null, phone: "(239) 368-3377", city: "Lehigh Acres", email: "franklinsplumbingllc@gmail.com" },
+  { name: "Instant Air Conditioning Refrigeration & Heating", industry: "HVAC", website: "instantairinc.com", phone: "(941) 625-1290", city: "Punta Gorda", email: "instantairinc@yahoo.com" },
+  { name: "Frank's Roofing & Spraying", industry: "Roofing", website: "franksroofinginc.com", phone: "(239) 693-7663", city: "Fort Myers", email: "info@franksroofinginc.com" },
+  { name: "Left Coast Pool Service", industry: "Pools", website: "leftcoastpoolservice.com", phone: "(239) 839-5850", city: "Lehigh Acres", email: "support@leftcoastpoolservice.com" },
+  { name: "BlueCrew Pool Service", industry: "Pools", website: "bluecrewpoolservice.com", phone: "(239) 362-7191", city: "Lehigh Acres", email: "bluecrewpoolservice2.0@gmail.com" },
+  { name: "Florida Detail Pools", industry: "Pools", website: "floridadetail.com", phone: "(941) 208-3829", city: "Port Charlotte", email: "support@floridadetail.com" },
+  { name: "Sink or Swim Pool Service", industry: "Pools", website: null, phone: "(239) 785-5700", city: "North Fort Myers", email: "sinkorswimpoolservice@gmail.com" },
+  { name: "Banner Pool Service", industry: "Pools", website: "bannerpoolservice.com", phone: "(239) 472-4100", city: "Fort Myers", email: "info@bannerpoolservice.com" },
+];
+
+async function runSeedWebHuntLeads(): Promise<void> {
+  let claimed = false;
+  try {
+    const row = await db()
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES (?, 'running')
+         ON CONFLICT (key) DO NOTHING RETURNING key`,
+      )
+      .bind(WEB_HUNT_TASK_KEY)
+      .first<{ key: string }>();
+    if (!row) return; // already ran (or another instance is on it)
+    claimed = true;
+
+    // Owner: Barry himself — he asked for these to email personally.
+    const barry = await db()
+      .prepare(`SELECT id FROM users WHERE lower(email) = ? LIMIT 1`)
+      .bind(AUTO_ASSIGN_EXCLUDE_EMAIL)
+      .first<{ id: string }>();
+    if (!barry) {
+      await db()
+        .prepare(`UPDATE app_settings SET value=? WHERE key=?`)
+        .bind(`skipped: no user with email ${AUTO_ASSIGN_EXCLUDE_EMAIL}`, WEB_HUNT_TASK_KEY)
+        .run();
+      return;
+    }
+
+    // Same dedupe rule as the CSV import: skip anything matching an existing
+    // active company by normalized name or phone.
+    const { results: existing } = await db()
+      .prepare(`SELECT name, phone FROM companies WHERE archived_at IS NULL`)
+      .all<{ name: string; phone: string | null }>();
+    const seenNames = new Set((existing ?? []).map((c) => companyNameKey(c.name)));
+    const seenPhones = new Set((existing ?? []).map((c) => phoneKey(c.phone)).filter(Boolean));
+
+    let added = 0;
+    let skipped = 0;
+    for (const lead of WEB_HUNT_LEADS) {
+      const nameKey = companyNameKey(lead.name);
+      const phKey = phoneKey(lead.phone);
+      if (seenNames.has(nameKey) || (phKey && seenPhones.has(phKey))) {
+        skipped++;
+        continue;
+      }
+      seenNames.add(nameKey);
+      if (phKey) seenPhones.add(phKey);
+      const companyId = uid();
+      await db()
+        .prepare(
+          `INSERT INTO companies (id, name, industry, website, phone, city, source, owner_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(companyId, lead.name, lead.industry, lead.website, lead.phone, lead.city, "web hunt 2026-07", barry.id)
+        .run();
+      await db()
+        .prepare(
+          `INSERT INTO contacts (id, first_name, last_name, email, phone, title, company_id, owner_id, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          uid(),
+          "Office /",
+          lead.name,
+          lead.email.toLowerCase(),
+          lead.phone,
+          "Main inbox",
+          companyId,
+          barry.id,
+          "Hand-verified web-hunt lead (weak or missing website; email found on their site/Facebook/Yelp).",
+        )
+        .run();
+      added++;
+    }
+
+    await db()
+      .prepare(`UPDATE app_settings SET value=? WHERE key=?`)
+      .bind(`done: added ${added}, skipped ${skipped} as duplicates`, WEB_HUNT_TASK_KEY)
+      .run();
+    await logEvent({
+      actorId: null,
+      verb: "imported",
+      entityType: "companies",
+      summary: `Web hunt: ${added} hand-verified SW Florida trade lead${added === 1 ? "" : "s"} with emails added to Barry's book${skipped ? ` (${skipped} skipped as duplicates)` : ""}`,
+    });
+  } catch {
+    if (claimed) {
+      try {
+        await db().prepare(`DELETE FROM app_settings WHERE key=? AND value='running'`).bind(WEB_HUNT_TASK_KEY).run();
+      } catch {
+        /* give up quietly — the admin can clear the key */
+      }
+    }
+  }
 }
 
 async function runMichaelRebalance(): Promise<void> {

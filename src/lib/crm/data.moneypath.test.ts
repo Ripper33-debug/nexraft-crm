@@ -595,6 +595,17 @@ describe("outreach uses the AI-tailored email for each business", () => {
     expect(body).toContain("GREATEST(COALESCE(email_touches, 0), 1)"); // his email counts, once
     expect(helperBody("runPendingOneTimeTasks")).toContain("runMoveArcticAirToMichael()");
   });
+  it("the one-time web-hunt seed is locked, dedupes like the CSV import, and lands emailable leads on Barry's book", () => {
+    const body = helperBody("runSeedWebHuntLeads");
+    expect(source).toContain('"task_seed_web_hunt_2026_07_21"');
+    expect(body).toContain("ON CONFLICT (key) DO NOTHING"); // run-once lock
+    expect(body).toContain("companyNameKey"); // same dedupe as CSV import
+    expect(body).toContain("phoneKey");
+    expect(body).toContain("INSERT INTO contacts"); // email lands as a contact → Outreach-ready
+    expect(source).toContain("WEB_HUNT_LEADS");
+    expect(source).toContain("web hunt 2026-07"); // source tag reps can filter on
+    expect(helperBody("runPendingOneTimeTasks")).toContain("runSeedWebHuntLeads()");
+  });
   it("every AI prompt quotes the real pricing ($299/month, per nexraft.com) — never the old $100", () => {
     const aiServer = readFileSync(join(__dirname, "ai.server.ts"), "utf8");
     expect(aiServer).toContain("$299/month");
