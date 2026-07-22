@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { aiDraftFromResearch, EMAIL_TEMPLATES, followUpEmail, mailtoLink } from "./emails";
+import { aiDraftFromResearch, draftQualityIssue, EMAIL_TEMPLATES, followUpEmail, mailtoLink } from "./emails";
 
 // The outreach copy is tuned for replies: short enough to read on a phone,
 // one question, an easy out, and a breakup email as the final touch. These
@@ -61,9 +61,39 @@ describe("cold composer templates stay short and reply-first", () => {
   });
 });
 
+// A draft that clears the quality bar — used by several tests below.
+const GOOD_BODY =
+  "Hi Joe,\n\nSaw the 4.9 stars on Google — with reviews like that, it's a shame joesplumbing.com doesn't load anymore. We build and run websites for local trades, everything handled, plans from $299/month. Worth a look? If not, just say so and I'll leave you be.\n\n{{REP_NAME}}";
+
+describe("the draft quality bar (draftQualityIssue)", () => {
+  it("passes a good draft", () => {
+    expect(draftQualityIssue("your google reviews", GOOD_BODY)).toBeNull();
+  });
+  it("catches the old wrong pricing but allows the prospect's own prices as facts", () => {
+    expect(draftQualityIssue("your site", GOOD_BODY.replace("$299/month", "$100/month"))).toMatch(/isn't ours/);
+    expect(draftQualityIssue("your site", GOOD_BODY.replace("$299/month", "$450 per month"))).toMatch(/isn't ours/);
+    // "$150 service calls" is a fact about THEIR business, not a plan price.
+    expect(draftQualityIssue("your site", GOOD_BODY.replace("4.9 stars", "$150 service calls"))).toBeNull();
+  });
+  it("rejects drafts that are too short, too long, or missing the sign-off placeholder", () => {
+    expect(draftQualityIssue("hi", "Too short.\n\n{{REP_NAME}}")).toMatch(/too short/);
+    expect(draftQualityIssue("hi", `${"word ".repeat(140)}? {{REP_NAME}}`)).toMatch(/too long/);
+    expect(draftQualityIssue("hi", GOOD_BODY.replace("{{REP_NAME}}", "Barry"))).toMatch(/REP_NAME/);
+  });
+  it("rejects drafts with no question or with corporate speak", () => {
+    expect(draftQualityIssue("hi", GOOD_BODY.replaceAll("?", "."))).toMatch(/question/);
+    expect(draftQualityIssue("hi", GOOD_BODY.replace("Saw the", "Hope this finds you well — saw the"))).toMatch(
+      /corporate/,
+    );
+  });
+  it("rejects marathon subjects", () => {
+    expect(draftQualityIssue("a".repeat(61), GOOD_BODY)).toMatch(/subject/);
+  });
+});
+
 describe("aiDraftFromResearch surfaces the per-business AI email", () => {
   const research = JSON.stringify({
-    ai: { email_subject: "your google reviews", email_body: "Hi Joe,\n\nSaw the 4.9 stars.\n\n{{REP_NAME}}" },
+    ai: { email_subject: "your google reviews", email_body: GOOD_BODY },
   });
   it("parses the research JSON and fills in the rep's name", () => {
     const d = aiDraftFromResearch(research, "Ayden Sackrider");

@@ -215,6 +215,50 @@ Nexraft`,
 // reviews, THEIR town. This helper digs it out and personalizes the sign-off.
 // Client-safe: pure JSON parsing, no server imports.
 
+// The quality bar every AI-tailored draft must clear before a rep ever sees
+// it — used at generation time (the AI gets one retry, then we refuse to
+// store a bad draft) AND at display time (a stored draft that fails falls
+// back to the canned templates). Returns the reason it failed, or null if
+// the draft is good. Pure and client-safe on purpose so it's unit-testable.
+//
+// A draft may quote the PROSPECT's own prices as facts ("$150 service
+// calls") — but the only monthly plan price it may ever state as ours is
+// real Nexraft pricing ($299/$399/$599, Growth add-on $750). This is what
+// catches the pre-2026-07-21 "$100/month" drafts.
+const OUR_MONTHLY_PRICES = new Set(["299", "399", "599", "750"]);
+const MONTHLY_PRICE_RE = /\$\s?([\d,]+)(?:\s*[-–]\s*\$?[\d,]+)?\s*(?:\/|per\s|a\s|each\s)\s*mo/gi;
+const BANNED_PHRASES = [
+  "hope this finds you well",
+  "i'd love to connect",
+  "to whom it may concern",
+  "dear sir",
+  "cutting-edge",
+  "synergy",
+  "revolutionize",
+  "i wanted to reach out",
+];
+
+export function draftQualityIssue(subject: string, body: string): string | null {
+  if (!subject.trim()) return "empty subject";
+  if (subject.trim().length > 60) return "subject longer than 60 characters";
+  const words = body.trim().split(/\s+/).filter(Boolean).length;
+  if (words < 30) return `body too short (${words} words — needs 30+)`;
+  if (words > 130) return `body too long (${words} words — keep it under 130)`;
+  if (!body.includes("{{REP_NAME}}")) return "missing the {{REP_NAME}} sign-off placeholder";
+  if (!body.includes("?")) return "no question — the email must end with one easy question";
+  const lower = `${subject}\n${body}`.toLowerCase();
+  for (const phrase of BANNED_PHRASES) {
+    if (lower.includes(phrase)) return `banned corporate phrase: "${phrase}"`;
+  }
+  for (const m of `${subject}\n${body}`.matchAll(MONTHLY_PRICE_RE)) {
+    const amount = m[1].replaceAll(",", "");
+    if (!OUR_MONTHLY_PRICES.has(amount)) {
+      return `quotes a monthly price that isn't ours ($${amount}/mo — plans are $299/$399/$599)`;
+    }
+  }
+  return null;
+}
+
 export function aiDraftFromResearch(research: unknown, repName: string): EmailDraft | null {
   try {
     const parsed = typeof research === "string" ? JSON.parse(research) : research;
@@ -222,11 +266,11 @@ export function aiDraftFromResearch(research: unknown, repName: string): EmailDr
     const subject = typeof ai?.email_subject === "string" ? ai.email_subject.trim() : "";
     const body = typeof ai?.email_body === "string" ? ai.email_body.trim() : "";
     if (!subject || !body) return null;
-    // Drafts generated before 2026-07-21 quote the wrong price ("$100/month" —
-    // real plans start at $299/month, per nexraft.com). Refuse to pre-fill
-    // those; the corrected canned templates take over until the nightly
-    // research run regenerates the draft with the right pricing.
-    if (body.includes("$100")) return null;
+    // Stored drafts must clear today's quality bar, not the one they were
+    // written under — anything stale or sloppy (like the pre-2026-07-21
+    // "$100/month" drafts) silently falls back to the canned templates until
+    // re-research regenerates it.
+    if (draftQualityIssue(subject, body) !== null) return null;
     const rep = (repName || "").trim() || "The Nexraft team";
     return { subject, body: body.replaceAll("{{REP_NAME}}", rep) };
   } catch {

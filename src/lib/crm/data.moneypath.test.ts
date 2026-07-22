@@ -614,6 +614,18 @@ describe("outreach uses the AI-tailored email for each business", () => {
     expect(source).not.toContain("$100/mo");
     expect(source).not.toContain("$100/month");
   });
+  it("generated drafts must clear the quality bar — one rewrite, then no draft beats a bad draft", () => {
+    const aiServer = readFileSync(join(__dirname, "ai.server.ts"), "utf8");
+    expect(aiServer).toContain("draftQualityIssue"); // same bar the composer enforces
+    expect(aiServer).toContain("rejected by our quality check"); // failure fed back for the rewrite
+    expect(aiServer).toContain("attempt < 2"); // exactly one retry
+  });
+  it("nightly auto-research puts emailable leads first so tailored drafts land where they can be sent", () => {
+    const body = helperBody("enrichNewLeads");
+    expect(body).toContain("EXISTS");
+    expect(body).toContain("ct.email IS NOT NULL");
+    expect(fnBody("runDueSweeps")).toContain("enrichNewLeads(10)");
+  });
 });
 
 describe("the company edit form's email box syncs to the primary contact", () => {

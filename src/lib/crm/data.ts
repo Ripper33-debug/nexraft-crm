@@ -5198,18 +5198,25 @@ export const aiQualifyLeadsBatch = createServerFn({ method: "POST" })
     return aiQualifyCore(data.limit);
   });
 
-// Batch enrichment: research the newest never-researched companies so reps
-// open them to ready-made intel. Includes companies WITHOUT a website — they
-// get the "no website at all" selling point plus a ratings lookup, which is
-// exactly the pitch. Companies run in parallel (they're independent sites)
-// so a batch's wall time is roughly its slowest crawl, not the sum — that's
-// what keeps a batch inside the 60s serverless window.
+// Batch enrichment: research never-researched companies so reps open them to
+// ready-made intel. EMAILABLE leads jump the queue (a company with a contact
+// email gets a tailored draft the rep can actually send — that's where the
+// AI email pays off), then newest first. Includes companies WITHOUT a
+// website — they get the "no website at all" selling point plus a ratings
+// lookup, which is exactly the pitch. Companies run in parallel (they're
+// independent sites) so a batch's wall time is roughly its slowest crawl,
+// not the sum — that's what keeps a batch inside the 60s serverless window.
 async function enrichNewLeads(cap = 5): Promise<number> {
   const { results } = await db()
     .prepare(
-      `SELECT id, name, website, city FROM companies
+      `SELECT id, name, website, city FROM companies c
        WHERE research IS NULL AND archived_at IS NULL
-       ORDER BY created_at DESC
+       ORDER BY CASE WHEN EXISTS (
+                  SELECT 1 FROM contacts ct
+                   WHERE ct.company_id = c.id AND ct.archived_at IS NULL
+                     AND ct.email IS NOT NULL AND ct.email <> ''
+                ) THEN 0 ELSE 1 END,
+                created_at DESC
        LIMIT ?`,
     )
     .bind(cap)
@@ -6592,7 +6599,7 @@ export const runDueSweeps = createServerOnlyFn(
     // Auto-research: give the newest un-researched leads a dossier so reps
     // open them to ready-made intel. Small cap, best-effort, never blocking.
     try {
-      await enrichNewLeads(5);
+      await enrichNewLeads(10);
     } catch {
       /* research is a bonus, never a blocker */
     }

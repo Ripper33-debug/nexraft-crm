@@ -20,6 +20,7 @@
 // inside a 60s serverless window.
 
 import type { ResearchDossier } from "./data";
+import { draftQualityIssue } from "./emails";
 
 const ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
@@ -187,21 +188,36 @@ export async function aiResearchBrief(
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const text = await aiComplete({
-      system: SYSTEM,
-      user: dossierFacts(company, dossier),
-      maxTokens: 600,
-      signal: ctrl.signal,
-    });
-    // The model is told "JSON only", but strip fences defensively anyway.
-    const raw = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-    const parsed = JSON.parse(raw) as Partial<AiBrief>;
-    if (!parsed.brief || !parsed.email_subject || !parsed.email_body) return null;
-    return {
-      brief: String(parsed.brief).slice(0, 1000),
-      email_subject: String(parsed.email_subject).slice(0, 200),
-      email_body: String(parsed.email_body).slice(0, 3000),
-    };
+    // Quality loop: the draft must clear the same bar the composer enforces
+    // (draftQualityIssue — length, question, sign-off placeholder, real
+    // pricing, no corporate speak). One rewrite attempt with the specific
+    // failure fed back; still bad → return null so a weak draft is never
+    // stored and the canned templates take over. "Best every time" beats
+    // "always something".
+    const facts = dossierFacts(company, dossier);
+    let feedback: string | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const text = await aiComplete({
+        system: SYSTEM,
+        user: feedback
+          ? `${facts}\n\nYour previous draft was rejected by our quality check: ${feedback}. Rewrite it, fix exactly that, and return the same JSON shape.`
+          : facts,
+        maxTokens: 600,
+        signal: ctrl.signal,
+      });
+      // The model is told "JSON only", but strip fences defensively anyway.
+      const raw = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+      const parsed = JSON.parse(raw) as Partial<AiBrief>;
+      if (!parsed.brief || !parsed.email_subject || !parsed.email_body) return null;
+      const brief = {
+        brief: String(parsed.brief).slice(0, 1000),
+        email_subject: String(parsed.email_subject).slice(0, 200),
+        email_body: String(parsed.email_body).slice(0, 3000),
+      };
+      feedback = draftQualityIssue(brief.email_subject, brief.email_body);
+      if (feedback === null) return brief;
+    }
+    return null; // two strikes — ship the dossier without a draft
   } catch {
     return null; // AI is a bonus, never a blocker — same rule as ratings
   } finally {
