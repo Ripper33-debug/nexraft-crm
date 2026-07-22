@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 
-import { aiDraftFromResearch, draftQualityIssue, EMAIL_TEMPLATES, followUpEmail, mailtoLink } from "./emails";
+import {
+  aiDraftFromResearch,
+  draftQualityIssue,
+  EMAIL_TEMPLATES,
+  followUpEmail,
+  friendlyCompanyName,
+  mailtoLink,
+} from "./emails";
 
 // The outreach copy is tuned for replies: short enough to read on a phone,
 // one question, an easy out, and a breakup email as the final touch. These
@@ -46,6 +53,46 @@ describe("follow-up nudges are built to get replies", () => {
     expect(d.subject).toContain("Joe's Plumbing");
     expect(d.body).toContain("Michael ");
     expect(d.body).toContain("Michael Farina");
+  });
+});
+
+describe("outreach reads like a person wrote it (the 2026-07-21 screenshot fixes)", () => {
+  it("friendlyCompanyName strips legal suffixes, even stacked ones", () => {
+    expect(friendlyCompanyName("Mills Plumbing & Drain Cleaning LLC")).toBe("Mills Plumbing & Drain Cleaning");
+    expect(friendlyCompanyName("Z Plumber, Inc.")).toBe("Z Plumber");
+    expect(friendlyCompanyName("Plumbing Solutions of Southwest Florida, LLC")).toBe(
+      "Plumbing Solutions of Southwest Florida",
+    );
+    expect(friendlyCompanyName("Sunshine Pools Co., Inc.")).toBe("Sunshine Pools");
+    // Names that just end in suffix-looking words are left alone.
+    expect(friendlyCompanyName("Joe's Plumbing")).toBe("Joe's Plumbing");
+    expect(friendlyCompanyName("Pasco")).toBe("Pasco");
+  });
+  it("templates never show the legal suffix in subject or body", () => {
+    for (const tpl of EMAIL_TEMPLATES) {
+      const d = tpl.build({ company: "Mills Plumbing & Drain Cleaning LLC", firstName: null, repName: "Barry" });
+      expect(d.subject, tpl.id).not.toContain("LLC");
+      expect(d.body, tpl.id).not.toContain("LLC");
+    }
+    expect(followUpEmail("Z Plumber, Inc.", "Barry", 1).body).not.toContain("Inc");
+  });
+  it('never greets a placeholder contact by "name" — no more "Hi Office /,"', () => {
+    const intro = EMAIL_TEMPLATES.find((t) => t.id === "intro")!;
+    for (const bad of ["Office /", "Office", "Main", "info", null, ""]) {
+      const d = intro.build({ company: "Mills Plumbing LLC", firstName: bad, repName: "Barry" });
+      expect(d.body, `first name: ${JSON.stringify(bad)}`).toContain("Hi there,");
+      expect(d.body).not.toContain("Hi Office");
+    }
+    // A real first name still gets used.
+    expect(intro.build({ company: "Ana's Bakery", firstName: "Ana", repName: "Barry" }).body).toContain("Hi Ana,");
+  });
+  it("no template or nudge uses the cold-email cliché subjects", () => {
+    const nudge2 = followUpEmail("Joe's Plumbing", "Mike", 2);
+    expect(nudge2.subject.toLowerCase()).not.toContain("quick question");
+    for (const tpl of EMAIL_TEMPLATES) {
+      const d = tpl.build({ company: "Ana's Bakery", firstName: "Ana", repName: "Barry" });
+      expect(d.subject.toLowerCase(), tpl.id).not.toContain("quick question");
+    }
   });
 });
 

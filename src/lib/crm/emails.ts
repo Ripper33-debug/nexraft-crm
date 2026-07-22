@@ -10,6 +10,22 @@ function firstName(repName: string): string {
   return (repName || "").split(" ")[0] || "the Nexraft team";
 }
 
+// "Mills Plumbing & Drain Cleaning LLC" reads like a mail merge; "Mills
+// Plumbing & Drain Cleaning" reads like a person typed it. Strip trailing
+// legal suffixes (repeatedly — "Co., Inc." has two) for use in subjects and
+// bodies. Display pages keep the full legal name; this is outreach-only.
+const LEGAL_SUFFIX_RE =
+  /[,\s]+(llc|l\.l\.c\.?|inc\.?|incorporated|corp\.?|corporation|co\.?|company|pllc|p\.?a\.?|llp|lp|ltd\.?|limited)\s*$/i;
+export function friendlyCompanyName(name: string): string {
+  let n = (name || "").trim();
+  for (let i = 0; i < 3; i++) {
+    const next = n.replace(LEGAL_SUFFIX_RE, "").replace(/[,.\s]+$/, "").trim();
+    if (next === n || next === "") break;
+    n = next;
+  }
+  return n || (name || "").trim();
+}
+
 // The copy below is tuned for one thing: getting a REPLY from a busy owner
 // reading on their phone. That means short (under ~90 words), one specific
 // point, one easy question — and an out ("just say no thanks") that
@@ -35,10 +51,10 @@ Nexraft`,
 // Nudge 2 — a few days later. A concrete reason, a yes/no question.
 function nudge2(company: string, rep: string, repName: string): EmailDraft {
   return {
-    subject: `quick question about ${company}`,
+    subject: `${company} on google`,
     body: `Hi,
 
-${rep} again. Quick question and then I'll get out of your inbox:
+${rep} again. One thing, then I'll get out of your inbox:
 
 When someone in town searches for what ${company} does, are you happy with what they find? Most owners we talk to aren't — and it's usually costing them a few customers a month without them ever knowing.
 
@@ -72,7 +88,7 @@ export const NUDGE_LABELS = ["1st nudge", "2nd nudge", "Final nudge"];
 // Build the right draft for a given touch. `touch` is 1-based (the nudge being
 // sent now). Anything past 3 reuses the final nudge.
 export function followUpEmail(companyName: string, repName: string, touch: number): EmailDraft {
-  const company = companyName || "your business";
+  const company = friendlyCompanyName(companyName) || "your business";
   const rep = firstName(repName);
   const t = Math.max(1, Math.min(3, touch));
   if (t === 1) return nudge1(company, rep, repName);
@@ -94,27 +110,35 @@ export type TemplateInput = { company: string; firstName?: string | null; repNam
 export type EmailTemplate = { id: string; label: string; hint: string; build: (t: TemplateInput) => EmailDraft };
 
 function greet(firstName?: string | null): string {
-  return `Hi ${(firstName || "").trim() || "there"},`;
+  const n = (firstName || "").trim();
+  // Placeholder contacts aren't people. The seeded office inboxes carry names
+  // like "Office /" or "Main" — greeting those by "name" produced the
+  // infamous "Hi Office /," Barry caught on 2026-07-21. When we don't have a
+  // real human's first name, "Hi there," beats a robot giveaway every time.
+  if (!n || n.includes("/") || /^(office|main|info|admin|sales|contact|team|front)\b/i.test(n)) {
+    return "Hi there,";
+  }
+  return `Hi ${n},`;
 }
 
 // The rep's first name for sign-offs (alias because the templates destructure a
 // `firstName` param for the CONTACT's name, which would shadow the helper).
 const repFirst = firstName;
 
-export const EMAIL_TEMPLATES: EmailTemplate[] = [
+const RAW_TEMPLATES: EmailTemplate[] = [
   {
     id: "intro",
     label: "Intro",
     hint: "First time reaching out",
     build: ({ company, firstName, repName }) => ({
-      subject: `question about ${company}`,
+      subject: `${company}'s website`,
       body: `${greet(firstName)}
 
-${repFirst(repName)} here, from Nexraft. We build and run websites for local businesses — everything handled, live in about two weeks, plans from $299/month.
+${repFirst(repName)} here, from Nexraft — we build and run websites for local businesses. Design, hosting, updates, all handled, live in about two weeks, plans from $299/month.
 
-I think ${company} is exactly the kind of business it works for, but you'd know better than me.
+No site, or one that isn't bringing in work? That's exactly who we're for.
 
-Worth a look? Reply "sure" and I'll send over what it'd look like — or "no thanks" and that's the last you'll hear from me.
+Want to see what ${company}'s could look like? Reply "sure" and I'll put something together — or "no thanks" and that's the last you'll hear from me.
 
 ${repName || "The Nexraft team"}
 Nexraft`,
@@ -207,6 +231,14 @@ Nexraft`,
     }),
   },
 ];
+
+// Every template gets the friendly company name ("Z Plumber", not
+// "Z Plumber, Inc.") without each build function having to remember to strip
+// it — one wrapper here covers subjects and bodies alike.
+export const EMAIL_TEMPLATES: EmailTemplate[] = RAW_TEMPLATES.map((t) => ({
+  ...t,
+  build: (input) => t.build({ ...input, company: friendlyCompanyName(input.company) || input.company }),
+}));
 
 // ---- AI-tailored drafts ------------------------------------------------------
 // The nightly research run has Grok write a bespoke outreach email for each

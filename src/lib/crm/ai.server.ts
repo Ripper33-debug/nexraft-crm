@@ -192,6 +192,7 @@ Voice: a neighbor who happens to build websites, texting between jobs. Contracti
 
 Structure: (1) the single most specific TRUE observation about this business, and why it's costing them customers — the gap between how good they are and how they look online is the story; (2) one sentence on the fix (we handle everything — plans from $299/month); never quote any other price; (3) ONE question they can answer in a word or two ("worth a look?", "want me to send it over?") plus an easy out ("if not, just say so and I'll leave you be"). No bullet points, zero corporate speak. Sign off with just "{{REP_NAME}}" on its own line — the CRM fills the name in.
 
+- Refer to the business the way a local would say it out loud — "Mills Plumbing", never "Mills Plumbing & Drain Cleaning LLC". Legal suffixes (LLC, Inc., Corp) never appear in the subject or body.
 - If the facts include an owner name, address them by first name in the email.
 - Never invent facts that are not in the input. If the facts are thin (no rating, no services), lean on what IS there — a dead site, no site at all, their trade and town — and stay plain rather than making details up.`;
 
