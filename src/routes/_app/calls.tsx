@@ -20,6 +20,7 @@ import {
   daysBetween,
   formatMoney,
   PRICING_PACKAGES,
+  hasTeamScope,
 } from "../../lib/crm/constants";
 import { missedCallEmail, mailtoLink } from "../../lib/crm/emails";
 
@@ -594,10 +595,12 @@ function CallsPage() {
   const { companies, contacts, users, deals, me, gmail } = Route.useLoaderData();
   const gmailConnected = !!(gmail as { connected?: boolean }).connected;
   const router = useRouter();
-  const isAdmin = me?.role === "admin";
+  // Managers get the same full-team call view as admins (this flag only ever
+  // gates visibility on this page, not admin tools).
+  const isAdmin = hasTeamScope(me?.role);
 
   // Reps should only be nudged to call companies they own — dialing someone
-  // else's lead steps on toes. Admins keep the full view for oversight.
+  // else's lead steps on toes. Admins and managers keep the full view.
   const callable = useMemo(
     () =>
       isAdmin

@@ -98,16 +98,16 @@ describe("lead-engine kill switch", () => {
 describe("list loaders scope reps to their own book plus the unowned pool", () => {
   for (const name of ["getCompanies", "getContacts", "getDeals"]) {
     const body = fnBody(name);
-    it(`${name} only skips scoping for admins`, () => {
-      expect(body).toContain('me.role === "admin"');
+    it(`${name} only skips scoping for admins & managers (team scope)`, () => {
+      expect(body).toContain("hasTeamScope(me.role)");
     });
     it(`${name} keeps the unowned pool visible so claiming still works`, () => {
       expect(body).toMatch(/owner_id IS NULL/);
     });
   }
-  it("getActivities scopes non-admins to their own activities", () => {
+  it("getActivities scopes plain members to their own activities", () => {
     const body = fnBody("getActivities");
-    expect(body).toContain('me.role === "admin"');
+    expect(body).toContain("hasTeamScope(me.role)");
     expect(body).toContain("a.owner_id = ?");
   });
 });
@@ -978,5 +978,47 @@ describe("moneypath: reps land on My Day and the tour teaches the real routine",
       "You can't break anything",
     ]);
     expect(tour).toContain("To Call → Lost → Proposal → Negotiation → In Build → Launched");
+  });
+});
+
+describe("moneypath: the Manager role sees the whole team's book without admin powers", () => {
+  const constants = readFileSync(join(__dirname, "constants.ts"), "utf8");
+  const team = readFileSync(join(__dirname, "../../routes/_app/team.tsx"), "utf8");
+  const calls = readFileSync(join(__dirname, "../../routes/_app/calls.tsx"), "utf8");
+
+  it("hasTeamScope covers exactly admin and manager", () => {
+    expect(constants).toContain('return role === "admin" || role === "manager";');
+  });
+  it("record edits and every big list loader use team scope, not a bare admin check", () => {
+    const canEdit = constants.slice(constants.indexOf("export function canEditRecord"));
+    expect(canEdit.slice(0, 500)).toContain("hasTeamScope(user.role)");
+    // companies, contacts, deals, activities loaders
+    const scopes = [...source.matchAll(/hasTeamScope\(me\.role\)/g)];
+    expect(scopes.length).toBeGreaterThanOrEqual(4);
+  });
+  it("admins can grant the manager role from the Team page", () => {
+    expect(fnBody("adminUpdateRole")).toContain('z.enum(["admin", "manager", "member"])');
+    expect(team).toContain('<option value="manager">');
+  });
+  it("the last-admin guard still holds when demoting to manager", () => {
+    const body = fnBody("adminUpdateRole");
+    expect(body).toContain('data.role !== "admin"');
+    expect(body).toContain("You can't remove the last admin.");
+  });
+  it("Nick Besser gets promoted once, automatically, by surname match", () => {
+    const body = helperBody("runPromoteNickBesserToManager");
+    expect(source).toContain('const NICK_MANAGER_TASK_KEY = "task_make_besser_manager_2026_07_22"');
+    expect(body).toContain("ON CONFLICT (key) DO NOTHING RETURNING key");
+    expect(body).toContain("LOWER(name) LIKE '%besser%' OR LOWER(email) LIKE '%besser%'");
+    expect(body).toContain("role='member'"); // never touches admins
+    expect(helperBody("runPendingOneTimeTasks")).toContain("runPromoteNickBesserToManager()");
+  });
+  it("the Calls page gives managers the full-team queue", () => {
+    expect(calls).toContain("hasTeamScope(me?.role)");
+  });
+  it("admin pages stay admin-only (team & payroll gates untouched)", () => {
+    const payroll = readFileSync(join(__dirname, "../../routes/_app/payroll.tsx"), "utf8");
+    expect(team).toContain('user.role !== "admin"');
+    expect(payroll).toContain('user.role !== "admin"');
   });
 });

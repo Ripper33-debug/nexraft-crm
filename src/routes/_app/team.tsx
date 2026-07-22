@@ -486,10 +486,9 @@ function TeamPage() {
     }
   }
 
-  async function changeRole(r: TeamMemberRow) {
+  async function changeRole(r: TeamMemberRow, next: "admin" | "manager" | "member") {
     setBusy(true);
     setError(null);
-    const next = r.role === "admin" ? "member" : "admin";
     const res = await adminUpdateRole({ data: { id: r.id, role: next } });
     if (!res.ok) setError(res.error);
     await refresh();
@@ -610,17 +609,30 @@ function TeamPage() {
                     )}
                   </td>
                   <td className="px-4 py-2.5">
-                    {r.role === "admin" ? <Pill tone="signal">Admin</Pill> : <Pill tone="neutral">Member</Pill>}
+                    {r.role === "admin" ? (
+                      <Pill tone="signal">Admin</Pill>
+                    ) : r.role === "manager" ? (
+                      <span title="Sees & works the whole team's companies, contacts, and deals — no admin pages">
+                        <Pill tone="warn">Manager</Pill>
+                      </span>
+                    ) : (
+                      <Pill tone="neutral">Member</Pill>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button
+                      {/* Role picker: the old toggle only knew admin/member. */}
+                      <select
                         disabled={busy}
-                        onClick={() => changeRole(r)}
-                        className="text-xs text-mute hover:text-signal disabled:opacity-50"
+                        value={r.role}
+                        onChange={(e) => changeRole(r, e.target.value as "admin" | "manager" | "member")}
+                        title="Member: own book only · Manager: whole team's book · Admin: everything incl. Team/Payroll/Billing"
+                        className="rounded border border-line bg-surface px-1.5 py-0.5 text-xs text-mute hover:text-signal disabled:opacity-50"
                       >
-                        {r.role === "admin" ? "Make member" : "Make admin"}
-                      </button>
+                        <option value="member">Member</option>
+                        <option value="manager">Manager</option>
+                        <option value="admin">Admin</option>
+                      </select>
                       <span className="text-line-strong">·</span>
                       <button
                         disabled={busy}
@@ -848,7 +860,11 @@ function MemberDetailModal({
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-medium text-bone">{detail.user.name}</span>
-                {detail.user.role === "admin" ? <Pill tone="signal">Admin</Pill> : null}
+                {detail.user.role === "admin" ? (
+                  <Pill tone="signal">Admin</Pill>
+                ) : detail.user.role === "manager" ? (
+                  <Pill tone="warn">Manager</Pill>
+                ) : null}
               </div>
               <div className="text-xs text-faint">{detail.user.email}</div>
             </div>
@@ -953,7 +969,7 @@ function AddTeammateModal({
         name: String(fd.get("name") || ""),
         email: String(fd.get("email") || ""),
         password: String(fd.get("password") || ""),
-        role: (String(fd.get("role") || "member") as "admin" | "member"),
+        role: (String(fd.get("role") || "member") as "admin" | "manager" | "member"),
       },
     });
     setSaving(false);
@@ -979,8 +995,9 @@ function AddTeammateModal({
         </Field>
         <Field label="Role">
           <Select name="role" defaultValue="member">
-            <option value="member">Member</option>
-            <option value="admin">Admin</option>
+            <option value="member">Member — their own book only</option>
+            <option value="manager">Manager — the whole team's book</option>
+            <option value="admin">Admin — everything, incl. Team &amp; Payroll</option>
           </Select>
         </Field>
         <p className="text-xs text-faint">

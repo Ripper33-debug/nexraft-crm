@@ -844,6 +844,15 @@ export function relativeTime(iso: string | null | undefined, now = new Date()): 
 // Minimal "actor" shape the permission check needs.
 export type Actor = { id: string; role: string } | null | undefined;
 
+// Owner's ask (2026-07-22): "give Nick Besser access to everyone else's
+// companies." Rather than hardcode one person, this is a proper Manager
+// level: managers see and can edit the whole team's book — companies,
+// contacts, deals, activities — like an admin does, but the Admin pages
+// (Team, Payroll, Billing) and the bulk admin tools stay admin-only.
+export function hasTeamScope(role: string | null | undefined): boolean {
+  return role === "admin" || role === "manager";
+}
+
 // Parse a comma-separated shared_with column into a list of user ids.
 export function parseSharedIds(shared: string | null | undefined): string[] {
   return (shared ?? "")
@@ -852,16 +861,17 @@ export function parseSharedIds(shared: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-// Can this user edit a record? Admins always can; the owner always can; anyone
-// explicitly shared can; an unowned record is open to all. Everyone else is
-// locked out. This is the single source of truth, mirrored on the server.
+// Can this user edit a record? Admins and managers always can; the owner
+// always can; anyone explicitly shared can; an unowned record is open to all.
+// Everyone else is locked out. This is the single source of truth, mirrored
+// on the server.
 export function canEditRecord(
   user: Actor,
   ownerId: string | null | undefined,
   sharedWith: string | null | undefined,
 ): boolean {
   if (!user) return false;
-  if (user.role === "admin") return true;
+  if (hasTeamScope(user.role)) return true;
   if (!ownerId) return true;
   if (ownerId === user.id) return true;
   return parseSharedIds(sharedWith).includes(user.id);

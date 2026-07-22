@@ -9,6 +9,7 @@ import {
   RENEWAL_SOON_DAYS,
   canEditRecord,
   canAdministerRecord,
+  hasTeamScope,
   dealCommission,
   salesBonus,
   opportunityScore,
@@ -296,8 +297,8 @@ export const getCompanies = createServerFn({ method: "GET" }).handler(async () =
   // process, run-once-ever via the app_settings lock. Never blocks the list.
   await runPendingOneTimeTasks();
   // Reps see their own book plus the unowned pool (so they can claim from it);
-  // admins see the whole team's companies.
-  const scope = me.role === "admin" ? "" : "AND (c.owner_id = ? OR c.owner_id IS NULL)";
+  // admins and managers see the whole team's companies.
+  const scope = hasTeamScope(me.role) ? "" : "AND (c.owner_id = ? OR c.owner_id IS NULL)";
   const stmt = db().prepare(
     `SELECT c.*, u.name AS owner_name,
         (SELECT COUNT(*)::int FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL) AS deal_count,
@@ -474,9 +475,9 @@ export const getContacts = createServerFn({ method: "GET" }).handler(async () =>
   const me = await requireUser();
   await ensureExtraSchema();
   // Reps see contacts they own, contacts at companies they own, and the
-  // unowned pool; admins see everyone's.
+  // unowned pool; admins and managers see everyone's.
   const scope =
-    me.role === "admin" ? "" : "AND (ct.owner_id = ? OR co.owner_id = ? OR (ct.owner_id IS NULL AND co.owner_id IS NULL))";
+    hasTeamScope(me.role) ? "" : "AND (ct.owner_id = ? OR co.owner_id = ? OR (ct.owner_id IS NULL AND co.owner_id IS NULL))";
   const stmt = db()
     .prepare(
       `SELECT ct.*, co.name AS company_name, u.name AS owner_name,
@@ -614,9 +615,9 @@ export const getDeals = createServerFn({ method: "GET" }).handler(async () => {
   const me = await requireUser();
   await ensureExtraSchema();
   // Reps see their own deals plus unowned deals at companies they own or that
-  // sit in the pool; admins see the whole pipeline.
+  // sit in the pool; admins and managers see the whole pipeline.
   const scope =
-    me.role === "admin" ? "" : "AND (d.owner_id = ? OR (d.owner_id IS NULL AND (co.owner_id = ? OR co.owner_id IS NULL)))";
+    hasTeamScope(me.role) ? "" : "AND (d.owner_id = ? OR (d.owner_id IS NULL AND (co.owner_id = ? OR co.owner_id IS NULL)))";
   const stmt = db().prepare(
     `SELECT d.*, co.name AS company_name, u.name AS owner_name,
         ct.first_name AS contact_first, ct.last_name AS contact_last
@@ -2057,8 +2058,8 @@ const activitySchema = z.object({
 
 export const getActivities = createServerFn({ method: "GET" }).handler(async () => {
   const me = await requireUser();
-  // Reps see their own activities (plus any unowned ones); admins see all.
-  const scope = me.role === "admin" ? "" : "WHERE (a.owner_id = ? OR a.owner_id IS NULL)";
+  // Reps see their own activities (plus any unowned ones); admins and managers see all.
+  const scope = hasTeamScope(me.role) ? "" : "WHERE (a.owner_id = ? OR a.owner_id IS NULL)";
   const stmt = db().prepare(
     `SELECT a.*, d.name AS deal_name, u.name AS owner_name,
         ct.first_name AS contact_first, ct.last_name AS contact_last
@@ -2656,7 +2657,7 @@ export const adminCreateUser = createServerFn({ method: "POST" })
       name: z.string().min(1),
       email: z.string().email(),
       password: z.string().min(8),
-      role: z.enum(["admin", "member"]).default("member"),
+      role: z.enum(["admin", "manager", "member"]).default("member"),
     }),
   )
   .handler(async ({ data }) => {
@@ -2677,10 +2678,10 @@ export const adminCreateUser = createServerFn({ method: "POST" })
   });
 
 export const adminUpdateRole = createServerFn({ method: "POST" })
-  .validator(z.object({ id: z.string(), role: z.enum(["admin", "member"]) }))
+  .validator(z.object({ id: z.string(), role: z.enum(["admin", "manager", "member"]) }))
   .handler(async ({ data }) => {
     const me = await requireAdmin();
-    if (data.role === "member") {
+    if (data.role !== "admin") {
       // Never leave the workspace without an admin.
       const admins = await db()
         .prepare("SELECT COUNT(*)::int AS c FROM users WHERE role='admin'")
@@ -2697,10 +2698,10 @@ export const adminUpdateRole = createServerFn({ method: "POST" })
       }
     }
     await db().prepare("UPDATE users SET role = ? WHERE id = ?").bind(data.role, data.id).run();
-    if (data.role === "member") {
+    if (data.role !== "admin") {
       // Defense in depth on demotion: kill the user's sessions so they re-login
-      // as a member. (Role is also re-read per request, so admin powers already
-      // end immediately — this just clears any lingering signed-in tabs.)
+      // at the lower level. (Role is also re-read per request, so admin powers
+      // already end immediately — this just clears any lingering signed-in tabs.)
       await db().prepare("DELETE FROM sessions WHERE user_id = ?").bind(data.id).run();
     }
     return { ok: true as const };
@@ -4761,6 +4762,62 @@ async function runPendingOneTimeTasks(): Promise<void> {
   await runSeedWebHuntLeads();
   await runSeedFlHuntLeads();
   await runRetireLeadDiscoveryStages();
+  await runPromoteNickBesserToManager();
+}
+
+// One-time promotion (owner's ask, 2026-07-22): "give Nick Besser access to
+// everyone else's companies." Managers see and can edit the whole team's book
+// (see hasTeamScope in constants.ts) without getting the admin-only pages, so
+// this bumps Nick's account from member to manager. Matched by his surname in
+// the account name or email — user ids differ between environments. Admins can
+// change or undo it any time from the Team page.
+const NICK_MANAGER_TASK_KEY = "task_make_besser_manager_2026_07_22";
+
+async function runPromoteNickBesserToManager(): Promise<void> {
+  try {
+    const row = await db()
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES (?, 'running')
+         ON CONFLICT (key) DO NOTHING RETURNING key`,
+      )
+      .bind(NICK_MANAGER_TASK_KEY)
+      .first<{ key: string }>();
+    if (!row) return; // already ran (or another instance is on it)
+
+    const promoted =
+      (
+        await db()
+          .prepare(
+            `UPDATE users SET role='manager'
+             WHERE role='member' AND (LOWER(name) LIKE '%besser%' OR LOWER(email) LIKE '%besser%')
+             RETURNING id, name`,
+          )
+          .all<{ id: string; name: string }>()
+      ).results ?? [];
+    const n = promoted.length;
+    await db()
+      .prepare(`UPDATE app_settings SET value=? WHERE key=?`)
+      .bind(
+        n > 0
+          ? `done: promoted ${promoted.map((p) => p.name).join(", ")} to manager`
+          : "done: no matching member account found (promote from the Team page instead)",
+        NICK_MANAGER_TASK_KEY,
+      )
+      .run();
+    for (const p of promoted) {
+      // Fresh scope should apply everywhere at once, not per lingering tab.
+      await db().prepare("DELETE FROM sessions WHERE user_id = ?").bind(p.id).run();
+      await logEvent({
+        actorId: null,
+        verb: "updated",
+        entityType: "user",
+        entityId: p.id,
+        summary: `${p.name} is now a Manager — they can see and work the whole team's companies, contacts, and deals`,
+      });
+    }
+  } catch {
+    // Best-effort — next cron hit / page load retries if the claim didn't stick.
+  }
 }
 
 // One-time migration (owner's ask, 2026-07-22): the Lead and Discovery stages
