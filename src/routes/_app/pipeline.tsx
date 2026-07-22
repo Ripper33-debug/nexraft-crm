@@ -10,6 +10,7 @@ import {
   setDealStage,
   archiveDeal,
   restoreDeal,
+  getProposalLink,
 } from "../../lib/crm/data";
 import {
   Button,
@@ -394,6 +395,42 @@ function PipelinePage() {
   );
 }
 
+// One-click proposal link straight from a board card — first click flips the
+// deal to proposal "sent" server-side (starting the 3-day chaser clock in My
+// Day) and copies the public link, so a rep never has to open the deal page
+// just to send a proposal.
+function CardProposalButton({ dealId, status }: { dealId: string; status: string }) {
+  const [busy, setBusy] = useState(false);
+  const sent = status !== "none" && status !== "";
+  return (
+    <button
+      disabled={busy}
+      onClick={async (e) => {
+        e.stopPropagation();
+        setBusy(true);
+        try {
+          const { token } = await getProposalLink({ data: { dealId } });
+          const url = `${window.location.origin}/proposal/${token}`;
+          try {
+            await navigator.clipboard.writeText(url);
+            toast("📋 Proposal link copied — paste it into your email. You'll get pinged when they open it.", "success");
+          } catch {
+            prompt("Copy your proposal link:", url);
+          }
+        } catch {
+          toast("Couldn't create the proposal link — try again.", "error");
+        } finally {
+          setBusy(false);
+        }
+      }}
+      className="text-xs transition-opacity hover:opacity-80 disabled:opacity-40"
+      title={sent ? "Proposal already sent — copy the link again" : "Send proposal — copies the link to paste into your email"}
+    >
+      📨
+    </button>
+  );
+}
+
 // ---------- Kanban board (drag a card between stages to move the deal) ----------
 function KanbanBoard({
   deals,
@@ -507,6 +544,9 @@ function KanbanBoard({
                     <div className="mt-2 flex items-center justify-between">
                       <span className="font-mono text-xs text-signal">{formatMoney(Number(d.value))}</span>
                       <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        {(d.stage === "Proposal" || d.stage === "Negotiation") ? (
+                          <CardProposalButton dealId={d.id as string} status={String(d.proposal_status ?? "none")} />
+                        ) : null}
                         <RecordAccessButton
                           entity="deal"
                           record={{ id: d.id as string, owner_id: (d.owner_id as string) ?? null, owner_name: (d.owner_name as string) ?? null, shared_with: (d.shared_with as string) ?? null }}

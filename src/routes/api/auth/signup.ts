@@ -22,7 +22,8 @@ export const Route = createFileRoute("/api/auth/signup")({
         if (!result.ok) {
           return redirect(`/signup?error=${encodeURIComponent(result.error)}`);
         }
-        return redirect("/", sessionCookie(result.token));
+        // Land reps on My Day — the practical "what do I do next" home.
+        return redirect("/today", sessionCookie(result.token));
       },
     },
   },

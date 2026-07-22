@@ -95,8 +95,17 @@ export function ResearchPanel({ company }: { company: Row }) {
             ) : null}
           </div>
           {d.emails.length > 0 || d.phones.length > 0 ? (
-            <div className="font-mono text-xs text-mute">
-              {[...d.emails, ...d.phones].join(" · ")}
+            <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-xs text-mute">
+              {d.emails.map((em) => (
+                <a key={em} href={`mailto:${em}`} className="hover:text-signal hover:underline" title="Tap to email">
+                  {em}
+                </a>
+              ))}
+              {d.phones.map((ph) => (
+                <a key={ph} href={`tel:${ph.replace(/[^\d+]/g, "")}`} className="hover:text-signal hover:underline" title="Tap to call">
+                  {ph}
+                </a>
+              ))}
             </div>
           ) : null}
           {d.socials.length > 0 ? (

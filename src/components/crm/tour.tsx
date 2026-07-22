@@ -6,7 +6,9 @@ import { useEffect, useState } from "react";
 // it's a centered step-through card rather than fragile element-anchored
 // coach-marks, so it never breaks when the layout changes.
 
-const SEEN_KEY = "nexraft_tour_seen_v1";
+// v2: expanded to cover the real daily routine (My Day → call → log → email →
+// pipeline). Bumping the key shows the refreshed tour once to existing reps too.
+const SEEN_KEY = "nexraft_tour_seen_v2";
 const listeners = new Set<() => void>();
 
 // Ask the tour to open (used by the "Replay the tour" button on Help).
@@ -20,22 +22,37 @@ const STEPS: Step[] = [
   {
     emoji: "👋",
     title: "Welcome to your CRM",
-    body: "This is where your team tracks the companies you're talking to, the people at them, and the deals you're working to win. Here's a 30-second tour — you can replay it any time from the Help page.",
+    body: "This is where you track the businesses you're talking to, the people at them, and the deals you're working to win. Here's a quick tour of a typical day — you can replay it any time from the Help page.",
   },
   {
-    emoji: "📋",
-    title: "Start each day on the Dashboard",
-    body: "The “Today” panel at the top tells you exactly what needs you right now — who to call, what follow-ups are due, and renewals coming up. Work down the list and you're on top of things.",
+    emoji: "🌅",
+    title: "Start every day on My Day",
+    body: "You'll land on My Day when you sign in. It's your game plan: who to call first, which follow-ups are due, and any proposals that just got opened. Work top to bottom and you're covered.",
   },
   {
     emoji: "📞",
-    title: "The call queue tees up who to call",
-    body: "New companies with no deal yet land in the Calls queue automatically. Go through them one at a time and mark each Interested or Not interested — no forms, it just moves them along.",
+    title: "The Calls queue tees up who to call",
+    body: "New companies land in the Calls queue automatically. Open one and hit the big 📞 Call button — you get the phone number, a suggested script, and the AI research on the business, all on one screen.",
+  },
+  {
+    emoji: "✅",
+    title: "Log the call with one tap",
+    body: "When you hang up, tap the outcome — spoke with them, voicemail, no answer. That's it. The CRM logs it and creates your follow-up task automatically, so nothing slips.",
+  },
+  {
+    emoji: "✉️",
+    title: "Missed them? Email them right away",
+    body: "If you get voicemail or no answer, an “Email them now” button appears with a pre-written message ready to send — it even uses the AI draft written just for that business. One click, and you've still made contact.",
+  },
+  {
+    emoji: "📬",
+    title: "Outreach keeps follow-ups moving",
+    body: "The Outreach page collects everyone who didn't pick up and has an email on file. Review the pre-written nudges and, if Gmail is connected, hit “Approve & send all” to clear the whole list in one go.",
   },
   {
     emoji: "🗂️",
-    title: "Deals move through the pipeline",
-    body: "Drag a deal's card between stages as it progresses — from first contact all the way to launched. The board shows your whole team's work at a glance.",
+    title: "The pipeline reads left to right",
+    body: "The board goes To Call → Lost → Proposal → Negotiation → In Build → Launched. Drag a card to move it. The 🔎 on a card means AI research is ready, and 📨 copies the proposal link right from the board.",
   },
   {
     emoji: "🤝",

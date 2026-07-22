@@ -682,7 +682,13 @@ function ArcadeDeck({
                 {(current.row.name as string) || "your business"}…"
               </div>
               <div className="font-display mt-4 text-xl font-extrabold tracking-wide text-signal">
-                {(current.row.phone as string) ? `☎ ${current.row.phone as string}` : "No phone on file — try Discover"}
+                {(current.row.phone as string) ? (
+                  <a href={`tel:${(current.row.phone as string).replace(/[^\d+]/g, "")}`} className="hover:underline" title="Tap to call">
+                    ☎ {current.row.phone as string}
+                  </a>
+                ) : (
+                  "No phone on file — try Discover"
+                )}
               </div>
             </div>
           </div>

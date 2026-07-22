@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { getDeals, getProposalLink } from "../../lib/crm/data";
+import { getDeals, getProposalLink, setDealQuickFields } from "../../lib/crm/data";
 import { toast } from "../../components/crm/toast";
 import {
   Button,
@@ -34,6 +34,83 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
       <span className="shrink-0 text-xs text-faint">{label}</span>
       <span className="min-w-0 text-right text-sm text-bone">{children}</span>
     </div>
+  );
+}
+
+// Click-to-edit row: shows the value as a button; clicking swaps in an input,
+// Enter/blur saves, Escape cancels. Keeps reps out of the full edit form for
+// the two fields they touch most between calls.
+function QuickEditRow({
+  label,
+  dealId,
+  field,
+  value,
+  type,
+  placeholder,
+}: {
+  label: string;
+  dealId: string;
+  field: "next_step" | "renewal_date";
+  value: string;
+  type: "text" | "date";
+  placeholder: string;
+}) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    if (draft.trim() === value.trim()) {
+      setEditing(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      await setDealQuickFields({ data: { id: dealId, [field]: draft.trim() || null } });
+      toast("Saved.");
+      setEditing(false);
+      router.invalidate();
+    } catch {
+      toast("Couldn't save — try again.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <DetailRow label={label}>
+      {editing ? (
+        <input
+          autoFocus
+          type={type}
+          value={draft}
+          disabled={busy}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void save();
+            if (e.key === "Escape") {
+              setDraft(value);
+              setEditing(false);
+            }
+          }}
+          className="w-full max-w-56 rounded-md border border-signal/60 bg-surface-2 px-2 py-1 text-right text-sm text-bone outline-none"
+        />
+      ) : (
+        <button
+          onClick={() => {
+            setDraft(value);
+            setEditing(true);
+          }}
+          className="group inline-flex items-center gap-1.5 text-right hover:text-signal"
+          title="Click to edit"
+        >
+          {value || <span className="text-faint">{placeholder}</span>}
+          <span className="text-[10px] text-faint opacity-0 transition-opacity group-hover:opacity-100">✎</span>
+        </button>
+      )}
+    </DetailRow>
   );
 }
 
@@ -160,8 +237,22 @@ function DealDetail() {
                 </Link>
               ) : <span className="text-faint">—</span>}
             </DetailRow>
-            <DetailRow label="Next step">{(d.next_step as string) || <span className="text-faint">—</span>}</DetailRow>
-            {d.renewal_date ? <DetailRow label="Renews">{String(d.renewal_date).slice(0, 10)}</DetailRow> : null}
+            <QuickEditRow
+              label="Next step"
+              dealId={dealId}
+              field="next_step"
+              value={(d.next_step as string) || ""}
+              type="text"
+              placeholder="Click to add a next step"
+            />
+            <QuickEditRow
+              label="Renews"
+              dealId={dealId}
+              field="renewal_date"
+              value={d.renewal_date ? String(d.renewal_date).slice(0, 10) : ""}
+              type="date"
+              placeholder="Click to set"
+            />
             {d.win_reason ? <DetailRow label="Win reason">{d.win_reason as string}</DetailRow> : null}
             {d.lost_reason ? <DetailRow label="Lost reason">{d.lost_reason as string}</DetailRow> : null}
             <DetailRow label="Created">{d.created_at ? relativeTime(d.created_at as string) : "—"}</DetailRow>

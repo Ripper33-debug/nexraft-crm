@@ -13,6 +13,7 @@ import {
   PageSkeleton,
 } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
+import { CallMode } from "../../components/crm/call-mode";
 import { ResearchPanel } from "../../components/crm/research-panel";
 import { Timeline } from "../../components/crm/timeline";
 import { formatMoney, relativeTime, stageInfo } from "../../lib/crm/constants";
@@ -100,6 +101,11 @@ function ReferredByRow({ company, referrers }: { company: Row; referrers: { id: 
 function CompanyDetail() {
   const { company, contacts, deals, referrers } = Route.useLoaderData();
   const { companyId } = Route.useParams();
+  const router = useRouter();
+  const { user } = useRouteContext({ from: "/_app" }) as { user?: { name?: string } };
+  // "Work the account from one page": call + email actions live right in the
+  // header so a rep never has to hop to Calls or Outreach mid-conversation.
+  const [calling, setCalling] = useState(false);
 
   if (!company) {
     return (
@@ -116,6 +122,36 @@ function CompanyDetail() {
   const c = company as Row;
   const tags = String(c.tags ?? "").split(",").map((t) => t.trim()).filter(Boolean);
   const website = (c.website as string) || "";
+
+  // Quick email: first linked contact with an address, else the first email the
+  // research dig found. Pre-fills the AI-drafted email when a dossier has one.
+  let quickEmail: { to: string; href: string } | null = null;
+  {
+    const contactEmail = (contacts as Row[]).map((ct) => (ct.email as string) || "").find(Boolean) ?? null;
+    let dossier: ResearchDossier | null = null;
+    try {
+      dossier = c.research ? (JSON.parse(c.research as string) as ResearchDossier) : null;
+    } catch {
+      dossier = null;
+    }
+    const to = contactEmail ?? dossier?.emails?.[0] ?? null;
+    if (to) {
+      const rep = user?.name ?? "";
+      const subject = dossier?.ai?.email_subject?.trim() || `Quick idea for ${(c.name as string) || "your business"}`;
+      const body =
+        dossier?.ai?.email_body?.replace(/\{\{REP_NAME\}\}/g, rep).trim() ||
+        [
+          "Hi,",
+          "",
+          `I came across ${(c.name as string) || "your business"} and had a couple of quick ideas for your website that I think you'd like.`,
+          "",
+          "Is there a good time this week for a 5-minute chat?",
+          "",
+          rep ? `Thanks,\n${rep}` : "Thanks!",
+        ].join("\n");
+      quickEmail = { to, href: `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}` };
+    }
+  }
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
@@ -141,11 +177,28 @@ function CompanyDetail() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button size="sm" onClick={() => setCalling(true)} title="Open Call Mode — script, timer, and one-tap logging">
+            📞 Call
+          </Button>
+          {quickEmail ? (
+            <a href={quickEmail.href} title={`Opens a ready-to-send email to ${quickEmail.to}`}>
+              <Button size="sm" variant="outline">✉ Email</Button>
+            </a>
+          ) : null}
           <Link to="/companies" search={{ focus: companyId, new: undefined }}>
             <Button size="sm" variant="outline">Edit</Button>
           </Link>
         </div>
       </div>
+
+      <CallMode
+        open={calling}
+        onClose={() => setCalling(false)}
+        subject={c}
+        kind="company"
+        deals={deals as Row[]}
+        onLogged={() => router.invalidate()}
+      />
 
       <div className="mt-5 grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
@@ -166,7 +219,15 @@ function CompanyDetail() {
                 </span>
               ) : <span className="text-faint">—</span>}
             </DetailRow>
-            <DetailRow label="Phone">{(c.phone as string) || <span className="text-faint">—</span>}</DetailRow>
+            <DetailRow label="Phone">
+              {c.phone ? (
+                <a href={`tel:${(c.phone as string).replace(/[^\d+]/g, "")}`} className="text-signal hover:underline" title="Tap to call">
+                  {c.phone as string}
+                </a>
+              ) : (
+                <span className="text-faint">—</span>
+              )}
+            </DetailRow>
             <DetailRow label="Source">{(c.source as string) || <span className="text-faint">—</span>}</DetailRow>
             <ReferredByRow company={c} referrers={referrers} />
             <DetailRow label="Added">{c.created_at ? relativeTime(c.created_at as string) : "—"}</DetailRow>

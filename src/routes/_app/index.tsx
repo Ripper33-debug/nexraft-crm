@@ -142,10 +142,11 @@ function useGreeting(): string {
 
 type Row = Record<string, unknown>;
 
-// The "here's what to do right now" panel at the top of the dashboard. Pulls
-// together the call queue, follow-ups due, and renewals into one clear list of
-// next actions so nobody has to hunt for them.
-function TodayBoard({
+// The dashboard used to repeat the full "what to do right now" list here, but
+// that duplicated My Day (which is now the page reps land on after login). This
+// compact banner just shows the counts and hands off to /today — one source of
+// truth for the daily plan, while the dashboard stays the team-stats page.
+function MyDayBanner({
   companies,
   followups,
   renewals,
@@ -156,126 +157,43 @@ function TodayBoard({
 }) {
   const today = new Date().toISOString().slice(0, 10);
 
-  // Fresh accounts that still need a first call.
+  // Fresh accounts that still need a first call (shown as a winnable daily
+  // target, not the whole multi-thousand pool).
   const toCall = companies.filter((c) => !c.call_outcome);
   // Follow-ups that are overdue or land today.
   const dueNow = followups.filter((f) => {
     const due = f.due_date ? String(f.due_date).slice(0, 10) : "";
     return Number(f.overdue) === 1 || (due && due <= today);
   });
-  // Renewals already overdue or due within the window (renewalRows are already
-  // limited to the soon window server-side).
-  const renewalsUp = renewals;
 
-  const nothing = toCall.length === 0 && dueNow.length === 0 && renewalsUp.length === 0;
-
-  if (nothing) {
-    return (
-      <Card className="mt-5 flex items-center gap-3 border-signal/25 bg-gradient-to-br from-signal-soft/40 via-surface to-surface p-4">
-        <span className="text-xl">✅</span>
-        <div>
-          <div className="text-sm font-semibold text-bone">You're all caught up</div>
-          <div className="text-xs text-mute">No calls, follow-ups, or renewals need you right now.</div>
-        </div>
-      </Card>
-    );
-  }
-
-  const callNames = toCall.slice(0, 5).map((c) => String(c.name ?? "")).filter(Boolean);
+  const callCount = Math.min(toCall.length, DAILY_CALL_TARGET);
+  const parts: string[] = [];
+  if (callCount > 0) parts.push(`${callCount} call${callCount === 1 ? "" : "s"}`);
+  if (dueNow.length > 0) parts.push(`${dueNow.length} follow-up${dueNow.length === 1 ? "" : "s"}`);
+  if (renewals.length > 0) parts.push(`${renewals.length} renewal${renewals.length === 1 ? "" : "s"}`);
+  const caughtUp = parts.length === 0;
 
   return (
-    <Card className="mt-5 overflow-hidden border-signal/25">
-      <div className="flex items-center justify-between border-b border-line bg-signal-soft/20 px-4 py-3">
-        <Eyebrow>Today</Eyebrow>
-        <span className="text-[11px] text-faint">What needs you right now</span>
+    <Card className="mt-5 flex flex-wrap items-center justify-between gap-3 border-signal/25 bg-gradient-to-br from-signal-soft/40 via-surface to-surface p-4">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="text-xl">{caughtUp ? "✅" : "🌅"}</span>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-bone">
+            {caughtUp ? "You're all caught up" : `Today: ${parts.join(", ")}`}
+          </div>
+          <div className="text-xs text-mute">
+            {caughtUp
+              ? "No calls, follow-ups, or renewals need you right now."
+              : "Your full game plan lives on My Day — work it top to bottom."}
+          </div>
+        </div>
       </div>
-      <ul className="divide-y divide-line/60">
-        {toCall.length > 0 ? (
-          <li className="flex items-center gap-3 px-4 py-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-signal-soft text-lg">
-              📞
-            </span>
-            <div className="min-w-0 flex-1">
-              {/* A winnable daily target, not the whole 2,400-company pool —
-                  "call 2403 companies" reads as impossible and demoralizing. */}
-              <div className="text-sm font-semibold text-bone">
-                {toCall.length > DAILY_CALL_TARGET
-                  ? `Your next ${DAILY_CALL_TARGET} calls`
-                  : `Call ${toCall.length} ${toCall.length === 1 ? "company" : "companies"}`}
-              </div>
-              <div className="truncate text-xs text-mute">
-                {callNames.join(", ")}
-                {toCall.length > DAILY_CALL_TARGET
-                  ? ` — ${toCall.length.toLocaleString()} in the pool`
-                  : toCall.length > callNames.length
-                    ? `, +${toCall.length - callNames.length} more`
-                    : ""}
-              </div>
-            </div>
-            <Link
-              to="/calls"
-              className="shrink-0 rounded-lg bg-signal px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-signal-strong"
-            >
-              Start calling →
-            </Link>
-          </li>
-        ) : null}
-
-        {dueNow.length > 0 ? (
-          <li className="flex items-center gap-3 px-4 py-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2 text-lg">
-              ✅
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold text-bone">
-                {dueNow.length} follow-up{dueNow.length === 1 ? "" : "s"} due
-              </div>
-              <div className="truncate text-xs text-mute">
-                {dueNow
-                  .slice(0, 3)
-                  .map((f) => String(f.subject ?? ""))
-                  .filter(Boolean)
-                  .join(", ")}
-                {dueNow.length > 3 ? `, +${dueNow.length - 3} more` : ""}
-              </div>
-            </div>
-            <Link
-              to="/activities"
-              className="shrink-0 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-bone transition-colors hover:border-line-strong"
-            >
-              View →
-            </Link>
-          </li>
-        ) : null}
-
-        {renewalsUp.length > 0 ? (
-          <li className="flex items-center gap-3 px-4 py-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2 text-lg">
-              🔄
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold text-bone">
-                {renewalsUp.length} renewal{renewalsUp.length === 1 ? "" : "s"} coming up
-              </div>
-              <div className="truncate text-xs text-mute">
-                {renewalsUp
-                  .slice(0, 3)
-                  .map((r) => String(r.name ?? r.company_name ?? ""))
-                  .filter(Boolean)
-                  .join(", ")}
-                {renewalsUp.length > 3 ? `, +${renewalsUp.length - 3} more` : ""}
-              </div>
-            </div>
-            <Link
-              to="/pipeline"
-              search={{ focus: undefined, new: undefined }}
-              className="shrink-0 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-bone transition-colors hover:border-line-strong"
-            >
-              View →
-            </Link>
-          </li>
-        ) : null}
-      </ul>
+      <Link
+        to="/today"
+        className="shrink-0 rounded-lg bg-signal px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-signal-strong"
+      >
+        Open My Day →
+      </Link>
     </Card>
   );
 }
@@ -334,7 +252,7 @@ function Dashboard() {
 
       {d.coo ? <CooBriefing flags={d.coo.flags} /> : null}
 
-      <TodayBoard
+      <MyDayBanner
         companies={d.companies as Row[]}
         followups={d.followups as Row[]}
         renewals={d.renewals as Row[]}

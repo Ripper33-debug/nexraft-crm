@@ -825,6 +825,41 @@ export const setDealStage = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// Click-to-edit for the two fields reps touch most between calls — next step
+// and renewal date — without dragging them through the full edit form.
+export const setDealQuickFields = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      id: z.string(),
+      next_step: z.string().nullable().optional(),
+      renewal_date: z.string().nullable().optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    await ensureExtraSchema();
+    await assertCanEdit(user, "deals", data.id);
+    const now = new Date().toISOString();
+    await db()
+      .prepare(
+        `UPDATE deals SET
+           next_step = CASE WHEN ? THEN ? ELSE next_step END,
+           renewal_date = CASE WHEN ? THEN ? ELSE renewal_date END,
+           updated_at = ?
+         WHERE id = ?`,
+      )
+      .bind(
+        data.next_step !== undefined,
+        data.next_step ?? null,
+        data.renewal_date !== undefined,
+        data.renewal_date ?? null,
+        now,
+        data.id,
+      )
+      .run();
+    return { ok: true };
+  });
+
 export const archiveDeal = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.string() }))
   .handler(async ({ data }) => {

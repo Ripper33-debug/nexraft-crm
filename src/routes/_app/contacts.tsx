@@ -197,8 +197,34 @@ function ContactsPage() {
                     </td>
                     <td className="px-4 py-2.5 text-mute">{(c.company_name as string) || "—"}</td>
                     <td className="px-4 py-2.5 text-mute">{(c.title as string) || "—"}</td>
-                    <td className="px-4 py-2.5 text-mute">{(c.email as string) || "—"}</td>
-                    <td className="px-4 py-2.5 text-mute">{(c.phone as string) || "—"}</td>
+                    <td className="px-4 py-2.5 text-mute">
+                      {c.email ? (
+                        <a
+                          href={`mailto:${c.email as string}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="hover:text-signal hover:underline"
+                          title="Tap to email"
+                        >
+                          {c.email as string}
+                        </a>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-mute">
+                      {c.phone ? (
+                        <a
+                          href={`tel:${(c.phone as string).replace(/[^\d+]/g, "")}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="hover:text-signal hover:underline"
+                          title="Tap to call"
+                        >
+                          {c.phone as string}
+                        </a>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="px-4 py-2.5"><OwnerChip name={c.owner_name as string} /></td>
                     <td className="px-4 py-2.5 text-mute">
                       {c.last_contacted ? relativeTime(c.last_contacted as string) : <span className="text-faint">Never</span>}

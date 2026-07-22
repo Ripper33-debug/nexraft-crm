@@ -849,3 +849,134 @@ describe("moneypath: the simplified pipeline reads To Call → Lost → Proposal
     expect(pipeline).not.toContain('|| "Lead"');
   });
 });
+
+describe("moneypath: every phone and email on screen is one tap away", () => {
+  const panel = readFileSync(join(__dirname, "../../components/crm/research-panel.tsx"), "utf8");
+  const contacts = readFileSync(join(__dirname, "../../routes/_app/contacts.tsx"), "utf8");
+  const today = readFileSync(join(__dirname, "../../routes/_app/today.tsx"), "utf8");
+  const companyPage = readFileSync(join(__dirname, "../../routes/_app/companies_.$companyId.tsx"), "utf8");
+
+  it("research dossier emails/phones are live mailto:/tel: links", () => {
+    expect(panel).toContain("href={`mailto:${em}`}");
+    expect(panel).toContain('href={`tel:${ph.replace(/[^\\d+]/g, "")}`}');
+  });
+  it("the contacts table links email and phone without triggering the row click", () => {
+    expect(contacts).toContain("href={`mailto:${c.email as string}`}");
+    expect(contacts).toContain('href={`tel:${(c.phone as string).replace(/[^\\d+]/g, "")}`}');
+    expect(contacts).toContain("e.stopPropagation()");
+  });
+  it("My Day's big call number is tappable", () => {
+    expect(today).toContain('href={`tel:${(current.row.phone as string).replace(/[^\\d+]/g, "")}`}');
+  });
+  it("the company page phone is tappable too", () => {
+    expect(companyPage).toContain("tel:");
+  });
+});
+
+describe("moneypath: proposals go out straight from the kanban board", () => {
+  const pipeline = readFileSync(join(__dirname, "../../routes/_app/pipeline.tsx"), "utf8");
+
+  it("Proposal/Negotiation cards carry a send-proposal button", () => {
+    expect(pipeline).toContain("function CardProposalButton(");
+    expect(pipeline).toContain('d.stage === "Proposal" || d.stage === "Negotiation"');
+    expect(pipeline).toContain("<CardProposalButton dealId={d.id as string} status={String(d.proposal_status ?? \"none\")} />");
+  });
+  it("clicking it copies the real tokenized link and doesn't open the card", () => {
+    const start = pipeline.indexOf("function CardProposalButton(");
+    const body = pipeline.slice(start, pipeline.indexOf("\nfunction ", start + 10));
+    expect(body).toContain("getProposalLink({ data: { dealId } })");
+    expect(body).toContain("stopPropagation()");
+    expect(body).toContain("clipboard.writeText");
+  });
+});
+
+describe("moneypath: the company page is a one-stop calling cockpit", () => {
+  const companyPage = readFileSync(join(__dirname, "../../routes/_app/companies_.$companyId.tsx"), "utf8");
+
+  it("a Call button opens the same Call Mode reps use in the queue", () => {
+    expect(companyPage).toContain('import { CallMode } from "../../components/crm/call-mode"');
+    expect(companyPage).toContain("setCalling(true)");
+    expect(companyPage).toContain('kind="company"');
+  });
+  it("logging a call from here refreshes the page data", () => {
+    expect(companyPage).toContain("onLogged={() => router.invalidate()}");
+  });
+  it("the quick Email button prefers the AI-drafted email and personalizes the rep name", () => {
+    expect(companyPage).toContain("REP_NAME");
+    expect(companyPage).toContain("quickEmail");
+    expect(companyPage).toContain("mailto:${to}?subject=");
+  });
+});
+
+describe("moneypath: a missed call turns into an email without leaving Call Mode", () => {
+  const callMode = readFileSync(join(__dirname, "../../components/crm/call-mode.tsx"), "utf8");
+
+  it("the nudge only appears for voicemail / no answer / call-back outcomes", () => {
+    expect(callMode).toContain("/voicemail|no answer|call back/i.test(outcome) && missEmail");
+  });
+  it("it targets a real address: the contact's email or the dossier's first find", () => {
+    expect(callMode).toContain("(subject?.email as string)");
+    expect(callMode).toContain("intel?.emails[0]");
+  });
+  it("it uses the AI-drafted subject/body when available, with the rep's real name", () => {
+    expect(callMode).toContain("REP_NAME");
+    expect(callMode).toContain("Email them now");
+  });
+});
+
+describe("moneypath: quick edits on the deal page hit the server safely", () => {
+  const body = fnBody("setDealQuickFields");
+  const dealPage = readFileSync(join(__dirname, "../../routes/_app/deals.$dealId.tsx"), "utf8");
+
+  it("only next_step and renewal_date are editable, and only by someone allowed to", () => {
+    expect(body).toContain('assertCanEdit(user, "deals", data.id)');
+    expect(body).toContain("next_step = CASE WHEN ? THEN ? ELSE next_step END");
+    expect(body).toContain("renewal_date = CASE WHEN ? THEN ? ELSE renewal_date END");
+  });
+  it("omitting a field leaves it untouched (undefined ≠ clear)", () => {
+    expect(body).toContain("data.next_step !== undefined");
+    expect(body).toContain("data.renewal_date !== undefined");
+  });
+  it("the deal page wires both fields through click-to-edit rows", () => {
+    expect(dealPage).toContain("function QuickEditRow(");
+    expect(dealPage).toContain('field="next_step"');
+    expect(dealPage).toContain('field="renewal_date"');
+    expect(dealPage).toContain("setDealQuickFields({ data: { id: dealId, [field]: draft.trim() || null } })");
+  });
+});
+
+describe("moneypath: reps land on My Day and the tour teaches the real routine", () => {
+  const login = readFileSync(join(__dirname, "../../routes/api/auth/login.ts"), "utf8");
+  const signup = readFileSync(join(__dirname, "../../routes/api/auth/signup.ts"), "utf8");
+  const index = readFileSync(join(__dirname, "../../routes/_app/index.tsx"), "utf8");
+  const tour = readFileSync(join(__dirname, "../../components/crm/tour.tsx"), "utf8");
+
+  it("login and signup both drop reps on /today", () => {
+    expect(login).toContain('redirect("/today", sessionCookie(result.token))');
+    expect(signup).toContain('redirect("/today", sessionCookie(result.token))');
+  });
+  it("the dashboard hands off to My Day instead of duplicating the daily plan", () => {
+    expect(index).toContain("function MyDayBanner(");
+    expect(index).not.toContain("function TodayBoard(");
+    expect(index).toContain('to="/today"');
+    expect(index).toContain("Open My Day →");
+  });
+  it("the tour was bumped to v2 so existing reps see the refreshed steps once", () => {
+    expect(tour).toContain('const SEEN_KEY = "nexraft_tour_seen_v2"');
+  });
+  it("the v2 tour walks the actual day: My Day → call → log → email → outreach → pipeline", () => {
+    const names = [...tour.matchAll(/title: "([^"]+)"/g)].map((m) => m[1]);
+    expect(names).toEqual([
+      "Welcome to your CRM",
+      "Start every day on My Day",
+      "The Calls queue tees up who to call",
+      "Log the call with one tap",
+      "Missed them? Email them right away",
+      "Outreach keeps follow-ups moving",
+      "The pipeline reads left to right",
+      "Everything has one owner",
+      "You can't break anything",
+    ]);
+    expect(tour).toContain("To Call → Lost → Proposal → Negotiation → In Build → Launched");
+  });
+});

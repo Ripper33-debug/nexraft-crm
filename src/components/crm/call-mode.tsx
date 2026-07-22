@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useRouteContext } from "@tanstack/react-router";
 
 import { Button, Eyebrow, Pill, StageBadge, cx } from "./ui";
 import { toast } from "./toast";
@@ -554,17 +555,49 @@ export function CallMode({
         established?: number | null;
         people?: string[];
         angles?: string[];
+        emails?: string[];
+        ai?: { email_subject?: string | null; email_body?: string | null } | null;
       };
       return {
         summary: d.summary ?? null,
         established: d.established ?? null,
         people: Array.isArray(d.people) ? d.people : [],
         angles: Array.isArray(d.angles) ? d.angles : [],
+        emails: Array.isArray(d.emails) ? d.emails : [],
+        ai: d.ai ?? null,
       };
     } catch {
       return null;
     }
   }, [subject, isContact]);
+
+  // "Finish the call in one place": after a missed call, offer a one-tap email
+  // draft so the rep doesn't have to hop over to Outreach. Uses the contact's
+  // email (or the first researched company email) and prefers the AI-drafted
+  // email when a dossier has one.
+  const { user } = useRouteContext({ from: "/_app" }) as { user?: { name?: string } };
+  const missEmail = useMemo(() => {
+    const to = isContact ? ((subject?.email as string) || null) : (intel?.emails[0] ?? null);
+    if (!to) return null;
+    const rep = user?.name ?? "";
+    const aiSubject = intel?.ai?.email_subject?.trim();
+    const aiBody = intel?.ai?.email_body?.replace(/\{\{REP_NAME\}\}/g, rep).trim();
+    const fallbackSubject = `Sorry I missed you${companyName ? ` — quick idea for ${companyName}` : ""}`;
+    const fallbackBody = [
+      "Hi,",
+      "",
+      `Just tried giving you a call${companyName ? ` about ${companyName}'s website` : ""} — sorry I missed you. We build websites for local businesses, and I had a couple of quick ideas I think you'd like.`,
+      "",
+      "Is there a good time this week for a 5-minute chat?",
+      "",
+      rep ? `Thanks,\n${rep}` : "Thanks!",
+    ].join("\n");
+    return {
+      to,
+      href: `mailto:${to}?subject=${encodeURIComponent(aiSubject || fallbackSubject)}&body=${encodeURIComponent(aiBody || fallbackBody)}`,
+      ai: Boolean(aiSubject || aiBody),
+    };
+  }, [isContact, subject, intel, companyName, user]);
 
   const script = useMemo(
     () =>
@@ -890,6 +923,21 @@ export function CallMode({
                     <path d="M18 6 6 18M6 6l12 12" />
                   </svg>
                   <span>Logging this will move <span className="font-medium text-rose-100">{dealLabel(linkDeal)}</span> to <span className="font-medium text-rose-100">No</span> in the pipeline — no dragging needed.</span>
+                </div>
+              ) : null}
+              {/voicemail|no answer|call back/i.test(outcome) && missEmail ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-signal/30 bg-signal-soft/40 px-3 py-2">
+                  <span className="text-xs text-mute">
+                    Didn&apos;t reach them? Send the follow-up email while it&apos;s fresh
+                    {missEmail.ai ? " — the AI draft is already filled in" : ""}.
+                  </span>
+                  <a
+                    href={missEmail.href}
+                    className="inline-flex items-center gap-1 rounded-full border border-signal/40 bg-signal-soft px-3 py-1 text-xs font-medium text-signal transition-colors hover:border-signal"
+                    title={`Opens a ready-to-send email to ${missEmail.to}`}
+                  >
+                    ✉ Email them now
+                  </a>
                 </div>
               ) : null}
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
