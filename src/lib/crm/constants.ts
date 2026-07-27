@@ -458,7 +458,33 @@ export type NeedSignals = {
   createdAt?: string | null;
 };
 
-type ParsedResearch = { siteStatus?: string; angles?: string[] };
+type ParsedResearch = {
+  siteStatus?: string;
+  angles?: string[];
+  // Present only on dossiers written after the site probe existed. Its presence
+  // is the ONLY proof that "no website" was ever actually checked — see
+  // siteWasChecked below.
+  siteProbe?: { checked?: string[]; found?: string | null; at?: string } | null;
+};
+
+/**
+ * True when a dossier's "no website" claim was earned by an actual check.
+ *
+ * This matters because of how the old research code was written: `siteStatus`
+ * was INITIALISED to "none" and only moved off that value if a website was
+ * already on file. Nothing ever went looking. So every company researched
+ * before the probe existed carries siteStatus "none" whether or not it has a
+ * website, and there are thousands of them.
+ *
+ * Trusting that flag would have kept the exact bug we set out to kill: a rep
+ * opening with "I noticed you don't have a website" to an owner who does. So
+ * the flag alone is not enough — the dossier has to carry the probe's working
+ * out too. Old dossiers fall back to site_unverified, which asks instead of
+ * asserting, and get promoted the moment the background re-check reaches them.
+ */
+export function siteWasChecked(research: ParsedResearch | null | undefined): boolean {
+  return Boolean(research?.siteProbe);
+}
 
 function parseResearch(raw: string | null | undefined): ParsedResearch | null {
   if (!raw) return null;
@@ -593,10 +619,12 @@ export function leadNeed(sig: NeedSignals, now: Date = new Date()): LeadNeed {
   // obviously false about their business and hangs up — which is exactly the
   // wall of instant brush-offs the team was hitting.
   //
-  // So sitelessness is now a claim that has to be earned. `siteStatus === "none"`
-  // is written only after a real check (see siteprobe.server.ts); an unchecked
+  // So sitelessness is now a claim that has to be earned. It takes BOTH a
+  // siteStatus of "none" AND evidence the probe actually ran — because the old
+  // code defaulted siteStatus to "none" without ever looking, so the flag on
+  // its own means nothing on any dossier written before today. An unchecked
   // blank falls through to site_unverified below, which asks instead of asserts.
-  if (research?.siteStatus === "none") {
+  if (research?.siteStatus === "none" && siteWasChecked(research)) {
     return {
       key: "no_site",
       rank: 92,
@@ -1595,6 +1623,56 @@ export function relativeTime(iso: string | null | undefined, now = new Date()): 
   const day = Math.floor(hr / 24);
   if (day < 7) return `${day}d ago`;
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// ---------- "You've already emailed these people" ----------
+//
+// The CRM has counted email touches since the beginning and stamped the date
+// on every send — and showed it on exactly one screen. So the answer to "have
+// I written to this lot before?" existed the whole time and was invisible
+// everywhere a rep actually decides to write. Barry nearly sent a second cold
+// email to a company he'd already emailed, and only caught it by remembering.
+//
+// This is the one shared shape every screen renders, so the Companies list,
+// the company page, the call queue and the composer can't drift apart or
+// disagree. It NEVER blocks anything — sending again is often the right call,
+// and a follow-up is a different email from a first touch. It just makes sure
+// nobody finds out from the reply.
+export type EmailHistory = {
+  touches: number;
+  /** "3× emailed · last 4d ago" — ready to drop into a pill. */
+  label: string;
+  /** Sent in the last 14 days: writing again today needs a moment's thought. */
+  recent: boolean;
+  /** The three-touch sequence is finished; a fourth is a decision, not a step. */
+  exhausted: boolean;
+  /** One line saying what to do about it, for the composer. "" when nothing to say. */
+  advice: string;
+};
+
+export const EMAIL_RECENT_DAYS = 14;
+export const EMAIL_SEQUENCE_LENGTH = 3;
+
+export function emailHistory(
+  c: { email_touches?: number | null; last_emailed_at?: string | null } | null | undefined,
+  now = new Date(),
+): EmailHistory | null {
+  const touches = Math.max(0, Number(c?.email_touches) || 0);
+  // Never emailed is the common case and deserves no chrome at all — a badge
+  // on every row would be noise, and noise is what gets ignored.
+  if (touches <= 0) return null;
+  const last = c?.last_emailed_at ?? null;
+  const ago = last ? relativeTime(last, now) : "";
+  const days = last ? daysBetween(last, now) : Number.POSITIVE_INFINITY;
+  const recent = Number.isFinite(days) && days <= EMAIL_RECENT_DAYS;
+  const exhausted = touches >= EMAIL_SEQUENCE_LENGTH;
+  const label = `${touches}× emailed${ago ? ` · last ${ago}` : ""}`;
+  const advice = exhausted
+    ? `You've sent all ${EMAIL_SEQUENCE_LENGTH} in the sequence${ago ? ` (last ${ago})` : ""}. A fourth is worth sending only if you've got something new to say — otherwise call them.`
+    : recent
+      ? `You emailed them ${ago}. If this is the next one in the sequence, carry on — if it's a fresh cold email, they'll notice.`
+      : "";
+  return { touches, label, recent, exhausted, advice };
 }
 
 // ---------- Record-level access (ownership + sharing) ----------

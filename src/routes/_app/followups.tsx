@@ -23,11 +23,12 @@ import {
   SummaryCard,
   Textarea,
   cx,
+  EmailedBadge,
 } from "../../components/crm/ui";
 import { toast } from "../../components/crm/toast";
 import { NoReasonModal } from "../../components/crm/no-reason-modal";
 import { aiDraftFromResearch, EMAIL_TEMPLATES, followUpEmail, mailtoLink, NUDGE_LABELS } from "../../lib/crm/emails";
-import { relativeTime } from "../../lib/crm/constants";
+import { relativeTime, emailHistory } from "../../lib/crm/constants";
 
 type Row = Record<string, unknown>;
 
@@ -540,6 +541,8 @@ function ComposeSection({
 
   // The AI draft for the currently selected client, if their research has one.
   const selectedAiDraft = selected ? aiDraftFromResearch(selected.research, repName) : null;
+  // What we've already sent this company — shown above the draft, not below it.
+  const selectedHistory = emailHistory(selected);
 
   const canSend = to.trim().includes("@") && subject.trim().length > 0 && body.trim().length > 0;
 
@@ -610,9 +613,10 @@ function ComposeSection({
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-medium text-bone">{c.name}</span>
-                  {c.email_touches > 0 ? (
-                    <Pill tone="neutral">{c.email_touches}× emailed</Pill>
-                  ) : null}
+                  {/* Was a bare count with no date, which reads as trivia. The
+                      date is what makes it a decision: "3× emailed" shrugs,
+                      "3× emailed · last 4d ago" stops your hand. */}
+                  <EmailedBadge company={c} />
                 </div>
                 <div className="mt-0.5 truncate text-xs text-faint">
                   {c.contact_email || "No email on file — add one or type it in"}
@@ -627,6 +631,31 @@ function ComposeSection({
 
         {/* Compose */}
         <Card className="space-y-3 p-4">
+          {/* The whole reason this exists: Barry was one click from sending a
+              second cold email to a company he'd already written to, and the
+              CRM knew and said nothing. It warns, it does not block — a real
+              follow-up is a good email, and only the person writing it can
+              tell the difference. */}
+          {selectedHistory ? (
+            <div
+              className={cx(
+                "rounded-lg border px-3 py-2 text-xs leading-relaxed",
+                selectedHistory.exhausted || selectedHistory.recent
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-800"
+                  : "border-line bg-surface-2 text-mute",
+              )}
+            >
+              <span className="font-semibold">
+                You've already emailed {selected?.name ?? "this company"} {selectedHistory.touches}
+                {selectedHistory.touches === 1 ? " time" : " times"}
+                {selectedHistory.label.includes("·")
+                  ? `, ${selectedHistory.label.split("·")[1].trim()}`
+                  : ""}
+                .
+              </span>{" "}
+              {selectedHistory.advice || "Worth a glance at the thread below before you write another."}
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-1.5">
             {selectedAiDraft ? (
               <button

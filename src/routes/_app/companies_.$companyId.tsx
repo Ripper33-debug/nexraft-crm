@@ -11,6 +11,7 @@ import {
   Pill,
   StageBadge,
   PageSkeleton,
+  EmailedBadge,
 } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
 import { CallMode } from "../../components/crm/call-mode";
@@ -290,6 +291,9 @@ function CompanyDetail() {
             {tags.map((t) => (
               <Pill key={t} tone="neutral">{t}</Pill>
             ))}
+            {/* Sits right beside the ✉ Email button, which is the whole point:
+                the history is in front of you at the moment you'd click it. */}
+            <EmailedBadge company={c} />
           </div>
         </div>
         <div className="flex items-center gap-2">

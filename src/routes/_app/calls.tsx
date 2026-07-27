@@ -10,7 +10,7 @@ import {
   sendCrmEmail,
   getGmailStatus,
 } from "../../lib/crm/data";
-import { Button, Card, EmptyState, Modal, PageHeader, Select, Input, OwnerChip, Pill, SummaryCard, Avatar } from "../../components/crm/ui";
+import { Button, Card, EmptyState, Modal, PageHeader, Select, Input, OwnerChip, Pill, SummaryCard, Avatar, EmailedBadge } from "../../components/crm/ui";
 import { CallMode } from "../../components/crm/call-mode";
 import { NoReasonModal } from "../../components/crm/no-reason-modal";
 import { toast } from "../../components/crm/toast";
@@ -23,6 +23,7 @@ import {
   PRICING_PACKAGES,
   hasTeamScope,
   leadNeed,
+  emailHistory,
   callbackDue,
   callbackLabel,
   callbackWhen,
@@ -161,6 +162,7 @@ function CallQueue({
     );
   }
   const sub = [current.industry as string, current.city as string].filter(Boolean).join(" · ");
+  const emailed = emailHistory(current);
 
   return (
     <Card className="mt-5 border-signal/30 bg-gradient-to-b from-signal-soft/40 to-surface p-4">
@@ -194,7 +196,19 @@ function CallQueue({
                   {need.label}
                 </span>
               ) : null}
+              <EmailedBadge company={current} />
             </div>
+            {/* A company we've already written to is not a cold call, and
+                pretending otherwise is how a rep gets "yeah, you emailed me"
+                thrown at them thirty seconds in. Naming it first turns the
+                same fact into the reason they're worth ringing. */}
+            {emailed ? (
+              <div className="mt-1 text-xs text-amber-700/90">
+                You've emailed them {emailed.touches === 1 ? "once" : `${emailed.touches} times`} already
+                {emailed.recent ? " — recently" : ""}. Say so first: “I sent you a note and figured
+                I'd just ring instead of filling your inbox.”
+              </div>
+            ) : null}
             {attempts > 0 ? (
               <div className="mt-1 text-xs text-sky-700/90">
                 Rang {attempts === 1 ? "once" : `${attempts} times`} already, no answer — this is

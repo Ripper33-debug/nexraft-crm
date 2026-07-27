@@ -21,7 +21,7 @@ import {
   undoLastBulkArchive,
   aiQualifyLeadsBatch,
 } from "../../lib/crm/data";
-import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, PageSkeleton } from "../../components/crm/ui";
+import { Button, Card, Field, Input, Modal, Select, Textarea, EmptyState, PageHeader, OwnerChip, PageSkeleton, EmailedBadge } from "../../components/crm/ui";
 import { NotesThread } from "../../components/crm/notes";
 import { CallMode } from "../../components/crm/call-mode";
 import { RecordAccessButton } from "../../components/crm/record-access";
@@ -820,6 +820,7 @@ function CompaniesPage() {
                           </span>
                         );
                       })()}
+                      <EmailedBadge company={c} className="ml-2" />
                       <RowTriage
                         c={c}
                         canEdit={canEditRecord(me, (c.owner_id as string) ?? null, (c.shared_with as string) ?? null)}

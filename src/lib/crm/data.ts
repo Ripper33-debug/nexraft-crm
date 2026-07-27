@@ -109,6 +109,14 @@ export type CompanyRow = {
   // need signal (leadNeed) without casting through `unknown`.
   research: string | null;
   site_down_at: string | null;
+  // Also `SELECT c.*`, and tracked on every send — but until now only the
+  // Follow-ups page declared them, so every other screen was blind to it. That
+  // is how you end up writing a second cold email to someone you emailed on
+  // Tuesday, and finding out from their reply rather than from the CRM.
+  // Declared here so the Companies list, the company page, the call queue and
+  // the composer can all show the same history before anyone acts.
+  email_touches: number | null;
+  last_emailed_at: string | null;
 };
 
 export type ContactRow = {
@@ -5700,6 +5708,7 @@ async function aiQualifyCore(limit: number) {
         try {
           const d = JSON.parse(c.research) as {
             siteStatus?: string;
+            siteProbe?: unknown;
             summary?: string;
             services?: string[];
             established?: string;
@@ -5709,10 +5718,22 @@ async function aiQualifyCore(limit: number) {
             socials?: string[];
             angles?: string[];
           };
+          // Same rule as the opener and the email: a blank website column is
+          // not evidence. This line used to read "none at all" off `!c.website`
+          // alone, so the fit score and the reason a rep reads on the card were
+          // both built on a fact nobody had established.
+          const siteLine =
+            d.siteStatus === "dead"
+              ? "dead/gone"
+              : d.siteStatus === "none" && d.siteProbe
+                ? "none at all (searched, nothing found)"
+                : c.website
+                  ? "live"
+                  : "unknown — none on file and nobody has checked; do not assume they have none";
           const facts = [
             `Business: ${c.name}${c.city ? ` (${c.city})` : ""}`,
             c.industry ? `Industry: ${c.industry}` : null,
-            `Website: ${d.siteStatus === "none" || !c.website ? "none at all" : d.siteStatus === "dead" ? "dead/gone" : "live"}`,
+            `Website: ${siteLine}`,
             d.summary ? `What they do: ${d.summary}` : null,
             (d.services ?? []).length ? `Services: ${(d.services ?? []).slice(0, 6).join(", ")}` : null,
             d.established ? `In business since: ${d.established}` : null,
@@ -6211,6 +6232,160 @@ export const verifyCompanyWebsites = createServerFn({ method: "POST" }).handler(
     hot,
     remaining: remainingRow?.n ?? 0,
   };
+});
+
+// ---------------------------------------------------------------------------
+// Re-checking the book: turning "we assumed" back into "we know"
+//
+// Every dossier written before the site probe existed carries siteStatus
+// "none" because that was the variable's initial value — the old code only
+// moved off it when a website was already on file, and never went looking.
+// leadNeed now refuses to say "no website" without the probe's working out, so
+// those companies correctly show as "No website found" (ask, don't claim). But
+// correct-and-vague isn't the goal: a confirmed siteless business is the best
+// lead in the book, and a business that HAS a site needs it on file before a
+// rep opens their mouth. Both answers come from actually looking.
+//
+// So this walks the un-probed backlog every night, oldest first, and does the
+// looking. Nobody has to remember to press anything. Three outcomes:
+//   - found a site  → save it to the website column, drop the false angle, and
+//                     leave a note so the rep sees the correction on the card
+//   - found nothing → stamp the probe, which promotes them to the confident
+//                     "I looked and couldn't find one" opener
+//   - probe failed  → stamp nothing, so tomorrow tries again
+//
+// Stamped-once discipline via the same top-level-key LIKE trick as Outscraper:
+// a company with "siteProbe": in its research never re-enters this pool.
+async function recheckUnverifiedSitesCore(
+  cap = 8,
+): Promise<{ checked: number; found: number; confirmed: number }> {
+  const { results } = await db()
+    .prepare(
+      `SELECT id, name, phone, research FROM companies
+        WHERE archived_at IS NULL
+          AND (website IS NULL OR btrim(website) = '')
+          AND research IS NOT NULL
+          AND research NOT LIKE '%"siteProbe":%'
+        ORDER BY researched_at NULLS FIRST
+        LIMIT ?`,
+    )
+    .bind(cap)
+    .all<{ id: string; name: string; phone: string | null; research: string }>();
+  const targets = results ?? [];
+  if (targets.length === 0) return { checked: 0, found: 0, confirmed: 0 };
+
+  let found = 0;
+  let confirmed = 0;
+  let checked = 0;
+  // Independent companies, so probe them together — wall time is the slowest
+  // probe rather than the sum, which is what keeps this inside the cron budget.
+  await Promise.allSettled(
+    targets.map(async (t) => {
+      let dossier: Record<string, unknown>;
+      try {
+        const parsed = JSON.parse(t.research) as unknown;
+        if (!parsed || typeof parsed !== "object") return; // junk JSON — leave it alone
+        dossier = parsed as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      const probe = await probeForWebsite({ name: t.name, phone: t.phone ?? null }, 5000);
+      const at = new Date().toISOString();
+      dossier.siteProbe = {
+        checked: probe.found ? [] : probe.checked,
+        found: probe.found ? probe.url : null,
+        at,
+      };
+      const angles = Array.isArray(dossier.angles) ? (dossier.angles as string[]) : [];
+      if (probe.found) {
+        dossier.siteStatus = "live";
+        // The angles on an old dossier were written on the assumption that
+        // there was no site. Anything that says so is now a lie on the card.
+        dossier.angles = [
+          `⚠️ They DO have a website — ${probe.url} — we just never had it on file. Never open by saying they haven't got one.`,
+          ...angles.filter((a) => !/no website|without a website|haven't got|dont have a site/i.test(a)),
+        ];
+      } else {
+        dossier.siteStatus = "none";
+      }
+      await db()
+        .prepare(
+          `UPDATE companies
+              SET research = ?,
+                  website = COALESCE(NULLIF(website, ''), ?)
+            WHERE id = ?`,
+        )
+        .bind(JSON.stringify(dossier), probe.found ? probe.url : null, t.id)
+        .run();
+      checked++;
+      if (probe.found) {
+        found++;
+        // A note, not just a field change: this is a correction to something a
+        // rep may already have half-believed, and it belongs in the thread
+        // where they'll read it before dialling.
+        await db()
+          .prepare("INSERT INTO notes (id, entity_type, entity_id, author_id, body) VALUES (?, ?, ?, ?, ?)")
+          .bind(
+            uid(),
+            "company",
+            t.id,
+            null,
+            `Website found on a re-check: ${probe.url} (matched on their ${probe.provedBy}). We had them down as having no site, which was never actually verified — it is now on file. Do not open by saying they haven't got one.`,
+          )
+          .run();
+      } else {
+        confirmed++;
+      }
+    }),
+  );
+  return { checked, found, confirmed };
+}
+
+// How many companies are still carrying an unverified "no website".
+async function unverifiedSiteBacklog(): Promise<number> {
+  const r = await db()
+    .prepare(
+      `SELECT COUNT(*)::int AS n FROM companies
+        WHERE archived_at IS NULL
+          AND (website IS NULL OR btrim(website) = '')
+          AND research IS NOT NULL
+          AND research NOT LIKE '%"siteProbe":%'`,
+    )
+    .first<{ n: number }>();
+  return r?.n ?? 0;
+}
+
+// Same pass, run back-to-back until a wall-clock budget is spent. A batch costs
+// roughly one slow probe (they run in parallel), so a fixed batch per night
+// would take months to clear a book of a few thousand. This spends a real slice
+// of the cron instead, and stops the moment the backlog empties.
+async function recheckUnverifiedSitesWithin(
+  budgetMs: number,
+  chunk = 10,
+): Promise<{ checked: number; found: number; confirmed: number }> {
+  const deadline = Date.now() + budgetMs;
+  const total = { checked: 0, found: 0, confirmed: 0 };
+  // Hard ceiling as well as a clock, so a batch that returns instantly can
+  // never spin this into a runaway loop.
+  for (let i = 0; i < 40 && Date.now() < deadline; i++) {
+    const r = await recheckUnverifiedSitesCore(chunk);
+    total.checked += r.checked;
+    total.found += r.found;
+    total.confirmed += r.confirmed;
+    if (r.checked === 0) break; // backlog empty, or everything in it is failing
+  }
+  return total;
+}
+
+// Admin trigger for the same pass the cron runs, so the backlog can be cleared
+// in an afternoon rather than over weeks. Nobody has to use it — the nightly
+// run gets there on its own — but when you're staring at a list of companies
+// you suspect are mislabelled, waiting isn't much of an answer.
+export const runSiteRecheckBatch = createServerFn({ method: "POST" }).handler(async () => {
+  await requireAdmin();
+  await ensureExtraSchema();
+  const r = await recheckUnverifiedSitesCore(6);
+  return { ok: true as const, ...r, remaining: await unverifiedSiteBacklog() };
 });
 
 // Run an Overpass QL query against ALL mirrors in parallel and return the first
@@ -7573,6 +7748,15 @@ export const runDueSweeps = createServerOnlyFn(
       await verifyWebsitesCore(null);
     } catch {
       /* liveness watch is a bonus, never a blocker */
+    }
+    // Un-probed backlog: every dossier written before the site probe existed
+    // claims "no website" without ever having looked. This chips away at that
+    // backlog nightly — finding the sites we missed, and confirming the ones
+    // that really are siteless so those leads get the strong opener back.
+    try {
+      await recheckUnverifiedSitesWithin(15_000, 10);
+    } catch {
+      /* the re-check is a bonus, never a blocker */
     }
     // Master pause: housekeeping and research above still ran, but no new
     // companies get imported while the lead engine is switched off.

@@ -11,6 +11,7 @@ import {
   needGroupLabel,
   NEED_CALL_MIN,
   NEED_UNKNOWN_RANK,
+  siteWasChecked,
   type NeedKey,
 } from "./constants";
 
@@ -22,8 +23,22 @@ import {
 const NOW = new Date("2026-07-26T12:00:00Z");
 const days = (n: number) => new Date(NOW.getTime() - n * 24 * 3600_000).toISOString();
 
+// A dossier of the kind already sitting on thousands of companies: written
+// before the site probe existed, so it carries a siteStatus but no evidence
+// anybody ever went looking.
 function research(r: Record<string, unknown>): string {
   return JSON.stringify({ angles: [], ...r });
+}
+
+// A dossier written since the probe existed. The siteProbe block is the working
+// out — which domains were tried and what came back — and it is the only thing
+// that turns "no website" from an assumption into something a rep can say.
+function checkedResearch(r: Record<string, unknown>): string {
+  return JSON.stringify({
+    angles: [],
+    siteProbe: { checked: ["joesplumbing.com", "joesplumbingnaples.com"], found: null, at: NOW.toISOString() },
+    ...r,
+  });
 }
 
 describe("leadNeed picks the one true reason to call", () => {
@@ -47,9 +62,45 @@ describe("leadNeed picks the one true reason to call", () => {
   });
 
   it("no website at all is the strongest standing signal — once somebody has looked", () => {
-    const checked = research({ siteStatus: "none" });
+    const checked = checkedResearch({ siteStatus: "none" });
     expect(leadNeed({ website: null, research: checked }, NOW).key).toBe("no_site");
     expect(leadNeed({ website: "https://x.com", research: checked }, NOW).key).toBe("no_site");
+  });
+
+  // The one that stayed broken after the first fix. The old research code set
+  // siteStatus to "none" as its STARTING value and only moved off it when a
+  // website was already on file — it never went looking. So the flag on an old
+  // dossier means "nobody has been here", not "there is nothing there", and
+  // every company in the book researched before the probe existed carries it.
+  // Trusting it would have put the false opener back in a rep's mouth on the
+  // exact accounts they call most.
+  it("won't take an old dossier's word for it — 'none' with no working out is unproven", () => {
+    const old = research({ siteStatus: "none" });
+    expect(leadNeed({ website: null, research: old }, NOW).key).toBe("site_unverified");
+    // Even the angles-and-status shape of a full old dossier isn't enough.
+    const oldFull = research({ siteStatus: "none", angles: ["No contact form"] });
+    expect(leadNeed({ website: null, research: oldFull }, NOW).key).toBe("site_unverified");
+  });
+
+  // The promotion half: once the nightly re-check writes its result back, the
+  // same company earns the confident opener without anyone pressing a button.
+  it("promotes a re-checked company to the confirmed opener", () => {
+    const before = leadNeed({ website: null, research: research({ siteStatus: "none" }) }, NOW);
+    const after = leadNeed({ website: null, research: checkedResearch({ siteStatus: "none" }) }, NOW);
+    expect(before.key).toBe("site_unverified");
+    expect(after.key).toBe("no_site");
+    expect(after.rank).toBeGreaterThan(before.rank);
+  });
+
+  it("siteWasChecked is the single test both paths agree on", () => {
+    expect(siteWasChecked({ siteStatus: "none" })).toBe(false);
+    expect(siteWasChecked(null)).toBe(false);
+    expect(siteWasChecked(undefined)).toBe(false);
+    expect(siteWasChecked({ siteStatus: "none", siteProbe: null })).toBe(false);
+    expect(siteWasChecked({ siteStatus: "none", siteProbe: { checked: [], found: null, at: "x" } })).toBe(true);
+    // A probe that FOUND a site still counts as checked — that's the whole
+    // point. The company just won't be siteless any more.
+    expect(siteWasChecked({ siteProbe: { checked: ["a.com"], found: "https://a.com", at: "x" } })).toBe(true);
   });
 
   // The bug that produced a queue full of businesses who plainly had websites:
@@ -62,7 +113,7 @@ describe("leadNeed picks the one true reason to call", () => {
       const need = leadNeed({ website: site as string | null }, NOW);
       expect(need.key).toBe("site_unverified");
       // Lower than a checked one, so verified leads work ahead of guesses.
-      expect(need.rank).toBeLessThan(leadNeed({ website: null, research: research({ siteStatus: "none" }) }, NOW).rank);
+      expect(need.rank).toBeLessThan(leadNeed({ website: null, research: checkedResearch({ siteStatus: "none" }) }, NOW).rank);
     }
   });
 
@@ -72,7 +123,7 @@ describe("leadNeed picks the one true reason to call", () => {
     for (const key of ["no_site", "site_unverified"] as NeedKey[]) {
       const need =
         key === "no_site"
-          ? leadNeed({ website: null, research: research({ siteStatus: "none" }) }, NOW)
+          ? leadNeed({ website: null, research: checkedResearch({ siteStatus: "none" }) }, NOW)
           : leadNeed({ website: null }, NOW);
       expect(need.key).toBe(key);
       expect(need.line).toMatch(/\?$/);
@@ -280,7 +331,7 @@ describe("the need signal moves the score, so the queue order follows it", () =>
   it("the reason to call is the FIRST thing the rep reads on the card", () => {
     const checked = opportunityScore({
       ...base,
-      need: leadNeed({ website: null, research: research({ siteStatus: "none" }) }, NOW),
+      need: leadNeed({ website: null, research: checkedResearch({ siteStatus: "none" }) }, NOW),
     });
     expect(checked.reasons[0]).toBe("No website");
     // And the unchecked version says so on the card, so the rep can see at a

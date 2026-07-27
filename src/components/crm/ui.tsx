@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode, SelectHTMLAttributes, InputHTMLAttributes, TextareaHTMLAttributes } from "react";
 
-import { stageInfo } from "../../lib/crm/constants";
+import { stageInfo, emailHistory } from "../../lib/crm/constants";
 
 export function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(" ");
@@ -296,6 +296,41 @@ export function Pill({ tone = "neutral", children }: { tone?: PillTone; children
   return (
     <span className={cx("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", pillTones[tone])}>
       {children}
+    </span>
+  );
+}
+
+// "3× emailed · last 4d ago" — the same badge on every screen where somebody
+// might be about to write to this company. Renders nothing when we've never
+// emailed them, which is most rows: a badge on everything is wallpaper.
+//
+// Amber once the three-touch sequence is spent or the last email is still
+// warm; quiet grey otherwise, because "emailed them in March" is context, not
+// a warning. It never blocks a send — the point is that you know before you
+// click, not that the CRM decides for you.
+export function EmailedBadge({
+  company,
+  className,
+}: {
+  company: { email_touches?: number | null; last_emailed_at?: string | null } | null | undefined;
+  className?: string;
+}) {
+  const h = emailHistory(company);
+  if (!h) return null;
+  const loud = h.exhausted || h.recent;
+  return (
+    <span
+      className={cx(
+        "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium align-middle",
+        loud ? "bg-amber-500/15 text-amber-700" : "bg-surface-2 text-faint",
+        className,
+      )}
+      title={
+        h.advice ||
+        `We've emailed this company ${h.touches} time${h.touches === 1 ? "" : "s"}. Worth a look at the thread before you write another.`
+      }
+    >
+      ✉ {h.label}
     </span>
   );
 }

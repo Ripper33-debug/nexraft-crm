@@ -143,7 +143,12 @@ export async function aiComplete(req: {
 // re-crawl. v2 (2026-07-21): Barry flagged that the drafts "all sound like
 // cold emails" — rewrote the prompt around one specific hook, banned the
 // mass-mail clichés, and pushed for neighbor-not-salesman voice.
-export const AI_PROMPT_VERSION = 2;
+// v3 (2026-07-27): every draft written before today was built from a dossier
+// that claimed "no website" without checking, so an unknown number of them
+// assert something false to an owner who can see their own site. Bumping the
+// version is what forces the redraft pass to rewrite them all from the honest
+// facts — it is the only way to get the bad drafts out of the outbox.
+export const AI_PROMPT_VERSION = 3;
 
 export type AiBrief = {
   brief: string; // 2-3 sentence "what they are + how to pitch them"
@@ -163,9 +168,29 @@ function dossierFacts(
     `Business: ${company.name}${company.city ? ` (${company.city})` : ""}`,
   ];
   if (company.industry) lines.push(`Industry: ${company.industry}`);
+  // The email is a written claim with the owner's name on it, so it gets the
+  // same rule as the call opener: "no website" is only sayable when the probe
+  // actually ran. On a dossier written before the probe existed, siteStatus is
+  // "none" because that was the initial value, not because anyone looked — and
+  // an email asserting a business has no website to an owner who does is worse
+  // than a bad call, because it sits in their inbox as evidence.
+  const checked = Boolean(d.siteProbe);
   lines.push(
-    `Website status: ${d.siteStatus === "none" ? "no website at all" : d.siteStatus === "dead" ? "website is down/gone" : "live"}`,
+    `Website status: ${
+      d.siteStatus === "none"
+        ? checked
+          ? "no website at all (we searched and found nothing)"
+          : "UNVERIFIED — we have no website on file for them, but nobody has checked. They may well have one."
+        : d.siteStatus === "dead"
+          ? "website is down/gone"
+          : "live"
+    }`,
   );
+  if (d.siteStatus === "none" && !checked) {
+    lines.push(
+      "IMPORTANT: do not state or imply they have no website. Ask about it, or build the email on something else entirely.",
+    );
+  }
   if (d.summary) lines.push(`What they do: ${d.summary}`);
   if (d.services.length > 0) lines.push(`Services: ${d.services.slice(0, 6).join(", ")}`);
   if (d.established) lines.push(`In business since: ${d.established}`);
@@ -194,7 +219,8 @@ Structure: (1) the single most specific TRUE observation about this business, an
 
 - Refer to the business the way a local would say it out loud — "Mills Plumbing", never "Mills Plumbing & Drain Cleaning LLC". Legal suffixes (LLC, Inc., Corp) never appear in the subject or body.
 - If the facts include an owner name, address them by first name in the email.
-- Never invent facts that are not in the input. If the facts are thin (no rating, no services), lean on what IS there — a dead site, no site at all, their trade and town — and stay plain rather than making details up.`;
+- Never invent facts that are not in the input. If the facts are thin (no rating, no services), lean on what IS there — a dead site, no site at all, their trade and town — and stay plain rather than making details up.
+- NEVER tell a business it has no website unless the facts say we searched and found nothing. If the website status is UNVERIFIED, the owner may be looking at their own site as they read your email, and asserting otherwise ends the conversation. Either ask ("couldn't find a site for you — is there one?") or write the whole email off a different fact and don't mention their website at all.`;
 
 // One company in, one brief out. Hard 15s deadline so a slow/failed AI call
 // can never stall a research batch — the dossier just ships without the brief.
