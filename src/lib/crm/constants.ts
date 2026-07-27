@@ -425,6 +425,7 @@ export function analyzeSiteHtml(html: string, opts?: { https?: boolean }): SiteA
 export type NeedKey =
   | "just_down"
   | "no_site"
+  | "site_unverified"
   | "domain_expired"
   | "site_down"
   | "facebook_only"
@@ -579,13 +580,49 @@ export function leadNeed(sig: NeedSignals, now: Date = new Date()): LeadNeed {
     };
   }
 
-  // 2) Nothing there at all. The easiest true sentence we own.
-  if (!hasSite || research?.siteStatus === "none") {
+  // 2) Nothing there at all — but ONLY if somebody actually looked.
+  //
+  // This block used to fire on `!hasSite` alone, and that was the single most
+  // expensive bug in the lead engine. A company's `website` is empty whenever
+  // OpenStreetMap simply never recorded one, which is the majority case: in a
+  // live sample of Cape Coral, 64% of named businesses had no website tag, and
+  // among the ones the radar would have imported were Ross, 7-Eleven, and a
+  // local electrician whose site (aaaeinc.com) has existed for years. Every one
+  // of those got handed to a rep as "no website" with a confident opener
+  // asserting it. An owner who HAS a website hears a stranger state something
+  // obviously false about their business and hangs up — which is exactly the
+  // wall of instant brush-offs the team was hitting.
+  //
+  // So sitelessness is now a claim that has to be earned. `siteStatus === "none"`
+  // is written only after a real check (see siteprobe.server.ts); an unchecked
+  // blank falls through to site_unverified below, which asks instead of asserts.
+  if (research?.siteStatus === "none") {
     return {
       key: "no_site",
       rank: 92,
       label: "No website",
-      line: "When somebody Googles you they get your listing and a phone number, but there's no website behind it — that's the only reason I'm calling.",
+      // Still phrased as a confirmation, not a pronouncement. Our check is good,
+      // not omniscient — and "am I right?" costs nothing when we're right and
+      // saves the call when we're wrong.
+      line: "I went looking for a website for you before I called and couldn't find one anywhere — am I right that you don't have one yet?",
+      worthCalling: true,
+    };
+  }
+
+  // 2b) No website on file, and nobody has checked whether that's true.
+  //
+  // Worth a call — a good share of these really are siteless — but the rep must
+  // not walk in claiming it. The opener asks, so a wrong guess costs one polite
+  // sentence instead of the whole call, and the answer tells us which it was.
+  if (!hasSite) {
+    return {
+      key: "site_unverified",
+      // Sits below every need we've actually confirmed and above the ones we've
+      // only inferred, so a rep spends the morning on leads where we know why
+      // we're calling and gets to the guesses afterwards.
+      rank: 64,
+      label: "No website found",
+      line: "I couldn't find a website for you when I looked — do you have one, or is the Google listing all that's out there?",
       worthCalling: true,
     };
   }
@@ -670,12 +707,13 @@ export function leadNeed(sig: NeedSignals, now: Date = new Date()): LeadNeed {
 // looked at" instead of one vague good/weak split.
 export const NEED_GROUPS: { key: NeedKey; label: string; blurb: string }[] = [
   { key: "just_down", label: "Site just went down", blurb: "Broke in the last week — call today, they already know." },
-  { key: "no_site", label: "No website at all", blurb: "Found on Google, nothing behind the listing. The easiest true opener we own." },
+  { key: "no_site", label: "No website at all", blurb: "Checked and confirmed — nothing behind the listing. The easiest true opener we own." },
   { key: "domain_expired", label: "Domain expired", blurb: "They paid for a site once and let it lapse — the budget existed." },
   { key: "site_down", label: "Website is down", blurb: "The link on their listing throws an error for every customer who clicks it." },
   { key: "facebook_only", label: "Social only, no site", blurb: "Already posting and promoting — no website for any of it to land on." },
   { key: "placeholder", label: "Placeholder page", blurb: "Domain resolves to a parked or coming-soon page." },
   { key: "builder", label: "DIY builder site", blurb: "Free template — the fix is visible in ten seconds on the call." },
+  { key: "site_unverified", label: "No website found", blurb: "Nothing on file, but nobody has looked. Ask on the call — never claim it." },
   { key: "abandoned", label: "Looks abandoned", blurb: "Stale footer year — customers wonder if they're still open." },
   { key: "not_mobile", label: "Not mobile-friendly", blurb: "Doesn't fit a phone screen, which is where nearly everyone finds them." },
   { key: "no_https", label: "No HTTPS", blurb: "Chrome shows a Not secure warning before anyone reads a word." },
@@ -728,6 +766,9 @@ export function callOpener(opts: {
     site_down: "Did you know, or is that news?",
     domain_expired: "Was that on purpose, or did it just lapse on you?",
     no_site: "Is that deliberate, or just one of those things that never got done?",
+    // Nobody has checked this one, so the ask has to leave room for a yes —
+    // a rep who barrels on as if it's settled gets caught out.
+    site_unverified: "Have I got that right, or is there one I just couldn't find?",
     facebook_only: "Was a proper website ever on the list, or has Facebook been enough so far?",
     placeholder: "Is someone meant to be building that, or has it been sat like that a while?",
     builder: "Did you put that together yourself?",
@@ -1060,6 +1101,210 @@ export type DiscoverySignals = {
   // (won a deal or got an "interested" on the phone). Evidence beats hunches.
   provenIndustry?: boolean;
 };
+
+// ---------------------------------------------------------------------------
+// Chains and franchises
+// ---------------------------------------------------------------------------
+// A national chain is not a prospect. Ross doesn't buy a website from a studio
+// in Cape Coral, and putting one in front of a rep costs a real dial and a
+// little bit of their faith in the queue.
+//
+// The tell is OpenStreetMap's `brand` tag — but it can't be used bluntly,
+// because plenty of genuine local businesses carry one. In the Cape Coral
+// sample "Karry's Automotive" is tagged brand=Goodyear and "De Bono's Stop and
+// Go" is tagged brand=Sunoco; both are exactly the independent operator we want
+// to call. What separates them from Ross is simple: a chain's NAME IS its
+// brand. "Ross" is branded Ross, "7-Eleven" is branded 7-Eleven. Karry's is not
+// branded Karry's.
+//
+// So: brand tag + the name matches the brand = chain. Brand tag + a name of
+// their own = a local business flying someone's flag, and we keep it.
+const CHAIN_NAMES = [
+  "walmart", "target", "costco", "kroger", "publix", "safeway", "aldi", "lidl",
+  "7 eleven", "circle k", "wawa", "sheetz", "speedway", "racetrac", "quiktrip",
+  "cvs", "walgreens", "rite aid", "dollar general", "dollar tree", "family dollar",
+  "mcdonalds", "burger king", "wendys", "taco bell", "kfc", "subway", "chipotle",
+  "starbucks", "dunkin", "dominos", "pizza hut", "papa johns", "chick fil a",
+  "arbys", "sonic drive in", "popeyes", "jimmy johns", "panera bread", "five guys",
+  "home depot", "lowes", "ace hardware", "autozone", "oreilly auto parts",
+  "advance auto parts", "napa auto parts", "pep boys", "firestone", "midas",
+  "jiffy lube", "valvoline", "discount tire", "tire kingdom",
+  "planet fitness", "la fitness", "anytime fitness", "orangetheory", "crunch fitness",
+  "great clips", "supercuts", "sport clips", "sally beauty", "ulta beauty",
+  "jcpenney", "macys", "kohls", "ross", "marshalls", "tj maxx", "burlington",
+  "bealls", "gnc", "gamestop", "best buy", "staples", "office depot",
+  "ups store", "fedex office", "h&r block", "jackson hewitt",
+  "enterprise rent a car", "hertz", "avis", "budget rent a car",
+  "bank of america", "wells fargo", "chase bank", "truist", "regions bank",
+  "state farm", "allstate", "geico", "progressive insurance", "farmers insurance",
+  "keller williams", "re max", "century 21", "coldwell banker", "berkshire hathaway",
+  "petsmart", "petco", "tractor supply", "harbor freight", "michaels", "hobby lobby",
+  // Added after checking the list against a live Cape Coral pull — every one of
+  // these was sitting in the siteless results and would have gone to a rep.
+  "hair cuttery", "applebees", "cicis", "little caesars", "outback steakhouse",
+  "hooters", "perkins", "bob evans", "rita's italian ice", "party city",
+  "hallmark", "homegoods", "pet supermarket", "sherwin williams", "liberty tax",
+  "western union", "fifth third bank", "bb&t", "capital bank", "sunoco",
+  "shell", "mobil", "marathon", "chevron", "exxon", "bp", "citgo",
+  "united states post office", "us post office", "goodwill", "salvation army",
+  "at&t", "verizon", "t mobile", "sprint", "xfinity", "spectrum",
+];
+
+/** Loose comparison key for business names: letters and digits only, lowercased. */
+export function nameKey(s: string | null | undefined): string {
+  return String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+// Words a chain bolts onto its own name to describe one outlet. A name that is
+// a chain name plus nothing but these (and digits) is still that chain: "Pizza
+// Hut Express", "AT&T Express Outlet", "Bank of America Financial Center",
+// "Walgreens 4821". All drawn from a live sample of Cape Coral rather than
+// imagined — every one of these was a real listing the first version let past.
+// Kept deliberately short. Only words nobody would name an independent business
+// after belong here: "Ross Market" would be a real local shop, so "market" is
+// out, while nobody opens a business called "Outlet". Every entry below earned
+// its place by appearing in the Cape Coral sample.
+const OUTLET_WORDS = [
+  "express", "outlet", "store", "supercenter", "supermarket",
+  "center", "centre", "financial", "branch", "atm", "kiosk", "location",
+  "drivethru", "drivethrough",
+];
+const OUTLET_TAIL = new RegExp(`^(?:${OUTLET_WORDS.join("|")}|[0-9]+|#)*$`);
+
+// True when `name` is `key` followed by nothing meaningful — a number, an
+// outlet descriptor, or both. "rossiter roofing" must never be caught by
+// "ross", which is why the tail is checked instead of just accepting any prefix.
+function isSameBusinessName(name: string, key: string): boolean {
+  if (!key) return false;
+  if (name === key) return true;
+  if (!name.startsWith(key)) return false;
+  return OUTLET_TAIL.test(name.slice(key.length));
+}
+
+/**
+ * True when this listing is a national chain or franchise outlet rather than an
+ * independent business we could sell to.
+ *
+ * A branch manager can't buy a website — that's decided at head office — so
+ * every one of these is a call that could never close, and they were reaching
+ * the top of the queue because head office hadn't bothered to tell
+ * OpenStreetMap about the corporate site.
+ */
+export function looksLikeChain(sig: {
+  name?: string | null;
+  brand?: string | null;
+  operator?: string | null;
+}): boolean {
+  const name = nameKey(sig.name);
+  if (!name) return false;
+
+  // A curated list of names that are chains wherever they appear.
+  for (const c of CHAIN_NAMES) {
+    if (isSameBusinessName(name, nameKey(c))) return true;
+  }
+
+  // The brand tell: their name IS the brand they carry. `brand` in OSM means a
+  // chain, so self-naming here is a reliable signal on its own — it catches
+  // franchises we never listed, like Firehouse Subs.
+  //
+  // Crucially this does NOT fire for a business that merely stocks a brand:
+  // Karry's Automotive sells Goodyear tyres and De Bono's Stop and Go sells
+  // Sunoco fuel, and both are exactly the independent local businesses we're
+  // hunting for. Their names are their own.
+  if (isSameBusinessName(name, nameKey(sig.brand))) return true;
+
+  // `operator` is different and needs a tighter test. Plenty of independents
+  // list themselves as their own operator — Coral Palace Arcade 777 is operated
+  // by "Coral Palace Arcade" — and the first version threw those away. So an
+  // operator only counts as evidence when the operator is itself a chain we
+  // recognise, which is what "Bank of America Financial Center" looks like.
+  const operator = nameKey(sig.operator);
+  if (operator && CHAIN_NAMES.some((c) => nameKey(c) === operator)) {
+    if (isSameBusinessName(name, operator)) return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Guessing a business's website so we can check whether they really lack one
+// ---------------------------------------------------------------------------
+const DOMAIN_STOPWORDS = new Set([
+  "the", "and", "of", "a", "an", "for", "at", "in", "on", "&",
+  "inc", "llc", "l l c", "ltd", "co", "corp", "corporation", "company",
+  "pllc", "pa", "pc", "lp", "llp",
+]);
+
+/**
+ * Plausible domains for a business name, best guess first. Used to check whether
+ * a business we think is siteless actually has a site we simply never recorded.
+ *
+ * Two shapes, because small businesses use both: the whole name run together
+ * (Abacus Hair Design -> abacushairdesign.com) and the initials (All American
+ * Air & Elec Inc -> aaaeinc.com, which is their real domain — a name-only guess
+ * would have missed it and left us calling them to say they have no website).
+ */
+export function candidateDomains(name: string | null | undefined, limit = 6): string[] {
+  const raw = String(name ?? "").toLowerCase();
+  if (!raw.trim()) return [];
+  const words = raw
+    .replace(/[^a-z0-9&\s-]/g, " ")
+    .split(/[\s-]+/)
+    .filter(Boolean);
+  const meaningful = words.filter((w) => !DOMAIN_STOPWORDS.has(w));
+  if (meaningful.length === 0) return [];
+
+  const joined = meaningful.join("").replace(/[^a-z0-9]/g, "");
+  const initials = meaningful.map((w) => w[0]).join("").replace(/[^a-z0-9]/g, "");
+  // Keep the legal suffix on the initials form: "aaae" alone is a coin toss,
+  // "aaaeinc" is a real pattern for exactly this kind of company.
+  const suffix = words.find((w) => ["inc", "llc", "co", "corp"].includes(w)) ?? "";
+
+  const stems: string[] = [];
+  const push = (s: string) => {
+    if (s.length >= 4 && s.length <= 40 && !stems.includes(s)) stems.push(s);
+  };
+  push(joined);
+  if (meaningful.length > 2) push(meaningful.slice(0, 2).join(""));
+  if (initials.length >= 3) {
+    if (suffix) push(initials + suffix);
+    push(initials);
+  }
+
+  const out: string[] = [];
+  for (const stem of stems) {
+    for (const tld of [".com", ".net"]) {
+      if (out.length < limit) out.push(stem + tld);
+    }
+  }
+  return out.slice(0, limit);
+}
+
+/**
+ * Does a fetched page actually belong to this business? Guarding on this is what
+ * keeps a parked domain or an unrelated company from being recorded as their
+ * site — which would swap one wrong claim for another.
+ */
+export function pageProvesBusiness(
+  html: string | null | undefined,
+  sig: { name?: string | null; phone?: string | null },
+): boolean {
+  const text = String(html ?? "").toLowerCase();
+  if (!text) return false;
+
+  // A phone match is conclusive: nobody else prints their number.
+  const digits = String(sig.phone ?? "").replace(/\D/g, "").slice(-10);
+  if (digits.length === 10 && text.replace(/\D/g, "").includes(digits)) return true;
+
+  // Otherwise every distinctive word of the name has to appear. "All American
+  // Air" needs all, american and air — any one alone proves nothing.
+  const words = String(sig.name ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !DOMAIN_STOPWORDS.has(w));
+  if (words.length === 0) return false;
+  return words.every((w) => text.includes(w));
+}
 
 export function discoveryScore(sig: DiscoverySignals): OpportunityScore {
   let score = 30;

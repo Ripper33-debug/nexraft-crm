@@ -15,6 +15,7 @@ import {
   opportunityScore,
   leadNeed,
   discoveryScore,
+  looksLikeChain,
   estimateDealValue,
   PRICING_PACKAGES,
   ESTIMATE_LOW_MONTHLY,
@@ -45,6 +46,7 @@ import { aiComplete, aiDefaultModel, aiResearchBrief, isAiConfigured, AI_PROMPT_
 import { draftQualityIssue } from "./emails";
 import { fetchNewFilings, isSunbizConfigured, titleCaseBusiness } from "./sunbiz.server";
 import { fetchDomainContacts, isOutscraperConfigured, websiteDomain } from "./outscraper.server";
+import { probeForWebsite } from "./siteprobe.server";
 import { FL_HUNT_LEADS } from "./fl-hunt-seed.server";
 import { isPlacesConfigured, fetchPlaceRatings } from "./places.server";
 import { isYelpConfigured, fetchYelpRatings } from "./yelp.server";
@@ -4009,7 +4011,13 @@ async function auditWebsitesBatch(urls: string[], deadlineMs: number): Promise<M
 // API keys are set) their Google/Yelp rating. Saved as JSON on
 // companies.research and mirrored into a note so it shows in the thread.
 export type ResearchDossier = CompanyIntel & {
+  // "none" now means CHECKED, and nothing found — see siteprobe.server.ts. It is
+  // the only value that lets a rep open by saying they have no website, so it
+  // must never be written on the strength of a blank field alone.
   siteStatus: "live" | "dead" | "none";
+  // What "we looked" actually meant: the domains tried, and the site we found if
+  // we found one. Kept so the claim is auditable by a human later.
+  siteProbe?: { checked: string[]; found: string | null; at: string } | null;
   rating: number | null;
   reviews: number | null;
   ratingSource: "google" | "yelp" | null;
@@ -4038,11 +4046,37 @@ async function researchCompanyCore(company: {
   name: string;
   website: string | null;
   city: string | null;
+  phone?: string | null;
 }): Promise<ResearchDossier> {
   const researched_at = new Date().toISOString();
   let intel: CompanyIntel = { ...EMPTY_INTEL };
-  let siteStatus: ResearchDossier["siteStatus"] = "none";
-  const url = company.website ? normalizeProbeUrl(company.website) : null;
+  // Starts unknown, NOT "none". Nothing below may claim sitelessness until the
+  // probe has actually run and come back empty.
+  let siteStatus: ResearchDossier["siteStatus"] | null = null;
+  let siteProbe: ResearchDossier["siteProbe"] = null;
+
+  let url = company.website ? normalizeProbeUrl(company.website) : null;
+  // No website on file — go and look for one before anybody says they haven't
+  // got one. Finding it here is the single most valuable thing this function
+  // does: it converts a lead we would have burned into either a real site to
+  // audit and pitch against, or a confirmed no-site lead worth calling proudly.
+  if (!url) {
+    const probe = await probeForWebsite({ name: company.name, phone: company.phone ?? null }, 5000);
+    siteProbe = {
+      checked: probe.found ? [] : probe.checked,
+      found: probe.found ? probe.url : null,
+      at: researched_at,
+    };
+    if (probe.found) {
+      url = normalizeProbeUrl(probe.url);
+      intel.angles = [
+        `They have a website we never had on file (${probe.url}) — do NOT open by saying they don't have one`,
+      ];
+    } else {
+      // We looked and came up empty. That earns the confident opener.
+      siteStatus = "none";
+    }
+  }
   if (url) {
     const attempt = (u: string) =>
       fetchWithTimeout(
@@ -4095,7 +4129,16 @@ async function researchCompanyCore(company: {
       intel = extractCompanyIntel(pages, { https });
     }
   } else {
-    intel.angles = ["No website at all — the easiest pitch there is"];
+    intel.angles = ["Checked the obvious domains and found no website — the easiest pitch there is"];
+  }
+  // extractCompanyIntel replaces `intel` wholesale, so a site we discovered
+  // ourselves has to have its warning re-attached afterwards. This is the one
+  // angle a rep must not miss: the CRM says "no website", and it is wrong.
+  if (siteProbe?.found) {
+    intel.angles = [
+      `⚠️ They DO have a website — ${siteProbe.found} — we just never had it on file. Never open by saying they haven't got one.`,
+      ...intel.angles,
+    ];
   }
   // Reputation: Google first, Yelp as the free fallback — same pattern as
   // discovery scoring. Both are config-gated and best-effort.
@@ -4125,7 +4168,18 @@ async function researchCompanyCore(company: {
   } catch {
     /* reputation is a bonus, never a blocker */
   }
-  const dossier: ResearchDossier = { ...intel, siteStatus, rating, reviews, ratingSource, researched_at };
+  const dossier: ResearchDossier = {
+    ...intel,
+    // Every path above assigns siteStatus; the fallback exists only so a future
+    // edit can't silently leak a null into the field the pitch depends on. It
+    // deliberately falls back to "live", the value that claims nothing.
+    siteStatus: siteStatus ?? "live",
+    siteProbe,
+    rating,
+    reviews,
+    ratingSource,
+    researched_at,
+  };
   // AI pass on top — same "bonus, never blocker" rule. aiResearchBrief never
   // throws and returns null unless an AI key is configured and the call
   // succeeded inside its 15s deadline, so the rule-based dossier always ships.
@@ -4156,13 +4210,25 @@ function dossierNoteBody(d: ResearchDossier): string {
 async function saveDossier(companyId: string, d: ResearchDossier, authorId: string | null): Promise<void> {
   await db()
     .prepare(
+      // A website we discovered ourselves gets written back to the record, but
+      // only into a blank — same rule as phone, never overwrite a human. This is
+      // what stops a wrongly-siteless lead from staying wrong: once the probe
+      // finds their site, every screen sees a company WITH a website and the
+      // "they have nothing online" opener disappears on its own.
       `UPDATE companies SET
          research = ?,
          research_at = ?,
-         phone = COALESCE(NULLIF(phone, ''), ?)
+         phone = COALESCE(NULLIF(phone, ''), ?),
+         website = COALESCE(NULLIF(website, ''), ?)
        WHERE id = ?`,
     )
-    .bind(JSON.stringify(d), d.researched_at, d.phones[0] ?? null, companyId)
+    .bind(
+      JSON.stringify(d),
+      d.researched_at,
+      d.phones[0] ?? null,
+      d.siteProbe?.found ?? null,
+      companyId,
+    )
     .run();
   await db()
     .prepare("INSERT INTO notes (id, entity_type, entity_id, author_id, body) VALUES (?, ?, ?, ?, ?)")
@@ -4176,9 +4242,9 @@ export const researchCompany = createServerFn({ method: "POST" })
     const user = await requireUser();
     await ensureExtraSchema();
     const company = await db()
-      .prepare("SELECT id, name, website, city FROM companies WHERE id = ?")
+      .prepare("SELECT id, name, website, city, phone FROM companies WHERE id = ?")
       .bind(data.id)
-      .first<{ id: string; name: string; website: string | null; city: string | null }>();
+      .first<{ id: string; name: string; website: string | null; city: string | null; phone: string | null }>();
     if (!company) throw new Error("Company not found.");
     const dossier = await researchCompanyCore(company);
     await saveDossier(company.id, dossier, user.id);
@@ -5699,7 +5765,7 @@ export const aiQualifyLeadsBatch = createServerFn({ method: "POST" })
 async function enrichNewLeads(cap = 5): Promise<number> {
   const { results } = await db()
     .prepare(
-      `SELECT id, name, website, city FROM companies c
+      `SELECT id, name, website, city, phone FROM companies c
        WHERE research IS NULL AND archived_at IS NULL
        ORDER BY CASE WHEN EXISTS (
                   SELECT 1 FROM contacts ct
@@ -5710,7 +5776,7 @@ async function enrichNewLeads(cap = 5): Promise<number> {
        LIMIT ?`,
     )
     .bind(cap)
-    .all<{ id: string; name: string; website: string | null; city: string | null }>();
+    .all<{ id: string; name: string; website: string | null; city: string | null; phone: string | null }>();
   let enriched = 0;
   await Promise.allSettled(
     (results ?? []).map(async (c) => {
@@ -5984,12 +6050,12 @@ export const runReResearchBatch = createServerFn({ method: "POST" }).handler(asy
   }
   const { results } = await db()
     .prepare(
-      `SELECT id, name, website, city FROM companies
+      `SELECT id, name, website, city, phone FROM companies
        WHERE ${NEEDS_AI_REFRESH_SQL}
        ORDER BY created_at DESC
        LIMIT 6`,
     )
-    .all<{ id: string; name: string; website: string | null; city: string | null }>();
+    .all<{ id: string; name: string; website: string | null; city: string | null; phone: string | null }>();
   let refreshed = 0;
   await Promise.allSettled(
     (results ?? []).map(async (c) => {
@@ -6024,13 +6090,13 @@ export const runFullReResearchBatch = createServerFn({ method: "POST" })
     await ensureExtraSchema();
     const { results } = await db()
       .prepare(
-        `SELECT id, name, website, city FROM companies
+        `SELECT id, name, website, city, phone FROM companies
          WHERE ${STALE_RESEARCH_SQL}
          ORDER BY research_at ASC NULLS FIRST
          LIMIT 6`,
       )
       .bind(data.before)
-      .all<{ id: string; name: string; website: string | null; city: string | null }>();
+      .all<{ id: string; name: string; website: string | null; city: string | null; phone: string | null }>();
     let refreshed = 0;
     await Promise.allSettled(
       (results ?? []).map(async (c) => {
@@ -6326,6 +6392,8 @@ export const discoverLeads = createServerFn({ method: "POST" })
       // When set, search a growing circle of ~radiusKm around the area's center
       // instead of the area's own bounding box (used by the expanding auto-scan).
       radiusKm: z.number().min(1).max(250).optional().nullable(),
+      // The radar sets this; the Discover search box does not.
+      sitelessOnly: z.boolean().optional().nullable(),
     }),
   )
   .handler(async ({ data }) => {
@@ -6370,6 +6438,10 @@ type DiscoverParams = {
   area?: string | null;
   limit: number;
   radiusKm?: number | null;
+  // Ask Overpass to send back only businesses with no website tag of any kind.
+  // Set by the automated paths, which discard the rest regardless; left off for
+  // a person searching by hand.
+  sitelessOnly?: boolean | null;
 };
 
 // The discovery engine itself, callable without a request context so both the
@@ -6413,8 +6485,26 @@ async function discoverLeadsCore(
     const filters = Array.from(new Set((types.length ? types : [data.businessType]).flatMap((t) => osmFilters(t))));
     // Overpass bbox order is (south,west,north,east).
     const bbox = `${box.s},${box.w},${box.n},${box.e}`;
+    // Ask the map for need directly.
+    //
+    // Overpass only ever hands back the first 80 matches, so every business it
+    // sends that already has a website is a slot we didn't spend on one that
+    // might not. The automated paths — the radar and the nightly sweep — throw
+    // away everything with a website anyway, so telling the server not to send
+    // them costs nothing and roughly doubles the usable leads per request.
+    //
+    // `!~".*"` is Overpass's "tag absent" form. All four spellings of the
+    // website tag have to be excluded; leaving `contact:website` in would let
+    // through businesses that plainly have a site under a second name for it.
+    //
+    // Left off for a human searching Discover, who is entitled to see the whole
+    // street — including the live-but-broken sites the audit pass finds, which
+    // are a different and often better pitch than no site at all.
+    const needSel = data.sitelessOnly
+      ? `["website"!~".*"]["contact:website"!~".*"]["url"!~".*"]["contact:url"!~".*"]`
+      : "";
     const clauses = filters
-      .map((sel) => `  node[${sel}](${bbox});\n  way[${sel}](${bbox});`)
+      .map((sel) => `  node[${sel}]${needSel}(${bbox});\n  way[${sel}]${needSel}(${bbox});`)
       .join("\n");
     // The Overpass server-side timeout MUST sit under our fetch cap (12s). It used
     // to be 25s, which meant the mirror was told it could spend 25s computing while
@@ -6472,6 +6562,25 @@ async function discoverLeadsCore(
     const seenPhones = new Set<string>();
     const seenDomains = new Set<string>();
     const leads: DiscoveredLead[] = elements
+      // National chains and franchise outlets are dropped before anything else
+      // looks at them. Ross and 7-Eleven have no website tag in OSM either, so
+      // they scored "hot" and went to the top of a rep's queue — a call that
+      // could never close, made with a claim that isn't true. A store's web
+      // presence is decided at head office, so the branch manager isn't a
+      // buyer even when they're lovely on the phone.
+      //
+      // The test is narrow on purpose: a chain's *name is its brand*. That
+      // keeps genuine independents who carry a brand — Karry's Automotive
+      // (brand=Goodyear), De Bono's Stop and Go (brand=Sunoco) — in the book,
+      // where a blunt "has a brand tag" rule would have thrown them away.
+      .filter((el) => {
+        const t: Record<string, string> = el.tags ?? {};
+        return !looksLikeChain({
+          name: t.name ?? null,
+          brand: t.brand ?? null,
+          operator: t.operator ?? null,
+        });
+      })
       .map((el) => {
         const tags: Record<string, string> = el.tags ?? {};
         const name = tags.name ?? "";
@@ -7048,7 +7157,9 @@ async function runSweepOnce(sweep: SweepRow): Promise<{ imported: number; assign
   for (let i = 0; i < Math.min(SWEEP_TYPES_PER_RUN, types.length); i++) {
     const type = types[(sweep.next_type_idx + i) % types.length];
     ran.push(type);
-    const res = await discoverLeadsCore({ businessType: type, area: sweep.area, limit: 40 });
+    // sitelessOnly: this loop discards every lead that has a website two lines
+    // below, so there's no reason to make the map send them.
+    const res = await discoverLeadsCore({ businessType: type, area: sweep.area, limit: 40, sitelessOnly: true });
     if (!res.ok) continue;
     const targets = res.leads
       .filter(

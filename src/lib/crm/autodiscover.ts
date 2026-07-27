@@ -39,30 +39,47 @@ export type AutoDiscoverStatus = {
   feed: { id: number; lead: string; rep: string | null }[];
 };
 
-// The scan works one state at a time: it sweeps every industry across the whole
-// state, then moves to the next. Starts from whichever state the user picks, then
-// follows this order (a rough Southeast-first sweep up and across the country).
+// The scan works one area at a time: it sweeps every industry across that area,
+// then moves to the next. Starts from whichever area the user picks, then
+// follows this order.
+//
+// This used to be all fifty states and then ten Canadian provinces, which was
+// wrong twice over. Selling a Cape Coral business a website is a local sale —
+// same time zone, same hurricane season, same chamber of commerce, and a rep
+// who can say "we're just up the road." A roofer in Spokane has none of that
+// and no reason to pick us over someone in Spokane. And a whole-state bounding
+// box is a query heavy enough that the Overpass mirrors routinely time it out,
+// so half those sweeps returned nothing at all.
+//
+// So: Florida only, metro by metro, starting on the home turf in the southwest
+// and widening outward. A metro-sized box is small enough for the map servers
+// to answer, which means a run that used to 504 now comes back with leads.
 type Anchor = { label: string; query: string };
 export const STATE_TOUR: Anchor[] = [
   ...[
-    "Florida", "Georgia", "Alabama", "Mississippi", "Louisiana",
-    "South Carolina", "North Carolina", "Tennessee", "Arkansas", "Texas",
-    "Oklahoma", "Kentucky", "Virginia", "West Virginia", "Maryland",
-    "Delaware", "New Jersey", "Pennsylvania", "New York", "Connecticut",
-    "Rhode Island", "Massachusetts", "Vermont", "New Hampshire", "Maine",
-    "Ohio", "Michigan", "Indiana", "Illinois", "Wisconsin",
-    "Minnesota", "Iowa", "Missouri", "Kansas", "Nebraska",
-    "South Dakota", "North Dakota", "Montana", "Wyoming", "Colorado",
-    "New Mexico", "Arizona", "Utah", "Nevada", "Idaho",
-    "Washington", "Oregon", "California", "Alaska", "Hawaii",
-  ].map((name) => ({ label: name, query: `${name}, USA` })),
-  // Once the US sweep wraps, the radar rolls north into Canada, province by
-  // province, so the same engine keeps mining no-website businesses up there.
-  ...[
-    "Ontario", "Quebec", "British Columbia", "Alberta", "Manitoba",
-    "Saskatchewan", "Nova Scotia", "New Brunswick",
-    "Newfoundland and Labrador", "Prince Edward Island",
-  ].map((name) => ({ label: name, query: `${name}, Canada` })),
+    // Home turf — Lee, Collier and Charlotte counties. Reps can reasonably say
+    // they're local here, and these are the leads worth having first.
+    "Cape Coral", "Fort Myers", "North Fort Myers", "Lehigh Acres", "Estero",
+    "Bonita Springs", "Naples", "Marco Island", "Immokalee", "Fort Myers Beach",
+    "Punta Gorda", "Port Charlotte", "North Port", "Englewood", "Arcadia",
+    "LaBelle", "Clewiston", "Sanibel",
+    // Next ring out — still a drive, still the same market.
+    "Venice", "Sarasota", "Bradenton", "Palmetto", "Lakewood Ranch",
+    // Tampa Bay and the I-4 corridor.
+    "Tampa", "St. Petersburg", "Clearwater", "Brandon", "Riverview",
+    "Spring Hill", "New Port Richey", "Lakeland", "Plant City", "Winter Haven",
+    "Sebring", "Brooksville",
+    // Central Florida.
+    "Orlando", "Kissimmee", "Winter Park", "Sanford", "Clermont", "Leesburg",
+    "Ocala", "Deltona", "Daytona Beach", "Melbourne", "Palm Bay", "Titusville",
+    // Treasure Coast and the southeast.
+    "Vero Beach", "Port St. Lucie", "Stuart", "West Palm Beach", "Boca Raton",
+    "Boynton Beach", "Fort Lauderdale", "Pompano Beach", "Hollywood",
+    "Miami", "Hialeah", "Homestead", "Key West",
+    // North Florida and the panhandle — last, because they're furthest away.
+    "Gainesville", "Jacksonville", "St. Augustine", "Palm Coast", "Lake City",
+    "Tallahassee", "Panama City", "Fort Walton Beach", "Pensacola",
+  ].map((name) => ({ label: name, query: `${name}, FL` })),
 ];
 
 // The rotation of best-fit business types the engine sweeps through. Ordered
@@ -227,18 +244,21 @@ export function useAutoStatus(): AutoDiscoverStatus {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-// Rotate the fixed state tour so it BEGINS with whichever state the user picked,
-// then follows the rest of the list in order. e.g. pick "Florida, USA" → the
-// sweep starts in Florida and rolls on to Georgia, Alabama, … from there.
+// Rotate the fixed tour so it BEGINS with whichever area the user picked, then
+// follows the rest of the list in order. e.g. pick "Naples" → the sweep starts
+// in Naples and rolls on to Marco Island, Immokalee, … from there.
 function buildStateTour(start: string): Anchor[] {
-  const startLabel = start.replace(/,\s*(USA|Canada)$/i, "").trim().toLowerCase();
+  const bare = start.replace(/,\s*(FL|Florida|USA|Canada)$/i, "").trim();
+  const startLabel = bare.toLowerCase();
   const idx = STATE_TOUR.findIndex((s) => s.label.toLowerCase() === startLabel);
-  if (idx < 0) {
-    // Unknown label — just search it first, then the whole standard tour.
-    const first = { label: start.replace(/,\s*(USA|Canada)$/i, "").trim(), query: start };
-    return [first, ...STATE_TOUR];
-  }
-  return [...STATE_TOUR.slice(idx), ...STATE_TOUR.slice(0, idx)];
+  if (idx >= 0) return [...STATE_TOUR.slice(idx), ...STATE_TOUR.slice(0, idx)];
+  // A whole state (or country) isn't a stop on this tour any more, and asking
+  // Overpass for one is the query that times out. Anyone who picks "Florida"
+  // means "run the tour", so run it from the top rather than wasting the first
+  // sweep on a box the map servers won't answer.
+  if (/^(florida|fl|usa|united states|canada)$/i.test(startLabel) || !bare) return STATE_TOUR;
+  // A place we don't list — honour it first, then carry on with the tour.
+  return [{ label: bare, query: start }, ...STATE_TOUR];
 }
 
 // Runs one full engine session. `cancelled` lets the caller stop it (config off /
@@ -295,8 +315,13 @@ export async function runAutoDiscovery(
     patchStatus({ currentType: type, currentArea: state.label, progress, lastRunAt: Date.now() });
 
     try {
-      // No radiusKm → discoverLeads searches the whole state's bounding box.
-      const res = await discoverLeads({ data: { businessType: type, area: state.query, limit: 40 } });
+      // No radiusKm → discoverLeads searches the whole area's bounding box.
+      // sitelessOnly: the filter a dozen lines down discards every lead that
+      // has a website, so there's no sense making the map spend its 80-row
+      // reply on them.
+      const res = await discoverLeads({
+        data: { businessType: type, area: state.query, limit: 40, sitelessOnly: true },
+      });
       if (isCancelled()) break;
       if (!res.ok) {
         patchStatus({ lastError: res.error ?? "Search failed." });

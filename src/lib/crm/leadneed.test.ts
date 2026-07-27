@@ -46,10 +46,38 @@ describe("leadNeed picks the one true reason to call", () => {
     expect(need.key).not.toBe("just_down");
   });
 
-  it("no website at all is the strongest standing signal", () => {
-    expect(leadNeed({ website: null }, NOW).key).toBe("no_site");
-    expect(leadNeed({ website: "   " }, NOW).key).toBe("no_site");
-    expect(leadNeed({ website: "https://x.com", research: research({ siteStatus: "none" }) }, NOW).key).toBe("no_site");
+  it("no website at all is the strongest standing signal — once somebody has looked", () => {
+    const checked = research({ siteStatus: "none" });
+    expect(leadNeed({ website: null, research: checked }, NOW).key).toBe("no_site");
+    expect(leadNeed({ website: "https://x.com", research: checked }, NOW).key).toBe("no_site");
+  });
+
+  // The bug that produced a queue full of businesses who plainly had websites:
+  // an empty `website` column was read as proof of absence. In a live sample of
+  // Cape Coral, 64% of named businesses had no website tag in OpenStreetMap,
+  // and the ones we'd have imported included an electrician trading online for
+  // years. A blank column means nobody looked, and it now says so.
+  it("an empty website column on its own is a question, not a fact", () => {
+    for (const site of [null, "   ", undefined]) {
+      const need = leadNeed({ website: site as string | null }, NOW);
+      expect(need.key).toBe("site_unverified");
+      // Lower than a checked one, so verified leads work ahead of guesses.
+      expect(need.rank).toBeLessThan(leadNeed({ website: null, research: research({ siteStatus: "none" }) }, NOW).rank);
+    }
+  });
+
+  it("never puts a claim in the rep's mouth it can't back up", () => {
+    // Both openers have to be askable. Getting this wrong costs the call: a rep
+    // who opens "you don't have a website" to someone who does is finished.
+    for (const key of ["no_site", "site_unverified"] as NeedKey[]) {
+      const need =
+        key === "no_site"
+          ? leadNeed({ website: null, research: research({ siteStatus: "none" }) }, NOW)
+          : leadNeed({ website: null }, NOW);
+      expect(need.key).toBe(key);
+      expect(need.line).toMatch(/\?$/);
+      expect(need.worthCalling).toBe(true);
+    }
   });
 
   it("tells an expired domain apart from a site that just won't load", () => {
@@ -173,7 +201,8 @@ describe("the need groups stay in step with the classifier", () => {
   it("covers every NeedKey the classifier can return, worst first", () => {
     const keys: NeedKey[] = [
       "just_down", "no_site", "domain_expired", "site_down", "facebook_only", "placeholder",
-      "builder", "abandoned", "not_mobile", "no_https", "thin_site", "new_business", "unknown", "good_site",
+      "builder", "site_unverified", "abandoned", "not_mobile", "no_https", "thin_site",
+      "new_business", "unknown", "good_site",
     ];
     expect(NEED_GROUPS.map((g) => g.key).sort()).toEqual([...keys].sort());
     // No duplicates — the Companies page counts one bucket per key.
@@ -184,7 +213,7 @@ describe("the need groups stay in step with the classifier", () => {
     const rankOf = (k: NeedKey) => {
       const map: Record<string, number> = {
         just_down: 96, no_site: 92, domain_expired: 88, site_down: 86, facebook_only: 80,
-        placeholder: 74, builder: 68, abandoned: 62, not_mobile: 58, no_https: 54,
+        placeholder: 74, builder: 68, site_unverified: 64, abandoned: 62, not_mobile: 58, no_https: 54,
         thin_site: 50, new_business: 46, unknown: 20, good_site: 0,
       };
       return map[k];
@@ -249,8 +278,15 @@ describe("the need signal moves the score, so the queue order follows it", () =>
   });
 
   it("the reason to call is the FIRST thing the rep reads on the card", () => {
-    const none = opportunityScore({ ...base, need: leadNeed({ website: null }, NOW) });
-    expect(none.reasons[0]).toBe("No website");
+    const checked = opportunityScore({
+      ...base,
+      need: leadNeed({ website: null, research: research({ siteStatus: "none" }) }, NOW),
+    });
+    expect(checked.reasons[0]).toBe("No website");
+    // And the unchecked version says so on the card, so the rep can see at a
+    // glance whether the reason for the call has been stood up or not.
+    const unchecked = opportunityScore({ ...base, need: leadNeed({ website: null }, NOW) });
+    expect(unchecked.reasons[0]).toBe("No website found");
   });
 
   it("an un-researched lead is nudged down, not buried — it just needs a look", () => {
