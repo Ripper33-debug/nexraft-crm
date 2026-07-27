@@ -25,6 +25,7 @@ import {
   cx,
 } from "../../components/crm/ui";
 import { toast } from "../../components/crm/toast";
+import { NoReasonModal } from "../../components/crm/no-reason-modal";
 import { aiDraftFromResearch, EMAIL_TEMPLATES, followUpEmail, mailtoLink, NUDGE_LABELS } from "../../lib/crm/emails";
 import { relativeTime } from "../../lib/crm/constants";
 
@@ -134,11 +135,16 @@ function FollowUpCard({
     }
   }
 
-  async function resolve(outcome: "interested" | "not_interested") {
+  // Giving up on a chase is still a no, so it goes through the same one-tap
+  // reason picker (see NoReasonModal) rather than closing the company out
+  // silently — those nos count too.
+  const [givingUp, setGivingUp] = useState(false);
+
+  async function resolve(outcome: "interested") {
     setBusy(true);
     try {
       await setCompanyCallOutcome({ data: { id, outcome } });
-      toast(outcome === "interested" ? "Marked interested — moved to your pipeline." : "Closed out.", "success");
+      toast("Marked interested — moved to your pipeline.", "success");
       onChanged();
     } catch {
       toast("Something went wrong.", "error");
@@ -200,11 +206,21 @@ function FollowUpCard({
           <Button size="sm" variant="outline" disabled={busy} onClick={() => resolve("interested")}>
             They replied
           </Button>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => resolve("not_interested")}>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => setGivingUp(true)}>
             Give up
           </Button>
         </div>
       </div>
+      {givingUp ? (
+        <NoReasonModal
+          company={company}
+          onClose={() => setGivingUp(false)}
+          onDone={() => {
+            setGivingUp(false);
+            onChanged();
+          }}
+        />
+      ) : null}
       {showDraft ? (
         <div className="mt-3 space-y-2 rounded-lg border border-line bg-surface-2/60 p-3">
           <Input

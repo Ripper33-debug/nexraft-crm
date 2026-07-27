@@ -13,6 +13,7 @@ import {
   dealCommission,
   salesBonus,
   opportunityScore,
+  leadNeed,
   discoveryScore,
   estimateDealValue,
   PRICING_PACKAGES,
@@ -32,6 +33,10 @@ import {
   LEAD_ENGINE_PAUSED,
   gradeSiteReport,
   type SiteReportGrade,
+  nextCallbackAt,
+  CALLBACK_MAX_ATTEMPTS,
+  isNoReason,
+  noReasonLabel,
 } from "./constants";
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
@@ -98,6 +103,10 @@ export type CompanyRow = {
   ai_fit: number | null;
   ai_fit_reason: string | null;
   ai_fit_at: string | null;
+  // Selected by `SELECT c.*` — declared here so the call queue can read the
+  // need signal (leadNeed) without casting through `unknown`.
+  research: string | null;
+  site_down_at: string | null;
 };
 
 export type ContactRow = {
@@ -1289,6 +1298,9 @@ export const setCompanyCallOutcome = createServerFn({ method: "POST" })
     z.object({
       id: z.string(),
       outcome: z.enum(["interested", "not_interested", "maybe", "no_answer", "signed"]).nullable(),
+      // Why they said no — one of the fixed NO_REASONS keys. Optional, because
+      // a rep can always skip it, but it's asked for on every no.
+      no_reason: z.string().optional().nullable(),
       // Optional deal details supplied when marking a company "signed".
       package: z.string().optional().nullable(),
       value: z.number().nonnegative().optional().nullable(),
@@ -1301,21 +1313,44 @@ export const setCompanyCallOutcome = createServerFn({ method: "POST" })
     await assertCanEdit(user, "companies", data.id);
 
     const company = await db()
-      .prepare(`SELECT id, name, owner_id FROM companies WHERE id = ?`)
+      .prepare(`SELECT id, name, owner_id, call_attempts FROM companies WHERE id = ?`)
       .bind(data.id)
-      .first<{ id: string; name: string; owner_id: string | null }>();
+      .first<{ id: string; name: string; owner_id: string | null; call_attempts: number | null }>();
     if (!company) throw new Error("NOT_FOUND");
 
-    // Leaving the "no answer" queue (they replied / gave up / signed) also
-    // clears any scheduled nudge so it never counts as due again.
+    // A no-answer is no longer the end of the line. Count the dial and book the
+    // next one (2 → 4 → 7 days, then parked a month out), so the company comes
+    // back into the call queue by itself instead of being quietly forgotten.
+    // Any other outcome means we reached them: the ladder resets and every
+    // scheduled chase is cleared so it never counts as due again.
+    const isNoAnswer = data.outcome === "no_answer";
+    const attempts = isNoAnswer ? (company.call_attempts ?? 0) + 1 : 0;
+    // Only a "no" carries a reason, and only a recognised one — free text can't
+    // be counted, and a stale reason on a company that later said yes would lie
+    // to the tally, so anything else clears it.
+    const noReason =
+      data.outcome === "not_interested" && isNoReason(data.no_reason) ? data.no_reason : null;
+    const nowIso = new Date().toISOString();
     await db()
       .prepare(
         `UPDATE companies
             SET call_outcome = ?,
+                call_attempts = ?,
+                next_call_at = ?,
+                no_reason = ?,
+                no_reason_at = ?,
                 next_followup_at = CASE WHEN ? = 'no_answer' THEN next_followup_at ELSE NULL END
           WHERE id = ?`,
       )
-      .bind(data.outcome, data.outcome, data.id)
+      .bind(
+        data.outcome,
+        attempts,
+        isNoAnswer ? nextCallbackAt(attempts, new Date()) : null,
+        noReason,
+        noReason ? nowIso : null,
+        data.outcome,
+        data.id,
+      )
       .run();
 
     const name = company.name;
@@ -1420,11 +1455,17 @@ export const setCompanyCallOutcome = createServerFn({ method: "POST" })
         await syncWonDealProjects();
       }
     } else if (data.outcome === "not_interested") {
-      // A "no" drops the open deal to Lost (leave won deals untouched).
+      // A "no" drops the open deal to Lost (leave won deals untouched), and
+      // carries the reason across so win/loss reporting and the call tally tell
+      // the same story. Never overwrite a reason a rep typed by hand.
       if (deal && isOpen(deal.stage)) {
         await db()
-          .prepare(`UPDATE deals SET stage=?, stage_changed_at=?, updated_at=? WHERE id=?`)
-          .bind(LOST_STAGE, now, now, deal.id)
+          .prepare(
+            `UPDATE deals SET stage=?, stage_changed_at=?, updated_at=?,
+               lost_reason = COALESCE(NULLIF(lost_reason, ''), ?)
+             WHERE id=?`,
+          )
+          .bind(LOST_STAGE, now, now, noReason ? noReasonLabel(noReason) : null, deal.id)
           .run();
       }
     } else if (data.outcome === "interested" || data.outcome === "maybe") {
@@ -1461,15 +1502,22 @@ export const setCompanyCallOutcome = createServerFn({ method: "POST" })
     }
 
     if (data.outcome && data.outcome !== "signed") {
+      // On a no-answer, say which dial that was and that another is booked, so
+      // the timeline reads as a sequence of tries rather than a dead end.
+      const tail = isNoAnswer
+        ? ` (try ${attempts} of ${CALLBACK_MAX_ATTEMPTS} — callback booked)`
+        : noReason
+          ? ` — ${noReasonLabel(noReason).toLowerCase()}`
+          : "";
       await logEvent({
         actorId: user.id,
         verb: "triaged",
         entityType: "company",
         entityId: data.id,
-        summary: `${user.name} marked ${name || "a company"} ${OUTCOME_LABEL[data.outcome] ?? data.outcome}`,
+        summary: `${user.name} marked ${name || "a company"} ${OUTCOME_LABEL[data.outcome] ?? data.outcome}${tail}`,
       });
     }
-    return { ok: true, createdDeal };
+    return { ok: true, createdDeal, attempts };
   });
 
 // ---------- Sales payroll ----------
@@ -4332,7 +4380,8 @@ export const pruneWeakLeads = createServerFn({ method: "POST" })
     await ensureExtraSchema();
     const { results } = await db()
       .prepare(
-        `SELECT c.id, c.name, c.industry, c.source, c.phone, c.call_outcome, c.created_at
+        `SELECT c.id, c.name, c.industry, c.source, c.phone, c.call_outcome, c.created_at,
+                c.website, c.research, c.tags, c.site_down_at
            FROM companies c
           WHERE c.archived_at IS NULL
             AND COALESCE(c.call_outcome, '') NOT IN ('signed', 'interested', 'maybe')
@@ -4359,6 +4408,10 @@ export const pruneWeakLeads = createServerFn({ method: "POST" })
         phone: string | null;
         call_outcome: string | null;
         created_at: string;
+        website: string | null;
+        research: string | null;
+        tags: string | null;
+        site_down_at: string | null;
       }>();
     const candidates = results ?? [];
 
@@ -4374,8 +4427,22 @@ export const pruneWeakLeads = createServerFn({ method: "POST" })
     ).results ?? [];
     const hasEmail = new Set(emailRows.map((r) => r.company_id));
 
-    const weak = candidates.filter(
-      (c) =>
+    const weak = candidates.filter((c) => {
+      // Same need read the call queue uses, so pruning agrees with what a rep
+      // sees: a business with a fine site is weak no matter how good its
+      // industry looks, and a dead site is strong even if it's old.
+      const need = leadNeed({
+        website: c.website,
+        research: c.research,
+        tags: c.tags,
+        siteDownAt: c.site_down_at,
+        createdAt: c.created_at,
+      });
+      // A visible reason to call outranks the score outright. A shop with no
+      // website is the entire business — prune must never eat one for being
+      // old and phoneless. Only the owner saying no overrides that.
+      if (need.worthCalling && c.call_outcome !== "not_interested") return false;
+      return (
         opportunityScore({
           source: c.source,
           callOutcome: c.call_outcome,
@@ -4383,8 +4450,10 @@ export const pruneWeakLeads = createServerFn({ method: "POST" })
           hasPhone: Boolean(c.phone),
           hasEmail: hasEmail.has(c.id),
           createdAt: c.created_at,
-        }).score < data.threshold,
-    );
+          need,
+        }).score < data.threshold
+      );
+    });
 
     if (data.dryRun) {
       return {
@@ -4509,7 +4578,8 @@ export const assignPoolLeadsToRep = createServerFn({ method: "POST" })
       (
         await db()
           .prepare(
-            `SELECT c.id, c.name, c.industry, c.source, c.phone, c.call_outcome, c.created_at
+            `SELECT c.id, c.name, c.industry, c.source, c.phone, c.call_outcome, c.created_at,
+                    c.website, c.research, c.tags, c.site_down_at
                FROM companies c
               WHERE c.owner_id IS NULL AND c.archived_at IS NULL
                 AND COALESCE(c.call_outcome, '') <> 'signed'`,
@@ -4522,6 +4592,10 @@ export const assignPoolLeadsToRep = createServerFn({ method: "POST" })
             phone: string | null;
             call_outcome: string | null;
             created_at: string;
+            website: string | null;
+            research: string | null;
+            tags: string | null;
+            site_down_at: string | null;
           }>()
       ).results ?? [];
 
@@ -4547,6 +4621,13 @@ export const assignPoolLeadsToRep = createServerFn({ method: "POST" })
           hasPhone: Boolean(c.phone),
           hasEmail: hasEmail.has(c.id),
           createdAt: c.created_at,
+          need: leadNeed({
+            website: c.website,
+            research: c.research,
+            tags: c.tags,
+            siteDownAt: c.site_down_at,
+            createdAt: c.created_at,
+          }),
         }).score,
       }))
       .sort((a, b) => b.score - a.score);
@@ -4793,6 +4874,7 @@ async function runPendingOneTimeTasks(): Promise<void> {
   await runSeedFlHuntLeads();
   await runRetireLeadDiscoveryStages();
   await runPromoteNickBesserToManager();
+  await runPromoteMichaelToManager();
 }
 
 // One-time promotion (owner's ask, 2026-07-22): "give Nick Besser access to
@@ -4832,6 +4914,78 @@ async function runPromoteNickBesserToManager(): Promise<void> {
           ? `done: promoted ${promoted.map((p) => p.name).join(", ")} to manager`
           : "done: no matching member account found (promote from the Team page instead)",
         NICK_MANAGER_TASK_KEY,
+      )
+      .run();
+    for (const p of promoted) {
+      // Fresh scope should apply everywhere at once, not per lingering tab.
+      await db().prepare("DELETE FROM sessions WHERE user_id = ?").bind(p.id).run();
+      await logEvent({
+        actorId: null,
+        verb: "updated",
+        entityType: "user",
+        entityId: p.id,
+        summary: `${p.name} is now a Manager — they can see and work the whole team's companies, contacts, and deals`,
+      });
+    }
+  } catch {
+    // Best-effort — next cron hit / page load retries if the claim didn't stick.
+  }
+}
+
+// One-time promotion (owner's ask, 2026-07-26): "make Michael have the same
+// access as Nick." Same manager role, same reasoning as above — the whole
+// team's book, none of the admin-only pages. Michael is matched on first name
+// like the other Michael tasks in this file, and like them it refuses to guess:
+// if the name matches zero users or more than one, it records why and changes
+// nothing rather than handing a stranger the team's book.
+const MICHAEL_MANAGER_TASK_KEY = "task_make_michael_manager_2026_07_26";
+
+async function runPromoteMichaelToManager(): Promise<void> {
+  try {
+    const row = await db()
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES (?, 'running')
+         ON CONFLICT (key) DO NOTHING RETURNING key`,
+      )
+      .bind(MICHAEL_MANAGER_TASK_KEY)
+      .first<{ key: string }>();
+    if (!row) return; // already ran (or another instance is on it)
+
+    const michaels =
+      (
+        await db()
+          .prepare(
+            `SELECT id, name, role FROM users
+              WHERE LOWER(name) LIKE '%michael%' OR LOWER(email) LIKE '%michael%'`,
+          )
+          .all<{ id: string; name: string; role: string }>()
+      ).results ?? [];
+    if (michaels.length !== 1) {
+      await db()
+        .prepare(`UPDATE app_settings SET value=? WHERE key=?`)
+        .bind(
+          `skipped: ${michaels.length} users match "michael" — promote from the Team page instead`,
+          MICHAEL_MANAGER_TASK_KEY,
+        )
+        .run();
+      return;
+    }
+    const michael = michaels[0];
+
+    // Admins keep their admin — a promotion must never be a demotion.
+    const promoted =
+      (
+        await db()
+          .prepare(`UPDATE users SET role='manager' WHERE id=? AND role='member' RETURNING id, name`)
+          .all<{ id: string; name: string }>()
+      ).results ?? [];
+    await db()
+      .prepare(`UPDATE app_settings SET value=? WHERE key=?`)
+      .bind(
+        promoted.length > 0
+          ? `done: promoted ${michael.name} to manager`
+          : `done: ${michael.name} was already ${michael.role} — left alone`,
+        MICHAEL_MANAGER_TASK_KEY,
       )
       .run();
     for (const p of promoted) {
@@ -5570,6 +5724,26 @@ async function enrichNewLeads(cap = 5): Promise<number> {
     }),
   );
   return enriched;
+}
+
+// Same batch, run back-to-back until a wall-clock budget is spent. The nightly
+// cron used to research a flat ten leads, which is nothing against a backlog of
+// hundreds — and since the call queue now hides leads with no known reason to
+// call, "un-researched" means "un-callable". A batch is roughly as slow as its
+// slowest crawl (they run in parallel), so this checks the clock BEFORE
+// starting another one and stops early if the backlog empties, leaving the rest
+// of the cron's 60 seconds for the sweep itself.
+async function enrichNewLeadsWithin(budgetMs: number, chunk = 10): Promise<number> {
+  const deadline = Date.now() + budgetMs;
+  let total = 0;
+  // Hard ceiling as well as a clock: a bug that made batches return instantly
+  // must not spin this into a runaway loop.
+  for (let i = 0; i < 40 && Date.now() < deadline; i++) {
+    const n = await enrichNewLeads(chunk);
+    total += n;
+    if (n === 0) break; // backlog is empty (or everything in it is failing)
+  }
+  return total;
 }
 
 // Admin trigger for the same batch the cron runs: research a chunk of the
@@ -7242,10 +7416,14 @@ export const runDueSweeps = createServerOnlyFn(
     } catch {
       /* housekeeping is best-effort */
     }
-    // Auto-research: give the newest un-researched leads a dossier so reps
-    // open them to ready-made intel. Small cap, best-effort, never blocking.
+    // Auto-research: give un-researched leads a dossier so reps open them to
+    // ready-made intel. This is no longer a bonus — since the call queue holds
+    // back anything with no known reason to call, an un-researched lead is a
+    // lead nobody can dial. So it gets a real slice of the cron's 60s instead
+    // of a fixed ten, and keeps going until the budget runs out or the backlog
+    // does. Best-effort as always: a slow crawl can't take the sweep down.
     try {
-      await enrichNewLeads(10);
+      await enrichNewLeadsWithin(25_000, 10);
     } catch {
       /* research is a bonus, never a blocker */
     }

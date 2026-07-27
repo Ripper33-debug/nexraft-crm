@@ -28,7 +28,20 @@ import { RecordAccessButton } from "../../components/crm/record-access";
 import { ArchivedPanel } from "../../components/crm/archived";
 import { DuplicatesPanel } from "../../components/crm/duplicates";
 import { ImportCsvButton } from "../../components/crm/csv-import";
-import { LEAD_SOURCES, COMPANY_TAGS, tagColor, parseTags, serializeTags, canEditRecord } from "../../lib/crm/constants";
+import { ResearchAllButton } from "../../components/crm/research-all-button";
+import { NoReasonModal } from "../../components/crm/no-reason-modal";
+import {
+  LEAD_SOURCES,
+  COMPANY_TAGS,
+  tagColor,
+  parseTags,
+  serializeTags,
+  canEditRecord,
+  leadNeed,
+  NEED_GROUPS,
+  type LeadNeed,
+  type NeedKey,
+} from "../../lib/crm/constants";
 import { downloadCsv, stampedName } from "../../lib/crm/csv";
 import { toast } from "../../components/crm/toast";
 
@@ -45,15 +58,30 @@ function isRecentlyDown(c: Row): boolean {
   return Date.now() - new Date(at).getTime() < 7 * 24 * 3600_000;
 }
 
-function isGoodSite(c: Row): boolean {
-  const raw = c.research as string | null;
-  if (!raw) return false;
-  try {
-    const r = JSON.parse(raw) as { siteStatus?: string; angles?: string[] };
-    return r.siteStatus === "live" && (r.angles ?? []).length === 0;
-  } catch {
-    return false;
+// The one reason we'd interrupt this business's day — same function the call
+// queue, the score and the call script all read, so a company can never look
+// worth calling here and dead in the queue.
+export function needOf(c: Row): LeadNeed {
+  return leadNeed({
+    website: c.website as string | null,
+    research: c.research as string | null,
+    tags: c.tags as string | null,
+    siteDownAt: c.site_down_at as string | null,
+    createdAt: c.created_at as string | null,
+  });
+}
+
+// Chip colours track how hard the opener is, not how pretty the site is:
+// red = they're broken right now, brass = a real defect to name, grey = we have
+// nothing, emerald = nothing wrong (which is a warning, not a win).
+function needChipStyle(need: LeadNeed): string {
+  if (!need.worthCalling) {
+    return need.key === "good_site"
+      ? "bg-emerald-500/15 text-emerald-700"
+      : "bg-surface-2 text-faint";
   }
+  if (need.rank >= 80) return "bg-red-500/15 text-red-700";
+  return "bg-signal-soft text-signal";
 }
 
 function exportCompanies(rows: Row[]) {
@@ -96,6 +124,9 @@ function TagChip({ name }: { name: string }) {
 function RowTriage({ c, canEdit, onDone }: { c: Row; canEdit: boolean; onDone: () => void }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // A "no" from this row goes through the same one-tap reason picker as the
+  // Calls page — otherwise the tally would quietly miss every no filed here.
+  const [asking, setAsking] = useState(false);
 
   const badge =
     c.call_outcome === "signed" ? (
@@ -116,7 +147,7 @@ function RowTriage({ c, canEdit, onDone }: { c: Row; canEdit: boolean; onDone: (
   // Records you can't edit stay read-only badges too.
   if (!canEdit || c.call_outcome === "signed") return badge;
 
-  async function decide(outcome: "interested" | "maybe" | "not_interested" | "no_answer") {
+  async function decide(outcome: "interested" | "maybe" | "no_answer") {
     if (busy) return;
     setBusy(true);
     try {
@@ -126,9 +157,7 @@ function RowTriage({ c, canEdit, onDone }: { c: Row; canEdit: boolean; onDone: (
           ? "Marked Yes — deal moved to Proposal"
           : outcome === "maybe"
             ? "Marked Maybe"
-            : outcome === "not_interested"
-              ? "Marked No"
-              : "Marked No answer — they stay in the call queue",
+            : "Marked No answer — we'll put them back in the queue for a callback",
       );
       setOpen(false);
       onDone();
@@ -174,7 +203,7 @@ function RowTriage({ c, canEdit, onDone }: { c: Row; canEdit: boolean; onDone: (
       <button
         type="button"
         disabled={busy}
-        onClick={() => decide("not_interested")}
+        onClick={() => setAsking(true)}
         className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-faint transition-colors hover:text-red-700 disabled:opacity-50"
         title="Not interested — drops their deal to Lost"
       >
@@ -198,6 +227,17 @@ function RowTriage({ c, canEdit, onDone }: { c: Row; canEdit: boolean; onDone: (
       >
         ✕
       </button>
+      {asking ? (
+        <NoReasonModal
+          company={c}
+          onClose={() => setAsking(false)}
+          onDone={() => {
+            setAsking(false);
+            setOpen(false);
+            onDone();
+          }}
+        />
+      ) : null}
     </span>
   );
 }
@@ -227,7 +267,7 @@ function CompaniesPage() {
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [ownerFilter, setOwnerFilter] = useState<string>("");
   const [callFilter, setCallFilter] = useState<string>("");
-  const [siteFilter, setSiteFilter] = useState<string>("");
+  const [needFilter, setNeedFilter] = useState<NeedKey | "">("");
   const [calling, setCalling] = useState<Row | null>(null);
   const [checkingSites, setCheckingSites] = useState(false);
   const [pullingEmails, setPullingEmails] = useState(false);
@@ -280,16 +320,25 @@ function CompaniesPage() {
     }
   }
 
-  const goodSiteIds = useMemo(
-    () => new Set((companies as Row[]).filter(isGoodSite).map((c) => c.id as string)),
-    [companies],
-  );
+  // One pass over the book: what is the reason to call each of these, and how
+  // many of each do we actually have?
+  const needs = useMemo(() => {
+    const byId = new Map<string, LeadNeed>();
+    const counts = new Map<NeedKey, number>();
+    for (const c of companies as Row[]) {
+      const n = needOf(c);
+      byId.set(c.id as string, n);
+      counts.set(n.key, (counts.get(n.key) ?? 0) + 1);
+    }
+    let withReason = 0;
+    for (const n of byId.values()) if (n.worthCalling) withReason += 1;
+    return { byId, counts, withReason };
+  }, [companies]);
 
   const rows = useMemo(() => {
     let all = companies as Row[];
     if (tagFilter) all = all.filter((c) => parseTags(c.tags as string).includes(tagFilter));
-    if (siteFilter === "good") all = all.filter((c) => goodSiteIds.has(c.id as string));
-    else if (siteFilter === "weak") all = all.filter((c) => !goodSiteIds.has(c.id as string));
+    if (needFilter) all = all.filter((c) => needs.byId.get(c.id as string)?.key === needFilter);
     if (ownerFilter) {
       all = ownerFilter === "__none__"
         ? all.filter((c) => !c.owner_id)
@@ -300,14 +349,19 @@ function CompaniesPage() {
     else if (callFilter === "maybe") all = all.filter((c) => c.call_outcome === "maybe");
     else if (callFilter === "not_interested") all = all.filter((c) => c.call_outcome === "not_interested");
     else if (callFilter === "signed") all = all.filter((c) => c.call_outcome === "signed");
-    return all;
-  }, [companies, tagFilter, ownerFilter, callFilter, siteFilter, goodSiteIds]);
+    // Worst website first, so whatever slice is on screen is worked top-down.
+    return [...all].sort((a, b) => {
+      const ra = needs.byId.get(a.id as string)?.rank ?? 0;
+      const rb = needs.byId.get(b.id as string)?.rank ?? 0;
+      return rb - ra;
+    });
+  }, [companies, tagFilter, ownerFilter, callFilter, needFilter, needs]);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
       <PageHeader
         title="Companies"
-        subtitle={`${(companies as Row[]).length} accounts · ${(companies as Row[]).filter((c) => Number(c.email_contacts ?? 0) > 0).length} with an email on file · ${goodSiteIds.size} already have a good site`}
+        subtitle={`${(companies as Row[]).length} accounts · ${needs.withReason} with a real reason to call · ${(companies as Row[]).filter((c) => Number(c.email_contacts ?? 0) > 0).length} with an email on file`}
         actions={
           <>
             <ImportCsvButton
@@ -557,6 +611,70 @@ function CompaniesPage() {
         }
       />
 
+      {/* What the book is actually made of. Every pill is one reason to call,
+          counted, strongest first — so the day's work is "clear the No website
+          pile", not "start at the top of 900 rows and hope". */}
+      <Card className="mt-4 p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Why we'd call them</span>
+          <span className="text-xs text-mute">
+            {needs.withReason > 0
+              ? `${needs.withReason} of ${(companies as Row[]).length} have something true to open with.`
+              : "Nothing in the book has a reason to call yet — research these before anyone dials."}
+          </span>
+        </div>
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          <button
+            onClick={() => setNeedFilter("")}
+            className={
+              "rounded-full px-2.5 py-1 text-xs font-medium transition-colors " +
+              (needFilter === "" ? "bg-signal-soft text-signal" : "text-mute hover:bg-surface-2 hover:text-bone")
+            }
+          >
+            All {(companies as Row[]).length}
+          </button>
+          {NEED_GROUPS.map((g) => {
+            const n = needs.counts.get(g.key) ?? 0;
+            if (n === 0) return null;
+            const active = needFilter === g.key;
+            const cold = g.key === "good_site" || g.key === "unknown";
+            return (
+              <button
+                key={g.key}
+                title={g.blurb}
+                onClick={() => setNeedFilter(active ? "" : g.key)}
+                className={
+                  "rounded-full px-2.5 py-1 text-xs font-medium transition-colors " +
+                  (active
+                    ? "bg-signal text-ink"
+                    : cold
+                      ? "text-faint hover:bg-surface-2 hover:text-mute"
+                      : "text-mute hover:bg-surface-2 hover:text-bone")
+                }
+              >
+                {g.label} <span className="font-mono tabular-nums opacity-70">{n}</span>
+              </button>
+            );
+          })}
+        </div>
+        {needFilter ? (
+          <p className="mt-2.5 text-xs text-mute">
+            {NEED_GROUPS.find((g) => g.key === needFilter)?.blurb}
+          </p>
+        ) : null}
+        {/* The un-researched pile is the one bucket with a one-click fix, so the
+            fix sits right next to the count instead of on another page. */}
+        {(needs.counts.get("unknown") ?? 0) > 0 ? (
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            <p className="text-xs text-faint">
+              {needs.counts.get("unknown")} have never been researched — nobody can open a call on them yet. Research
+              them and most will sort themselves into the piles above.
+            </p>
+            {isAdmin ? <ResearchAllButton size="sm" onDone={() => router.invalidate()} /> : null}
+          </div>
+        ) : null}
+      </Card>
+
       {/* Tag filter row */}
       <div className="mt-4 flex flex-wrap items-center gap-1.5">
         <button
@@ -588,16 +706,6 @@ function CompaniesPage() {
 
         {/* Owner + call-status filters */}
         <div className="ml-auto flex items-center gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Site</span>
-          <Select
-            value={siteFilter}
-            onChange={(e) => setSiteFilter(e.target.value)}
-            className="h-8 w-auto min-w-[8rem] py-1 text-xs"
-          >
-            <option value="">All sites</option>
-            <option value="good">Good site already</option>
-            <option value="weak">Weak, dead, or none</option>
-          </Select>
           <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Call</span>
           <Select
             value={callFilter}
@@ -628,7 +736,7 @@ function CompaniesPage() {
         </div>
       </div>
 
-      {isAdmin && siteFilter === "good" && rows.length > 0 ? (
+      {isAdmin && needFilter === "good_site" && rows.length > 0 ? (
         <div className="mt-3 flex items-center justify-between rounded-xl border border-signal/25 bg-signal-soft px-4 py-3">
           <span className="text-sm text-bone">
             These {rows.length} companies already have a good website — the hardest pitch in the book.
@@ -694,14 +802,24 @@ function CompaniesPage() {
                           ✉
                         </span>
                       ) : null}
-                      {goodSiteIds.has(c.id as string) ? (
-                        <span
-                          className="ml-2 align-middle rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
-                          title="Research found a live, modern site with nothing to pitch against — hardest sell in the book"
-                        >
-                          Good site
-                        </span>
-                      ) : null}
+                      {(() => {
+                        const need = needs.byId.get(c.id as string);
+                        if (!need) return null;
+                        return (
+                          <span
+                            className={`ml-2 align-middle rounded-full px-1.5 py-0.5 text-[10px] font-medium ${needChipStyle(need)}`}
+                            title={
+                              need.worthCalling
+                                ? `Open the call with: “${need.line}”`
+                                : need.key === "good_site"
+                                  ? "Research found a live, modern site with nothing to pitch against — hardest sell in the book"
+                                  : "Nobody has researched this one, so there's no honest reason to interrupt them yet"
+                            }
+                          >
+                            {need.label}
+                          </span>
+                        );
+                      })()}
                       <RowTriage
                         c={c}
                         canEdit={canEditRecord(me, (c.owner_id as string) ?? null, (c.shared_with as string) ?? null)}

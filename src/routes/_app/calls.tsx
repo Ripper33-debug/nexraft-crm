@@ -12,6 +12,7 @@ import {
 } from "../../lib/crm/data";
 import { Button, Card, EmptyState, Modal, PageHeader, Select, Input, OwnerChip, Pill, SummaryCard, Avatar } from "../../components/crm/ui";
 import { CallMode } from "../../components/crm/call-mode";
+import { NoReasonModal } from "../../components/crm/no-reason-modal";
 import { toast } from "../../components/crm/toast";
 import { fireConfetti } from "../../lib/crm/confetti";
 import {
@@ -21,6 +22,12 @@ import {
   formatMoney,
   PRICING_PACKAGES,
   hasTeamScope,
+  leadNeed,
+  callbackDue,
+  callbackLabel,
+  callbackWhen,
+  CALLBACK_MAX_ATTEMPTS,
+  tallyNoReasons,
 } from "../../lib/crm/constants";
 import { missedCallEmail, mailtoLink } from "../../lib/crm/emails";
 
@@ -46,39 +53,83 @@ export const Route = createFileRoute("/_app/calls")({
   component: CallsPage,
 });
 
+// Read the "why are we calling them" signal off a company row (see leadNeed).
+export function needOf(c: Row) {
+  return leadNeed({
+    website: c.website as string | null,
+    research: c.research as string | null,
+    tags: c.tags as string | null,
+    siteDownAt: c.site_down_at as string | null,
+    createdAt: c.created_at as string | null,
+  });
+}
+
 // Swipe-style triage for fresh companies (no deal yet, not yet triaged). Go
 // through them one at a time: Interested / Not interested, or open Call mode.
+//
+// Ordered by NEED, not by whatever came back from the database first: the
+// business whose site died on Tuesday is a different call from one with a
+// perfectly good site, and the rep should never have to work that out. Leads
+// with nothing wrong (or nothing researched yet) are held back behind a toggle
+// — dialling those with no reason to open with is what produces a day of nos.
 function CallQueue({
   companies,
   onCall,
   onNoAnswer,
+  onNo,
   onChanged,
 }: {
   companies: Row[];
   onCall: (c: Row) => void;
   onNoAnswer: (c: Row) => void;
+  onNo: (c: Row) => void;
   onChanged: () => void;
 }) {
-  const queue = useMemo(
-    () => companies.filter((c) => !c.call_outcome),
-    [companies],
+  const [showAll, setShowAll] = useState(false);
+  const ranked = useMemo(() => {
+    const now = new Date();
+    return companies
+      .filter((c) => {
+        if (!c.call_outcome) return true;
+        // A no-answer isn't gone, it's booked. It comes back into the queue on
+        // the day its callback falls due, until the ladder is spent.
+        if (c.call_outcome !== "no_answer") return false;
+        if (((c.call_attempts as number) ?? 0) >= CALLBACK_MAX_ATTEMPTS) return false;
+        return callbackDue(c.next_call_at as string | null, now);
+      })
+      .map((c) => ({
+        c,
+        need: needOf(c),
+        attempts: c.call_outcome === "no_answer" ? ((c.call_attempts as number) ?? 1) : 0,
+      }))
+      // Callbacks first: a dial we promised ourselves on a date has to beat a
+      // name we've never touched, or the ladder never gets climbed. Within each
+      // group it's still worst-website-first.
+      .sort((a, b) => (b.attempts > 0 ? 1 : 0) - (a.attempts > 0 ? 1 : 0) || b.need.rank - a.need.rank);
+  }, [companies]);
+  // A booked callback is never held back for lack of a reason — we already
+  // decided this one was worth dialling, and the rep is finishing what they
+  // started rather than picking a stranger out of the pile.
+  const withReason = useMemo(
+    () => ranked.filter((x) => x.need.worthCalling || x.attempts > 0),
+    [ranked],
   );
+  const held = ranked.length - withReason.length;
+  const queue = showAll ? ranked : withReason;
   const [busy, setBusy] = useState(false);
   const total = queue.length;
-  const current = queue[0];
+  const dueBacks = useMemo(() => queue.filter((x) => x.attempts > 0).length, [queue]);
+  const currentEntry = queue[0];
+  const current = currentEntry?.c;
+  const need = currentEntry?.need;
+  const attempts = currentEntry?.attempts ?? 0;
 
-  async function decide(outcome: "interested" | "not_interested" | "maybe") {
+  async function decide(outcome: "interested" | "maybe") {
     if (!current || busy) return;
     setBusy(true);
     try {
       await setCompanyCallOutcome({ data: { id: current.id as string, outcome } });
-      toast(
-        outcome === "interested"
-          ? "Marked Yes"
-          : outcome === "maybe"
-            ? "Marked Maybe"
-            : "Marked No",
-      );
+      toast(outcome === "interested" ? "Marked Yes" : "Marked Maybe");
       onChanged();
     } catch {
       toast("Couldn't save — you may not own this one", "error");
@@ -87,7 +138,28 @@ function CallQueue({
     }
   }
 
-  if (total === 0) return null;
+  // Nothing with a reason left: say so plainly instead of vanishing, and offer
+  // the leftovers rather than pretending the day is over.
+  if (total === 0) {
+    if (held === 0) return null;
+    return (
+      <Card className="mt-5 p-4">
+        <div className="text-sm font-semibold text-bone">No leads with a reason to call</div>
+        <p className="mt-1 text-xs text-mute">
+          {held} {held === 1 ? "company is" : "companies are"} waiting, but none of them show a
+          problem worth interrupting someone over — their sites are fine, or nobody's researched
+          them yet. Run <span className="font-semibold">Research all</span> on the Team page, or
+          work the list anyway.
+        </p>
+        <button
+          onClick={() => setShowAll(true)}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-mute transition-colors hover:border-signal/50 hover:text-signal"
+        >
+          Show them anyway
+        </button>
+      </Card>
+    );
+  }
   const sub = [current.industry as string, current.city as string].filter(Boolean).join(" · ");
 
   return (
@@ -98,7 +170,11 @@ function CallQueue({
             {total}
           </span>
           <span className="text-sm font-semibold text-bone">Need to call</span>
-          <span className="text-xs text-mute">— fresh companies with no deal yet</span>
+          <span className="text-xs text-mute">
+            {dueBacks > 0
+              ? `— ${dueBacks} callback${dueBacks === 1 ? "" : "s"} due first`
+              : "— worst website first"}
+          </span>
         </div>
         <span className="font-mono text-[11px] text-faint">{total} left</span>
       </div>
@@ -106,7 +182,25 @@ function CallQueue({
       <div className="mt-3 rounded-xl border border-line bg-surface p-3 sm:p-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
           <div className="min-w-0">
-            <div className="text-lg font-semibold text-bone">{current.name as string}</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-lg font-semibold text-bone">{current.name as string}</span>
+              {attempts > 0 ? (
+                <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700">
+                  ↻ {callbackLabel(attempts)}
+                </span>
+              ) : null}
+              {need?.worthCalling ? (
+                <span className="rounded-full border border-signal/40 bg-signal-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-signal">
+                  {need.label}
+                </span>
+              ) : null}
+            </div>
+            {attempts > 0 ? (
+              <div className="mt-1 text-xs text-sky-700/90">
+                Rang {attempts === 1 ? "once" : `${attempts} times`} already, no answer — this is
+                the callback you booked.
+              </div>
+            ) : null}
             {sub ? <div className="mt-0.5 text-xs text-mute">{sub}</div> : null}
             <div className="mt-1 text-xs text-faint">
               {current.phone ? (current.phone as string) : "No phone on file"}
@@ -125,6 +219,15 @@ function CallQueue({
           </div>
         </div>
 
+        {need?.line ? (
+          <div className="mt-3 rounded-lg border border-line bg-ink/[0.03] p-3">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-faint">
+              Open with this — it's true and it's about them
+            </div>
+            <p className="mt-1 text-sm leading-relaxed text-bone">“{need.line}”</p>
+          </div>
+        ) : null}
+
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <Button onClick={() => decide("interested")} disabled={busy}>
             ✓ Yes
@@ -136,7 +239,9 @@ function CallQueue({
           >
             ~ Maybe
           </button>
-          <Button variant="danger" onClick={() => decide("not_interested")} disabled={busy}>
+          {/* A no goes through the reason picker — one tap, and the pile of
+              nos starts telling us what to change. */}
+          <Button variant="danger" onClick={() => onNo(current)} disabled={busy}>
             ✕ No
           </Button>
           <button
@@ -144,7 +249,9 @@ function CallQueue({
             disabled={busy}
             className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-500/20 disabled:opacity-50"
           >
-            ✉ No answer — email them
+            {attempts >= CALLBACK_MAX_ATTEMPTS - 1
+              ? "✉ No answer — last try, email them"
+              : "✉ No answer — email them"}
           </button>
           <button
             onClick={() => onCall(current)}
@@ -157,6 +264,17 @@ function CallQueue({
           </button>
         </div>
       </div>
+
+      {held > 0 ? (
+        <button
+          onClick={() => setShowAll((v) => !v)}
+          className="mt-2 text-[11px] text-faint underline-offset-2 hover:text-mute hover:underline"
+        >
+          {showAll
+            ? "Hide the ones with nothing wrong"
+            : `${held} held back — their site's fine or nobody's researched them`}
+        </button>
+      ) : null}
     </Card>
   );
 }
@@ -274,7 +392,7 @@ const BOARD_COLUMNS: BoardCol[] = [
   { key: "to_call", label: "To Call", outcome: null, hint: "Fresh — no call yet", dot: "#94a3b8" },
   { key: "interested", label: "Yes", outcome: "interested", hint: "Interested", dot: "#22c55e" },
   { key: "maybe", label: "Maybe", outcome: "maybe", hint: "On the fence", dot: "#f59e0b" },
-  { key: "no_answer", label: "No answer", outcome: "no_answer", hint: "Missed — emailed", dot: "#38bdf8" },
+  { key: "no_answer", label: "No answer", outcome: "no_answer", hint: "Missed — call back booked", dot: "#38bdf8" },
   { key: "not_interested", label: "No", outcome: "not_interested", hint: "Not interested", dot: "#ef4444" },
   { key: "signed", label: "Signed", outcome: "signed", hint: "Won 🎉", dot: "#2dd4bf" },
 ];
@@ -294,10 +412,12 @@ function colOf(c: Row): string | null {
 function CompanyBoard({
   companies,
   onNoAnswer,
+  onNo,
   onChanged,
 }: {
   companies: Row[];
   onNoAnswer: (c: Row) => void;
+  onNo: (c: Row) => void;
   onChanged: () => void;
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
@@ -332,6 +452,10 @@ function CompanyBoard({
     }
     if (col.outcome === "no_answer") {
       onNoAnswer(company); // open the email-draft prompt instead of setting directly
+      return;
+    }
+    if (col.outcome === "not_interested") {
+      onNo(company); // ask why first — an unexplained no teaches us nothing
       return;
     }
     try {
@@ -410,6 +534,15 @@ function CompanyBoard({
                       {sub ? <div className="truncate text-[11px] text-faint">{sub}</div> : null}
                       {c.phone ? (
                         <div className="mt-0.5 truncate text-[11px] text-mute">{c.phone as string}</div>
+                      ) : null}
+                      {/* No-answer cards say when they're coming back, so the
+                          column reads as a waiting room and not a graveyard. */}
+                      {col.key === "no_answer" ? (
+                        <div className="mt-0.5 truncate text-[11px] text-sky-700/90">
+                          {((c.call_attempts as number) ?? 0) >= CALLBACK_MAX_ATTEMPTS
+                            ? `${CALLBACK_MAX_ATTEMPTS} tries — parked`
+                            : `↻ Call back ${callbackWhen(c.next_call_at as string | null)}`}
+                        </div>
                       ) : null}
                       {/* Tap-to-move: no dragging needed (esp. on mobile). Routes
                           through the same move() as drag-and-drop. */}
@@ -591,6 +724,65 @@ function NoAnswerModal({
   );
 }
 
+// The point of asking. One bar per reason, commonest first, with the fix for
+// whichever reason is winning spelled out underneath — a count on its own is
+// trivia, a count with "so do this instead" is a decision. Hidden entirely
+// until a handful of reasons are in, because three nos prove nothing and a
+// chart built on three would be worse than no chart.
+const NO_TALLY_MIN = 5;
+
+function NoTally({ companies }: { companies: Row[] }) {
+  const tally = useMemo(
+    () =>
+      tallyNoReasons(
+        companies.map((c) => ({
+          call_outcome: c.call_outcome as string | null,
+          no_reason: c.no_reason as string | null,
+        })),
+      ),
+    [companies],
+  );
+  const total = tally.reduce((n, t) => n + t.count, 0);
+  const unlogged = useMemo(
+    () => companies.filter((c) => c.call_outcome === "not_interested" && !c.no_reason).length,
+    [companies],
+  );
+  if (total < NO_TALLY_MIN) return null;
+  const top = tally[0];
+
+  return (
+    <Card className="mt-5 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold text-bone">Why they say no</div>
+        <span className="font-mono text-[11px] text-faint">
+          {total} logged{unlogged > 0 ? ` · ${unlogged} without a reason` : ""}
+        </span>
+      </div>
+      <div className="mt-3 space-y-1.5">
+        {tally.map((t) => (
+          <div key={t.key} className="flex items-center gap-2">
+            <span className="w-40 shrink-0 truncate text-xs text-mute">{t.label}</span>
+            <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
+              <div
+                className="h-full rounded-full bg-signal/70"
+                style={{ width: `${Math.round((t.count / total) * 100)}%` }}
+              />
+            </div>
+            <span className="w-8 shrink-0 text-right font-mono text-[11px] text-faint">
+              {t.count}
+            </span>
+          </div>
+        ))}
+      </div>
+      {top?.coach ? (
+        <p className="mt-3 rounded-lg border border-line bg-ink/[0.03] p-2.5 text-xs leading-relaxed text-mute">
+          <span className="font-semibold text-bone">Biggest one: {top.label}.</span> {top.coach}
+        </p>
+      ) : null}
+    </Card>
+  );
+}
+
 function CallsPage() {
   const { companies, contacts, users, deals, me, gmail } = Route.useLoaderData();
   const gmailConnected = !!(gmail as { connected?: boolean }).connected;
@@ -617,6 +809,7 @@ function CallsPage() {
   const [ownerFilter, setOwnerFilter] = useState("");
   const [calling, setCalling] = useState<Row | null>(null);
   const [noAnswer, setNoAnswer] = useState<Row | null>(null);
+  const [noReasonFor, setNoReasonFor] = useState<Row | null>(null);
 
   // Best email to reach each company at: the first contact on file who has one.
   // Powers the "no answer → email them" draft.
@@ -686,6 +879,10 @@ function CallsPage() {
       const ao = openByCompany.get(a.id as string) ?? 0;
       const bo = openByCompany.get(b.id as string) ?? 0;
       if (ao !== bo) return bo - ao;
+      // Then by how badly they need us — a dead site outranks a fine one.
+      const an = needOf(a).rank;
+      const bn = needOf(b).rank;
+      if (an !== bn) return bn - an;
       return (a.name as string).localeCompare(b.name as string);
     });
   }, [mode, contacts, companies, query, ownerFilter, openByCompany, isAdmin, me]);
@@ -719,13 +916,17 @@ function CallsPage() {
         companies={callable}
         onCall={(c) => setCalling(c)}
         onNoAnswer={(c) => setNoAnswer(c)}
+        onNo={(c) => setNoReasonFor(c)}
         onChanged={() => router.invalidate()}
       />
+
+      <NoTally companies={callable} />
 
       {view === "board" ? (
         <CompanyBoard
           companies={callable}
           onNoAnswer={(c) => setNoAnswer(c)}
+          onNo={(c) => setNoReasonFor(c)}
           onChanged={() => router.invalidate()}
         />
       ) : null}
@@ -744,15 +945,7 @@ function CallsPage() {
           withPhone={withPhone}
           openByCompany={openByCompany}
           onCall={(r) => setCalling(r)}
-          onNotAFit={async (r) => {
-            try {
-              await setCompanyCallOutcome({ data: { id: r.id as string, outcome: "not_interested" } });
-              toast(`${r.name as string} → No`);
-              router.invalidate();
-            } catch {
-              toast("Couldn't save — you may not own this one", "error");
-            }
-          }}
+          onNotAFit={(r) => setNoReasonFor(r)}
         />
       ) : null}
 
@@ -775,6 +968,18 @@ function CallsPage() {
           onClose={() => setNoAnswer(null)}
           onDone={() => {
             setNoAnswer(null);
+            router.invalidate();
+          }}
+        />
+      ) : null}
+
+      {noReasonFor ? (
+        <NoReasonModal
+          key={noReasonFor.id as string}
+          company={noReasonFor}
+          onClose={() => setNoReasonFor(null)}
+          onDone={() => {
+            setNoReasonFor(null);
             router.invalidate();
           }}
         />

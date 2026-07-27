@@ -20,8 +20,11 @@ import {
 } from "../../components/crm/ui";
 import { toast } from "../../components/crm/toast";
 import {
+  callOpener,
   daysBetween,
   formatMoney,
+  leadNeed,
+  type LeadNeed,
   OPEN_STAGES,
   opportunityScore,
   OPPORTUNITY_BAND_INFO,
@@ -47,6 +50,18 @@ export const Route = createFileRoute("/_app/today")({
   component: TodayPage,
   pendingComponent: () => <PageSkeleton cards={4} rows={6} />,
 });
+
+// The one "why are we calling them" reading this page uses everywhere, so the
+// banner, the game plan and the arcade deck can never disagree about a company.
+function needOfRow(c: Row): LeadNeed {
+  return leadNeed({
+    website: c.website as string | null,
+    research: c.research as string | null,
+    tags: c.tags as string | null,
+    siteDownAt: c.site_down_at as string | null,
+    createdAt: c.created_at as string | null,
+  });
+}
 
 // A time-of-day greeting. Computed after mount so SSR and client agree.
 function useGreeting(): string {
@@ -161,6 +176,7 @@ function TodayPage() {
           hasPhone: Boolean(c.phone),
           hasEmail: hasEmail.has(c.id as string),
           createdAt: c.created_at as string | null,
+          need: needOfRow(c),
         });
         return { row: c, score: res.score, band: res.band, reasons: res.reasons };
       })
@@ -173,6 +189,9 @@ function TodayPage() {
   // callback after a no-answer. This is the company/call pipeline reps actually
   // work; the deal- and task-based sections below never surface it, which is why
   // an actively-working rep could see an empty "all caught up" day.
+  // Within each outcome group, the business with the worst website comes first:
+  // the rep spends their best hours on the calls that have a real opening line
+  // (see leadNeed), not on whoever happened to be imported first.
   const myLeads = useMemo(() => {
     const rank: Record<string, number> = { no_answer: 0, maybe: 1, "": 2 };
     return (companies as Row[])
@@ -181,8 +200,40 @@ function TodayPage() {
         const o = (c.call_outcome as string | null) ?? "";
         return o === "" || o === "maybe" || o === "no_answer";
       })
-      .map((c) => ({ row: c, outcome: (c.call_outcome as string | null) ?? "" }))
-      .sort((a, b) => (rank[a.outcome] ?? 3) - (rank[b.outcome] ?? 3));
+      .map((c) => ({
+        row: c,
+        outcome: (c.call_outcome as string | null) ?? "",
+        need: needOfRow(c),
+      }))
+      .sort((a, b) => {
+        const g = (rank[a.outcome] ?? 3) - (rank[b.outcome] ?? 3);
+        return g !== 0 ? g : b.need.rank - a.need.rank;
+      });
+  }, [companies, meId]);
+
+  // Sites that broke in the last seven days — the single best call available on
+  // any given morning. The owner already knows something is wrong (their phone
+  // has stopped ringing), so there is nothing to convince them of; we're the
+  // first people to mention it. That window closes fast: within a fortnight
+  // they've either fixed it or stopped noticing, which is why this sits at the
+  // very top of the page instead of being one more row in a list.
+  //
+  // Deliberately NOT filtered to my own leads. The rep who logs in first should
+  // be able to grab an unclaimed one — a dead site is worth more today than it
+  // is after the weekend, and the loader already limits what a rep can see.
+  const brokeThisWeek = useMemo(() => {
+    return (companies as Row[])
+      .filter((c) => {
+        const o = (c.call_outcome as string | null) ?? "";
+        if (o === "signed" || o === "not_interested") return false;
+        return needOfRow(c).key === "just_down";
+      })
+      .map((c) => ({
+        row: c,
+        days: Math.max(0, daysBetween(c.site_down_at as string)),
+        mine: Boolean(meId) && c.owner_id === meId,
+      }))
+      .sort((a, b) => a.days - b.days || Number(b.mine) - Number(a.mine));
   }, [companies, meId]);
 
   // The game plan: one numbered list that answers "what do I do first?" so
@@ -221,6 +272,9 @@ function TodayPage() {
 
   const plan = useMemo<PlanItem[]>(() => {
     const items: PlanItem[] = [];
+    // Companies already placed by a higher-priority rule, so a broken site
+    // doesn't also show up further down as "fresh lead".
+    const placed = new Set<string>();
     for (const f of myFollowups.filter((x) => x.overdue)) {
       items.push({
         key: `fu-${f.row.id as string}`,
@@ -228,6 +282,22 @@ function TodayPage() {
         reason: `You promised this ${Math.abs(daysBetween(f.due))}d ago — do it before anything else`,
         to: "/activities",
         chip: "Overdue",
+        tone: "danger",
+      });
+    }
+    // A site that broke this week beats every cold call on the list — it's the
+    // one conversation where the prospect already agrees there's a problem.
+    for (const b of brokeThisWeek.filter((x) => x.mine || !x.row.owner_id)) {
+      placed.add(b.row.id as string);
+      items.push({
+        key: `dn-${b.row.id as string}`,
+        title: b.row.name as string,
+        reason:
+          b.days === 0
+            ? "Their website went down today — call now, you'll be the first to tell them"
+            : `Their website has been down ${b.days} day${b.days === 1 ? "" : "s"} — call before someone else does`,
+        to: "/calls",
+        chip: "🚨 Site down",
         tone: "danger",
       });
     }
@@ -244,7 +314,7 @@ function TodayPage() {
         tone: p.viewed ? "danger" : "warn",
       });
     }
-    for (const l of myLeads.filter((x) => x.outcome === "no_answer")) {
+    for (const l of myLeads.filter((x) => x.outcome === "no_answer" && !placed.has(x.row.id as string))) {
       items.push({
         key: `cb-${l.row.id as string}`,
         title: l.row.name as string,
@@ -254,13 +324,17 @@ function TodayPage() {
         tone: "warn",
       });
     }
-    for (const l of myLeads.filter((x) => x.outcome === "")) {
+    // Fresh leads with a real reason first — and the reason IS the line the rep
+    // opens with, so the game plan tells them what to say, not just who to ring.
+    for (const l of myLeads.filter((x) => x.outcome === "" && !placed.has(x.row.id as string))) {
       items.push({
         key: `new-${l.row.id as string}`,
         title: l.row.name as string,
-        reason: `Fresh lead${l.row.industry ? ` — ${(l.row.industry as string).toLowerCase()}` : ""} — never been called, first in wins`,
+        reason: l.need.worthCalling
+          ? `${l.need.label} — open with: “${l.need.line}”`
+          : `Fresh lead${l.row.industry ? ` — ${(l.row.industry as string).toLowerCase()}` : ""} — never been called, first in wins`,
         to: "/calls",
-        chip: "First call",
+        chip: l.need.worthCalling ? l.need.label : "First call",
         tone: "signal",
       });
     }
@@ -286,14 +360,15 @@ function TodayPage() {
       });
     }
     return items.slice(0, 8);
-  }, [myFollowups, myLeads, myStale, myQuietProposals]);
+  }, [myFollowups, myLeads, myStale, myQuietProposals, brokeThisWeek]);
 
   const nothing =
     myLeads.length === 0 &&
     myFollowups.length === 0 &&
     myStale.length === 0 &&
     myRenewals.length === 0 &&
-    hotPool.length === 0;
+    hotPool.length === 0 &&
+    brokeThisWeek.length === 0;
 
   return (
     <div className="space-y-5">
@@ -301,6 +376,54 @@ function TodayPage() {
         title={firstName ? `${greeting}, ${firstName}` : "My day"}
         subtitle="Everything with your name on it that needs a nudge today — follow-ups, deals going cold, renewals, and hot leads up for grabs."
       />
+
+      {brokeThisWeek.length > 0 ? (
+        <Card className="overflow-hidden border-red-500/40">
+          <div className="flex flex-wrap items-center gap-2 border-b border-red-500/20 bg-red-500/[0.07] px-4 py-3">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500/70" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+            </span>
+            <span className="text-sm font-semibold text-bone">
+              {brokeThisWeek.length === 1
+                ? "A website went down this week"
+                : `${brokeThisWeek.length} websites went down this week`}
+            </span>
+            <span className="ml-auto text-[11px] text-faint">call these first — they already know</span>
+          </div>
+          <ul className="divide-y divide-line/60">
+            {brokeThisWeek.slice(0, 6).map((b) => (
+              <li key={b.row.id as string}>
+                <Link to="/calls" className="flex items-center gap-3 px-4 py-2.5 hover:bg-surface-2/50">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate text-sm font-medium text-bone">
+                        {b.row.name as string}
+                      </span>
+                      {!b.row.owner_id ? (
+                        <span className="rounded-full border border-signal/40 bg-signal-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-signal">
+                          Unclaimed
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="truncate text-xs text-faint">
+                      {b.days === 0 ? "Went down today" : `Down ${b.days} day${b.days === 1 ? "" : "s"}`}
+                      {b.row.phone ? ` · ${b.row.phone as string}` : " · no phone on file"}
+                      {b.row.city ? ` · ${b.row.city as string}` : ""}
+                    </div>
+                  </div>
+                  <Pill tone="danger">🚨 Site down</Pill>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          {brokeThisWeek.length > 6 ? (
+            <div className="border-t border-line/60 px-4 py-2 text-[11px] text-faint">
+              +{brokeThisWeek.length - 6} more on the Calls page.
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
 
       <ArcadeDeck
         leads={myLeads}
@@ -561,7 +684,7 @@ function ArcadeDeck({
   meId,
   repFirst,
 }: {
-  leads: { row: Row; outcome: string }[];
+  leads: { row: Row; outcome: string; need: LeadNeed }[];
   activities: Row[];
   meId: string | null;
   repFirst: string;
@@ -677,11 +800,31 @@ function ArcadeDeck({
                   .filter(Boolean)
                   .join(" · ") || "No details on file"}
               </div>
-              <div className="mt-4 rounded-r-lg border-l-2 border-signal bg-signal-soft/30 px-4 py-3 text-sm leading-relaxed text-mute">
-                "Hi, this is {repFirst || "..."} from Nexraft — we build websites for local
-                businesses. I'd love to show you what we'd do with{" "}
-                {(current.row.name as string) || "your business"}…"
-              </div>
+              {/* The first seven seconds, written out. Generic openers
+                  ("we build websites for local businesses") are what earn an
+                  instant brush-off, so the card hands the rep a true fact about
+                  THIS business and a question they can answer safely. */}
+              {(() => {
+                const o = callOpener({
+                  company: (current.row.name as string) || "",
+                  repFirst,
+                  need: current.need,
+                  industry: current.row.industry as string | null,
+                  city: current.row.city as string | null,
+                });
+                return (
+                  <div className="mt-4 space-y-2 rounded-r-lg border-l-2 border-signal bg-signal-soft/30 px-4 py-3 text-sm leading-relaxed text-mute">
+                    {current.need?.worthCalling ? (
+                      <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-signal">
+                        Why them: {current.need.label}
+                      </div>
+                    ) : null}
+                    <p>“{o.hook}”</p>
+                    <p className="text-bone">“{o.fact}”</p>
+                    <p className="italic">“{o.ask}” — then stop talking.</p>
+                  </div>
+                );
+              })()}
               <div className="font-display mt-4 text-xl font-extrabold tracking-wide text-signal">
                 {(current.row.phone as string) ? (
                   <a href={`tel:${(current.row.phone as string).replace(/[^\d+]/g, "")}`} className="hover:underline" title="Tap to call">

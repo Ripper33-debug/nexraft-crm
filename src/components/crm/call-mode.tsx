@@ -12,6 +12,9 @@ import {
   parseTags,
   tagColor,
   normalizeUrl,
+  callOpener,
+  leadNeed,
+  type LeadNeed,
 } from "../../lib/crm/constants";
 
 type Row = Record<string, unknown>;
@@ -138,6 +141,11 @@ function buildScript(opts: {
   // Saved research dossier (companies.research) — turns the generic script
   // into one that name-drops the owner and pitches their actual site gaps.
   intel: { summary: string | null; established: number | null; people: string[]; angles: string[] } | null;
+  // Why we're calling THIS business (leadNeed) + where they are, so the opener
+  // can be about them instead of about us.
+  need?: LeadNeed | null;
+  repFirst?: string | null;
+  city?: string | null;
 }): Section[] {
   const { kind, companyName, firstName, industry, tags, source, deals, hasWon, intel } = opts;
   const deal = activeDeal(deals);
@@ -151,17 +159,43 @@ function buildScript(opts: {
   const sections: Section[] = [];
 
   // --- Opening -------------------------------------------------------------
+  // A cold call lives or dies in the first seven seconds. Warm accounts (an
+  // open deal, a won client, a referral) get the friendly opener they've
+  // earned; a stranger gets name + permission + one true fact about their own
+  // business, because "I'm calling from Nexraft about your website" is exactly
+  // the sentence people hang up on.
   const opening: Line[] = [];
-  if (kind === "contact" && firstName) {
-    opening.push({ kind: "say", text: `Hi ${firstName}, I'm calling from Nexraft — do you have a couple of minutes?` });
+  const isWarmAccount = Boolean(stage && stage !== "To Call") || hasWon || isReferral;
+  if (isWarmAccount) {
+    if (kind === "contact" && firstName) {
+      opening.push({ kind: "say", text: `Hi ${firstName}, I'm calling from Nexraft — do you have a couple of minutes?` });
+    } else {
+      opening.push({ kind: "say", text: `Hi, I'm calling from Nexraft — is this the right person to talk to about ${companyName}'s website?` });
+    }
+    if (isReferral) {
+      opening.push({ kind: "say", text: `You came recommended to us, so I wanted to reach out personally.` });
+    }
+    opening.push({ kind: "tip", text: `Smile, keep it relaxed, and let them talk more than you do.` });
   } else {
-    opening.push({ kind: "say", text: `Hi, I'm calling from Nexraft — is this the right person to talk to about ${companyName}'s website?` });
+    const o = callOpener({
+      company: companyName,
+      repFirst: opts.repFirst,
+      need: opts.need,
+      industry,
+      city: opts.city,
+    });
+    opening.push({ kind: "say", text: kind === "contact" && firstName ? o.hook.replace(/^Hi — is that [^?]+\?/, `Hi ${firstName} —`) : o.hook });
+    opening.push({ kind: "say", text: o.fact });
+    opening.push({ kind: "ask", text: o.ask });
+    opening.push({ kind: "tip", text: `Then stop talking. The silence after the question is what makes them answer instead of brushing you off.` });
+    if (!opts.need?.worthCalling) {
+      opening.push({
+        kind: "tip",
+        text: `Heads up: we haven't found anything wrong with their setup, so you're opening cold. Research them first if you can — a specific fact is worth ten dials.`,
+      });
+    }
   }
-  if (isReferral) {
-    opening.push({ kind: "say", text: `You came recommended to us, so I wanted to reach out personally.` });
-  }
-  opening.push({ kind: "tip", text: `Smile, keep it relaxed, and let them talk more than you do.` });
-  sections.push({ heading: "Opening", lines: opening });
+  sections.push({ heading: "First seven seconds", lines: opening });
 
   // --- Why you're calling --------------------------------------------------
   const why: Line[] = [];
@@ -290,9 +324,64 @@ function buildScript(opts: {
 // on any phone. Tuned for a web-design studio's sales calls.
 type Signal = { id: string; label: string; group: "objection" | "buying"; lines: Line[] };
 
-function buildSignals(firstName: string | null, companyName: string): Signal[] {
+function buildSignals(firstName: string | null, companyName: string, need?: LeadNeed | null): Signal[] {
   const who = companyName || "your business";
+  // The single true fact we hold about them. Every brush-off answer leans on it
+  // — a rep who can name something real earns the next ten seconds; one who
+  // repeats "we build websites" earns a dial tone.
+  const fact = need?.worthCalling ? need.line : null;
   return [
+    // The most common no on the board: they brush you off before you've
+    // finished your first sentence. Don't fight it — agree, spend the fact,
+    // and hand them an easy exit. Half of them stay on the line.
+    {
+      id: "brushoff",
+      label: "Not interested (instantly)",
+      group: "objection",
+      lines: [
+        { kind: "say", text: `That's fair — you don't know me yet. One sentence and I'm gone.` },
+        {
+          kind: "say",
+          text: fact ?? `When someone searches for what you do around here, you're not what comes up first — that's the only reason I called.`,
+        },
+        { kind: "ask", text: `If that's not worth two minutes, tell me and I'll leave you alone.` },
+        { kind: "tip", text: `They said no to the interruption, not to you. Agreeing with them breaks the script they expected — then say your fact and shut up.` },
+      ],
+    },
+    {
+      id: "gatekeeper",
+      label: "Not the owner / \u201cshe's not in\u201d",
+      group: "objection",
+      lines: [
+        { kind: "ask", text: `No problem — who's the best person? And what's the name, so I'm not calling asking for \u201cthe owner\u201d?` },
+        { kind: "ask", text: `When's she usually about — mornings or afternoons?` },
+        { kind: "tip", text: `Never pitch the gatekeeper. Get a name and a time, thank them, ring off. Log the name in the notes so the next call opens with it.` },
+      ],
+    },
+    {
+      id: "already",
+      label: "We already have a website",
+      group: "objection",
+      lines: [
+        {
+          kind: "say",
+          text: fact
+            ? `I know — I looked at it before I called. ${fact}`
+            : `I know, I had a look before I rang. I'm not calling about having one, I'm calling about whether it brings you any work.`,
+        },
+        { kind: "ask", text: `When was the last time somebody rang you and said \u201cI found you online\u201d?` },
+        { kind: "tip", text: `Having a site and getting customers from it are two different things. Take the conversation to the second one.` },
+      ],
+    },
+    {
+      id: "howgot",
+      label: "How did you get my number?",
+      group: "objection",
+      lines: [
+        { kind: "say", text: `It's on your public listing — same place your customers find it. Nothing clever, I promise.` },
+        { kind: "tip", text: `Answer straight and lightly, then go back to your fact. Any hedging here and you're done.` },
+      ],
+    },
     {
       id: "price",
       label: "Too expensive",
@@ -340,7 +429,7 @@ function buildSignals(firstName: string | null, companyName: string): Signal[] {
     },
     {
       id: "who",
-      label: "Who is this / not interested",
+      label: "Who is this?",
       group: "objection",
       lines: [
         { kind: "say", text: `Fair enough, I'll be upfront: we build websites that bring ${who} more enquiries. If that's ever on your radar, worth 30 seconds?` },
@@ -571,6 +660,23 @@ export function CallMode({
     }
   }, [subject, isContact]);
 
+  // The one true fact this call opens with. Contacts inherit their company's
+  // signal where we have it; otherwise leadNeed falls back to "unknown" and the
+  // script warns the rep they're going in cold.
+  const need = useMemo(
+    () =>
+      subject && !isContact
+        ? leadNeed({
+            website: subject.website as string | null,
+            research: subject.research as string | null,
+            tags: (subject.tags as string) || null,
+            siteDownAt: subject.site_down_at as string | null,
+            createdAt: subject.created_at as string | null,
+          })
+        : null,
+    [subject, isContact],
+  );
+
   // "Finish the call in one place": after a missed call, offer a one-tap email
   // draft so the rep doesn't have to hop over to Outreach. Uses the contact's
   // email (or the first researched company email) and prefers the AI-drafted
@@ -613,14 +719,17 @@ export function CallMode({
             deals: relDeals,
             hasWon,
             intel,
+            need,
+            repFirst: (user?.name ?? "").trim().split(/\s+/)[0] || null,
+            city: (subject.city as string) || null,
           })
         : [],
-    [subject, kind, companyName, isContact, tags, relDeals, hasWon, intel],
+    [subject, kind, companyName, isContact, tags, relDeals, hasWon, intel, need, user],
   );
 
   const signals = useMemo(
-    () => (subject ? buildSignals(isContact ? (subject.first_name as string) : null, companyName) : []),
-    [subject, isContact, companyName],
+    () => (subject ? buildSignals(isContact ? (subject.first_name as string) : null, companyName, need) : []),
+    [subject, isContact, companyName, need],
   );
   const activeResp = activeSignal ? signals.find((s) => s.id === activeSignal) ?? null : null;
 

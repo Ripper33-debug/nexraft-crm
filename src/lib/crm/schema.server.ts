@@ -71,6 +71,19 @@ export function ensureExtraSchema(): Promise<void> {
       // a few days out each time a nudge is sent, so the Follow-ups badge counts
       // what's actually actionable today instead of the whole queue.
       `ALTER TABLE companies ADD COLUMN IF NOT EXISTS next_followup_at TEXT`,
+      // Callback ladder (separate from the EMAIL nudge above): how many times a
+      // rep has dialled and got no answer, and when to ring again. A no-answer
+      // used to end the lead's life — it left the call queue and never came
+      // back. Now each one schedules the next dial 2/4/7 days out (then parks a
+      // month out), and due callbacks re-enter the queue ahead of fresh names.
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS call_attempts INTEGER DEFAULT 0`,
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS next_call_at TEXT`,
+      // Why they said no: one of the fixed NO_REASONS keys (see constants), set
+      // when a rep marks a company "not interested". A pile of unexplained nos
+      // looks like bad luck; the same pile with reasons on it usually names one
+      // fixable thing — wrong list, wrong opener, or wrong time of day.
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS no_reason TEXT`,
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS no_reason_at TEXT`,
       // Company research dossier: JSON blob produced by the research engine
       // (brief, services, contacts found, pitch angles, ratings) + when it ran.
       // NULL = never researched; the nightly cron backfills newest-first.
@@ -255,6 +268,20 @@ export function ensureExtraSchema(): Promise<void> {
           AND NOT EXISTS (
             SELECT 1 FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL
           )`,
+      // One-time backfill: every company already sitting in "No answer" was
+      // rung once and then forgotten, because until now nothing scheduled a
+      // second dial. Treat each as one attempt and book the next one 1-7 days
+      // out — randomised so a backlog of them trickles back into the call queue
+      // over a week instead of landing on a rep all at once. Guarded by
+      // next_call_at IS NULL, so it's a no-op on every run after the first.
+      `UPDATE companies
+          SET call_attempts = 1,
+              next_call_at = to_char(
+                (now() AT TIME ZONE 'UTC') + ((1 + floor(random() * 7)::int) * interval '1 day'),
+                'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        WHERE call_outcome = 'no_answer'
+          AND next_call_at IS NULL
+          AND COALESCE(call_attempts, 0) = 0`,
     ];
     for (const s of stmts) {
       await db().prepare(s).run();

@@ -409,6 +409,497 @@ export function analyzeSiteHtml(html: string, opts?: { https?: boolean }): SiteA
   return { issues, email, phone };
 }
 
+// ---------- Need signal: "why are we calling this business at all?" ----------
+// Every cold call needs a specific, TRUE, observable reason in the first seven
+// seconds — otherwise the rep opens with "we build websites" and gets an instant
+// brush-off. leadNeed() reads what the research pass already saved and turns it
+// into (a) a rank the call queue can sort/filter by and (b) the exact sentence
+// the rep leads with. Pure and unit-tested: the queue, the score and the call
+// script all read the same answer, so a rep never sees "call this one" without
+// a reason on the card.
+//
+// Rank is 0-100. Above NEED_CALL_MIN we have something real to say. Anything at
+// or below NEED_UNKNOWN_RANK means "we haven't found a reason yet", and
+// good_site (0) means we found the opposite: their site is fine, so cold-calling
+// them burns a dial and trains the rep to expect a no.
+export type NeedKey =
+  | "just_down"
+  | "no_site"
+  | "domain_expired"
+  | "site_down"
+  | "facebook_only"
+  | "placeholder"
+  | "builder"
+  | "abandoned"
+  | "not_mobile"
+  | "no_https"
+  | "thin_site"
+  | "new_business"
+  | "unknown"
+  | "good_site";
+
+export type LeadNeed = {
+  key: NeedKey;
+  rank: number; // 0-100, higher = call sooner
+  label: string; // short chip for a list row, e.g. "No website"
+  line: string; // the opener, said out loud. "" when we have no fact.
+  worthCalling: boolean; // false = no visible reason to interrupt their day
+};
+
+export const NEED_CALL_MIN = 40; // at/above this we have a real reason
+export const NEED_UNKNOWN_RANK = 20;
+
+export type NeedSignals = {
+  website?: string | null;
+  research?: string | null; // raw companies.research JSON
+  tags?: string | null;
+  siteDownAt?: string | null; // companies.site_down_at
+  createdAt?: string | null;
+};
+
+type ParsedResearch = { siteStatus?: string; angles?: string[] };
+
+function parseResearch(raw: string | null | undefined): ParsedResearch | null {
+  if (!raw) return null;
+  try {
+    const r = JSON.parse(raw) as ParsedResearch;
+    return r && typeof r === "object" ? r : null;
+  } catch {
+    return null;
+  }
+}
+
+// Turn one audit angle into a spoken opener. The angle strings come from
+// analyzeSiteHtml/extractCompanyIntel above, so this stays in lockstep with them.
+function needFromAngle(angle: string): { key: NeedKey; rank: number; label: string; line: string } | null {
+  const a = angle.toLowerCase();
+  if (a.includes("placeholder") || a.includes("parked")) {
+    return {
+      key: "placeholder",
+      rank: 74,
+      label: "Placeholder page",
+      line: "I pulled up the web address on your listing and there's just a placeholder page behind it — nothing about the business.",
+    };
+  }
+  if (a.includes("built on")) {
+    const builder = angle.match(/Built on ([^—]+?)\s*—/i)?.[1]?.trim();
+    return {
+      key: "builder",
+      rank: 68,
+      label: builder ? `DIY ${builder} site` : "DIY template site",
+      line: builder
+        ? `Your site's running on ${builder} — the free template shows, and that's the first thing a customer comparing you to the next guy sees.`
+        : "Your site's on a DIY template builder — it shows, and that's what a customer compares you on.",
+    };
+  }
+  if (a.includes("copyright stuck")) {
+    const year = angle.match(/(19|20)\d{2}/)?.[0];
+    return {
+      key: "abandoned",
+      rank: 62,
+      label: year ? `Site stuck in ${year}` : "Site looks abandoned",
+      line: year
+        ? `The footer on your site still says ${year} — anyone checking you out wonders if you're still open.`
+        : "Your site looks abandoned — anyone checking you out wonders if you're still trading.",
+    };
+  }
+  if (a.includes("mobile-friendly") || a.includes("viewport")) {
+    return {
+      key: "not_mobile",
+      rank: 58,
+      label: "Not mobile-friendly",
+      line: "I opened your site on my phone and it doesn't fit the screen — and that's where nearly everyone finds you.",
+    };
+  }
+  if (a.includes("https") || a.includes("not secure")) {
+    return {
+      key: "no_https",
+      rank: 54,
+      label: "No HTTPS",
+      line: "Your site loads without a padlock, so Chrome puts a \u201cNot secure\u201d warning in front of it before anyone reads a word.",
+    };
+  }
+  if (a.includes("no online booking")) {
+    return {
+      key: "thin_site",
+      rank: 50,
+      label: "No online booking",
+      line: "There's no way to book you on your site — every appointment has to come through the phone.",
+    };
+  }
+  if (a.includes("no contact form")) {
+    return {
+      key: "thin_site",
+      rank: 50,
+      label: "No contact form",
+      line: "There's no contact form on your site — if someone's looking at 10pm, they've got nothing to do but leave.",
+    };
+  }
+  if (a.includes("testimonial") || a.includes("review")) {
+    return {
+      key: "thin_site",
+      rank: 48,
+      label: "No reviews shown",
+      line: "Your site doesn't show a single review — you've got happy customers and nobody comparing you can see them.",
+    };
+  }
+  return null;
+}
+
+// Strict cousin of daysBetween: null when there's no date or the date is
+// junk, instead of 0. Anything the rep says out loud with a timeframe in it
+// ("went down a couple of days ago", "you just registered") is gated on this.
+function daysSince(iso: string | null | undefined, now: Date): number | null {
+  if (!iso) return null;
+  const d = new Date(iso.replace(" ", "T") + (iso.includes("T") ? "" : "Z"));
+  if (isNaN(d.getTime())) return null;
+  return Math.floor((now.getTime() - d.getTime()) / 86400000);
+}
+
+// Highest-need signal wins. Order below IS the priority order.
+export function leadNeed(sig: NeedSignals, now: Date = new Date()): LeadNeed {
+  const tags = parseTags(sig.tags).map((t) => t.toLowerCase());
+  const research = parseResearch(sig.research);
+  const angles = (research?.angles ?? []).filter((a) => typeof a === "string");
+  const hasSite = Boolean((sig.website ?? "").trim());
+
+  // 1) It broke on our watch. Nothing beats calling the day their site dies.
+  // daysBetween() reports 0 for a missing OR unparseable date, and 0 days ago
+  // reads as "it just broke" — so a junk timestamp would put a claim in the
+  // rep's mouth that isn't true. Every dated claim below is gated on a date we
+  // could actually parse.
+  const downDays = daysSince(sig.siteDownAt, now);
+  if (downDays !== null && downDays >= 0 && downDays <= 7) {
+    return {
+      key: "just_down",
+      rank: 96,
+      label: "Site just went down",
+      line: "Your website stopped loading a couple of days ago — I checked again right before I called. Did you know it was down?",
+      worthCalling: true,
+    };
+  }
+
+  // 2) Nothing there at all. The easiest true sentence we own.
+  if (!hasSite || research?.siteStatus === "none") {
+    return {
+      key: "no_site",
+      rank: 92,
+      label: "No website",
+      line: "When somebody Googles you they get your listing and a phone number, but there's no website behind it — that's the only reason I'm calling.",
+      worthCalling: true,
+    };
+  }
+
+  // 3) They had one and it's gone. They've already paid for a site once.
+  if (research?.siteStatus === "dead") {
+    const expired = angles.some((a) => /expired|domain (is )?gone/i.test(a));
+    return expired
+      ? {
+          key: "domain_expired",
+          rank: 88,
+          label: "Domain expired",
+          line: "The web address on your listing doesn't exist anymore — the domain lapsed, so whatever you had is gone.",
+          worthCalling: true,
+        }
+      : {
+          key: "site_down",
+          rank: 86,
+          label: "Website is down",
+          line: "I tried your website before calling and it doesn't load at all — anyone who clicks it from Google gets an error.",
+          worthCalling: true,
+        };
+  }
+
+  // 4) Marketing-minded but siteless — they already believe in being found.
+  if (tags.includes("facebook-only")) {
+    return {
+      key: "facebook_only",
+      rank: 80,
+      label: "Social only, no site",
+      line: "Your Facebook page comes up first, and it's active — but there's no website behind it, so everything you post has nowhere to land.",
+      worthCalling: true,
+    };
+  }
+
+  // 5) Live but broken: the audit angles, strongest first.
+  let best: { key: NeedKey; rank: number; label: string; line: string } | null = null;
+  for (const a of angles) {
+    const m = needFromAngle(a);
+    if (m && (!best || m.rank > best.rank)) best = m;
+  }
+  if (best) return { ...best, worthCalling: true };
+
+  // 6) Brand new business — no research yet, but "just opened" is a real reason.
+  const age = daysSince(sig.createdAt, now);
+  if (tags.includes("new-business") && age !== null && age >= 0 && age <= 45) {
+    return {
+      key: "new_business",
+      rank: 46,
+      label: "Just opened",
+      line: "I saw you just registered the business — congratulations. I only called because most people are three months in before they get found online, and it costs them the first season.",
+      worthCalling: true,
+    };
+  }
+
+  // 7) Researched, live, no defects found: nothing honest to open with.
+  if (research && research.siteStatus === "live") {
+    return {
+      key: "good_site",
+      rank: 0,
+      label: "Site looks fine",
+      line: "",
+      worthCalling: false,
+    };
+  }
+
+  // 8) Never researched. Callable, but it goes behind everything with a reason.
+  return {
+    key: "unknown",
+    rank: NEED_UNKNOWN_RANK,
+    label: "Not researched yet",
+    line: "",
+    worthCalling: false,
+  };
+}
+
+// ---------- Reading the book at a glance ----------
+// leadNeed labels are deliberately specific ("DIY Wix site", "Site stuck in
+// 2016"), which is right on a call card and useless for counting. These are the
+// stable buckets: one row per NeedKey, ordered the way a rep should work them,
+// so the Companies page can say "you have 38 with no website and 400 nobody has
+// looked at" instead of one vague good/weak split.
+export const NEED_GROUPS: { key: NeedKey; label: string; blurb: string }[] = [
+  { key: "just_down", label: "Site just went down", blurb: "Broke in the last week — call today, they already know." },
+  { key: "no_site", label: "No website at all", blurb: "Found on Google, nothing behind the listing. The easiest true opener we own." },
+  { key: "domain_expired", label: "Domain expired", blurb: "They paid for a site once and let it lapse — the budget existed." },
+  { key: "site_down", label: "Website is down", blurb: "The link on their listing throws an error for every customer who clicks it." },
+  { key: "facebook_only", label: "Social only, no site", blurb: "Already posting and promoting — no website for any of it to land on." },
+  { key: "placeholder", label: "Placeholder page", blurb: "Domain resolves to a parked or coming-soon page." },
+  { key: "builder", label: "DIY builder site", blurb: "Free template — the fix is visible in ten seconds on the call." },
+  { key: "abandoned", label: "Looks abandoned", blurb: "Stale footer year — customers wonder if they're still open." },
+  { key: "not_mobile", label: "Not mobile-friendly", blurb: "Doesn't fit a phone screen, which is where nearly everyone finds them." },
+  { key: "no_https", label: "No HTTPS", blurb: "Chrome shows a Not secure warning before anyone reads a word." },
+  { key: "thin_site", label: "Thin site", blurb: "Live, but no booking, no contact form, or no reviews shown." },
+  { key: "new_business", label: "Just opened", blurb: "Registered in the last 45 days — the reason to call is timing, not defects." },
+  { key: "unknown", label: "Not researched yet", blurb: "No reason to call found yet. Research these before anyone dials them." },
+  { key: "good_site", label: "Nothing wrong found", blurb: "Live, modern, no defects. Nothing honest to open with — hardest calls in the book." },
+];
+
+export function needGroupLabel(key: NeedKey): string {
+  return NEED_GROUPS.find((g) => g.key === key)?.label ?? key;
+}
+
+// ---------- The first seven seconds ----------
+// A cold call is won or lost before the rep finishes their second sentence. The
+// team's nos were nearly all instant brush-offs, which is what happens when the
+// opener is "we build websites for local businesses" — that's about us, it's
+// true of a hundred callers, and the only honest answer is "not interested".
+//
+// So every opener here is: who I am + permission + ONE true fact about THEIR
+// business + a question they can answer without committing to anything. The
+// fact comes from leadNeed, so the rep is never guessing.
+export type CallOpener = { hook: string; fact: string; ask: string };
+
+export function callOpener(opts: {
+  company: string;
+  repFirst?: string | null;
+  need?: LeadNeed | null;
+  industry?: string | null;
+  city?: string | null;
+}): CallOpener {
+  const rep = (opts.repFirst ?? "").trim();
+  const company = (opts.company ?? "").trim() || "your business";
+  const where = (opts.city ?? "").trim();
+  // Name yourself, admit it's a cold call, and cap it. Asking for twenty
+  // seconds and meaning it disarms the reflex "no" far better than pretending
+  // this is anything other than what it is.
+  const hook =
+    `Hi — is that ${company}? My name's ${rep || "…"}, I'm with Nexraft${where ? ` over in ${where}` : ""}. ` +
+    `This is a cold call — give me twenty seconds and then tell me to get lost if you want.`;
+
+  const fact =
+    opts.need?.line ||
+    `I only called because of what shows up when someone searches for ${
+      (opts.industry ?? "").trim() ? `a ${(opts.industry ?? "").trim().toLowerCase()}` : "a business like yours"
+    }${where ? ` in ${where}` : ""} — and right now it isn't you.`;
+
+  const asks: Partial<Record<NeedKey, string>> = {
+    just_down: "Were you aware, or has nobody told you yet?",
+    site_down: "Did you know, or is that news?",
+    domain_expired: "Was that on purpose, or did it just lapse on you?",
+    no_site: "Is that deliberate, or just one of those things that never got done?",
+    facebook_only: "Was a proper website ever on the list, or has Facebook been enough so far?",
+    placeholder: "Is someone meant to be building that, or has it been sat like that a while?",
+    builder: "Did you put that together yourself?",
+    abandoned: "Is anyone actually looking after it these days?",
+    not_mobile: "Do you get many people finding you on their phone?",
+    no_https: "Has anyone mentioned that warning to you?",
+    thin_site: "How are people getting hold of you at the moment — all through the phone?",
+    new_business: "Have you sorted the website side yet, or is that still on the list?",
+  };
+  const ask =
+    (opts.need ? asks[opts.need.key] : null) ??
+    "When someone looks you up before they call — what do you want them to find?";
+
+  return { hook, fact, ask };
+}
+
+// ---------- Second, third and fourth dial (the callback ladder) ----------
+//
+// Almost nobody picks up first time, and almost nobody buys on the first
+// conversation either. Before this, a no-answer was a dead end: the company
+// left the call queue and never came back, so every lead got exactly one ring.
+// This gives it four.
+//
+// The gaps widen on purpose — two days, then four, then a week. Close enough
+// that the reason we're calling is still true (a dead site does get fixed), far
+// enough apart that four dials spread over a fortnight instead of pestering
+// someone twice in an afternoon.
+export const CALLBACK_DAYS = [2, 4, 7] as const;
+// When the ladder runs out we don't delete anything — we park it a month out.
+// A business that ignored four calls in June may well answer in July, and a
+// company with NO date scheduled reads as "due now" everywhere else in the app,
+// which would jam the queue forever.
+export const CALLBACK_PARK_DAYS = 30;
+export const CALLBACK_MAX_ATTEMPTS = CALLBACK_DAYS.length + 1; // 4 dials total
+
+// Days to wait before dial number `attempts + 1`. `attempts` is the number of
+// no-answers recorded so far, INCLUDING the one just logged.
+export function callbackDelayDays(attempts: number): number {
+  const n = Math.max(1, Math.floor(attempts || 1));
+  return CALLBACK_DAYS[n - 1] ?? CALLBACK_PARK_DAYS;
+}
+
+// The timestamp to store in companies.next_call_at after a no-answer. Always
+// returns a date — never null — so a company can never sit permanently due.
+export function nextCallbackAt(attempts: number, now: Date = new Date()): string {
+  return new Date(now.getTime() + callbackDelayDays(attempts) * 86400000).toISOString();
+}
+
+// Is a scheduled callback ready to dial? A missing or unreadable date means it
+// was never scheduled (legacy row), which counts as ready.
+export function callbackDue(nextCallAt: string | null | undefined, now: Date = new Date()): boolean {
+  if (!nextCallAt) return true;
+  const t = new Date(nextCallAt.replace(" ", "T") + (nextCallAt.includes("T") ? "" : "Z")).getTime();
+  if (isNaN(t)) return true;
+  return t <= now.getTime();
+}
+
+// When the next dial lands, in words. relativeTime() only looks backwards
+// ("3d ago") and would call a future date "just now", so callbacks need their
+// own forward-facing wording.
+export function callbackWhen(nextCallAt: string | null | undefined, now: Date = new Date()): string {
+  if (callbackDue(nextCallAt, now)) return "due now";
+  const d = new Date(String(nextCallAt).replace(" ", "T") + (String(nextCallAt).includes("T") ? "" : "Z"));
+  const days = Math.ceil((d.getTime() - now.getTime()) / 86400000);
+  if (days <= 1) return "tomorrow";
+  if (days <= 14) return `in ${days} days`;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// Plain-English pill for the queue, e.g. "2nd try" — a rep should see at a
+// glance that this is not a fresh name.
+export function callbackLabel(attempts: number): string {
+  const n = Math.max(1, Math.floor(attempts || 1)) + 1;
+  if (n >= CALLBACK_MAX_ATTEMPTS) return "Last try";
+  return n === 2 ? "2nd try" : n === 3 ? "3rd try" : `${n}th try`;
+}
+
+// ---------- Why they said no ----------
+//
+// A "no" with no reason attached teaches us nothing, and a week of them looks
+// exactly like bad luck. Written down, the same week usually says something
+// specific and fixable: everyone we rang was happy with their site (wrong
+// list), or nobody would put us through (wrong time of day), or every single
+// one balked at the price (wrong opener).
+//
+// Presets, not a text box, and eight of them at most — a rep between calls will
+// tap a button but will not write a sentence, and free text can't be counted.
+// `coach` is what we'd do differently if this reason keeps winning; it's shown
+// under the tally so the count turns into a decision.
+export type NoReasonKey =
+  | "happy_with_site"
+  | "has_someone"
+  | "no_budget"
+  | "wrong_person"
+  | "brushed_off"
+  | "diy"
+  | "winding_down"
+  | "other";
+
+export const NO_REASONS: { key: NoReasonKey; label: string; coach: string }[] = [
+  {
+    key: "happy_with_site",
+    label: "Happy with their site",
+    coach:
+      "We're calling businesses whose sites are fine. Work the 'no website' and 'site down' piles on Companies before anything else.",
+  },
+  {
+    key: "has_someone",
+    label: "Already has someone",
+    coach:
+      "Not a dead end — ask who looks after it and when they last heard from them. Neglected retainers are the easiest switch we get.",
+  },
+  {
+    key: "no_budget",
+    label: "Can't afford it",
+    coach:
+      "Lead with the $299/mo plan and no upfront build cost, or the free report card. Price shouldn't come up before they've agreed there's a problem.",
+  },
+  {
+    key: "wrong_person",
+    label: "Wrong person / gatekeeper",
+    coach:
+      "Ask for the owner by name and try before 9am or after 5pm — that's when they answer their own phone.",
+  },
+  {
+    key: "brushed_off",
+    label: "Wouldn't talk at all",
+    coach:
+      "The first seven seconds are doing the damage. Open with what's wrong with THEIR site and a question, never with who we are.",
+  },
+  {
+    key: "diy",
+    label: "Doing it themselves",
+    coach:
+      "Offer the free report card. Half of DIY sites fail on mobile or speed, and seeing that in writing changes the conversation.",
+  },
+  {
+    key: "winding_down",
+    label: "Closing / retiring",
+    coach: "Nothing to fix — archive them so nobody rings them again.",
+  },
+  { key: "other", label: "Something else", coach: "" },
+];
+
+export function noReasonLabel(key: string | null | undefined): string {
+  return NO_REASONS.find((r) => r.key === key)?.label ?? "Not recorded";
+}
+
+export function noReasonCoach(key: string | null | undefined): string {
+  return NO_REASONS.find((r) => r.key === key)?.coach ?? "";
+}
+
+export function isNoReason(key: string | null | undefined): key is NoReasonKey {
+  return NO_REASONS.some((r) => r.key === key);
+}
+
+// Count the nos by reason, commonest first. Pure so the tally card and any
+// report can share one answer.
+export function tallyNoReasons(
+  rows: { call_outcome?: string | null; no_reason?: string | null }[],
+): { key: NoReasonKey; label: string; count: number; coach: string }[] {
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    if (r.call_outcome !== "not_interested") continue;
+    if (!isNoReason(r.no_reason)) continue;
+    counts.set(r.no_reason, (counts.get(r.no_reason) ?? 0) + 1);
+  }
+  return NO_REASONS.filter((r) => (counts.get(r.key) ?? 0) > 0)
+    .map((r) => ({ key: r.key, label: r.label, count: counts.get(r.key) ?? 0, coach: r.coach }))
+    .sort((a, b) => b.count - a.count);
+}
+
 export type OpportunityBand = "hot" | "warm" | "cool";
 
 export type OpportunitySignals = {
@@ -419,6 +910,9 @@ export type OpportunitySignals = {
   hasEmail?: boolean;
   createdAt?: string | null; // for freshness
   lastActivityIso?: string | null; // most recent touch, if known
+  // The reason we'd call them at all (see leadNeed above). Passing it is what
+  // separates "a business" from "a business that visibly needs us".
+  need?: LeadNeed | null;
 };
 
 export type OpportunityScore = {
@@ -472,6 +966,24 @@ export function opportunityScore(sig: OpportunitySignals): OpportunityScore {
   } else if (outcome === "not_interested") {
     score -= 25;
     reasons.push("Said not interested");
+  }
+
+  // 2b) THE signal: do they visibly need what we sell? A business whose site is
+  // down, expired or missing is a different animal from one with a perfectly
+  // good site — and until 2026-07-26 they scored identically here, which is how
+  // reps ended up dialling businesses with nothing wrong and hearing "we're all
+  // set" all day. Need outweighs every other signal on the board.
+  if (sig.need) {
+    if (sig.need.key === "good_site") {
+      score -= 30;
+      reasons.push("Site's already fine — nothing to open the call with");
+    } else if (sig.need.key === "unknown") {
+      score -= 8;
+      reasons.push("No reason to call found yet — needs research");
+    } else {
+      score += Math.round(sig.need.rank * 0.3); // 92 → +28, 46 → +14
+      reasons.unshift(sig.need.label);
+    }
   }
 
   // 3) Best-fit industry.

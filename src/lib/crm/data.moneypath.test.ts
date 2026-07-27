@@ -624,7 +624,16 @@ describe("outreach uses the AI-tailored email for each business", () => {
     const body = helperBody("enrichNewLeads");
     expect(body).toContain("EXISTS");
     expect(body).toContain("ct.email IS NOT NULL");
-    expect(fnBody("runDueSweeps")).toContain("enrichNewLeads(10)");
+    expect(fnBody("runDueSweeps")).toContain("enrichNewLeadsWithin(25_000, 10)");
+  });
+  // An un-researched lead is one no rep can dial, so the cron works the
+  // backlog to a clock instead of stopping at a flat ten.
+  it("nightly research keeps going until its time budget or the backlog runs out", () => {
+    const body = helperBody("enrichNewLeadsWithin");
+    expect(body).toContain("Date.now() + budgetMs");
+    expect(body).toContain("Date.now() < deadline"); // checked BEFORE another batch starts
+    expect(body).toContain("if (n === 0) break"); // empty backlog ends it early
+    expect(body).toContain("i < 40"); // ceiling as well as a clock — no runaway loop
   });
 });
 
@@ -1014,6 +1023,16 @@ describe("moneypath: the Manager role sees the whole team's book without admin p
     expect(body).toContain("role='member'"); // never touches admins
     expect(helperBody("runPendingOneTimeTasks")).toContain("runPromoteNickBesserToManager()");
   });
+  it("Michael gets the same manager access, once, and never by guesswork", () => {
+    const body = helperBody("runPromoteMichaelToManager");
+    expect(source).toContain('const MICHAEL_MANAGER_TASK_KEY = "task_make_michael_manager_2026_07_26"');
+    expect(body).toContain("ON CONFLICT (key) DO NOTHING RETURNING key");
+    expect(body).toContain("LOWER(name) LIKE '%michael%' OR LOWER(email) LIKE '%michael%'");
+    expect(body).toContain("michaels.length !== 1"); // never hand a stranger the team's book
+    expect(body).toContain("role='member'"); // a promotion is never a demotion
+    expect(body).toContain("DELETE FROM sessions WHERE user_id = ?"); // new scope applies now
+    expect(helperBody("runPendingOneTimeTasks")).toContain("runPromoteMichaelToManager()");
+  });
   it("the Calls page gives managers the full-team queue", () => {
     expect(calls).toContain("hasTeamScope(me?.role)");
   });
@@ -1040,10 +1059,14 @@ describe("companies list rows triage the call right where the rep is", () => {
   it("it saves through the same server fn as the Calls queue", () => {
     const triage = companies.slice(companies.indexOf("function RowTriage("), companies.indexOf("export const Route"));
     expect(triage).toContain("setCompanyCallOutcome({ data: { id: c.id as string, outcome } })");
-    // all four one-click outcomes are offered
-    for (const o of ['decide("interested")', 'decide("maybe")', 'decide("not_interested")', 'decide("no_answer")']) {
+    // Yes / Maybe / No answer save straight away…
+    for (const o of ['decide("interested")', 'decide("maybe")', 'decide("no_answer")']) {
       expect(triage).toContain(o);
     }
+    // …and No goes through the shared reason picker, so a no filed from this
+    // row is counted in the tally like every other one.
+    expect(triage).toContain("setAsking(true)");
+    expect(triage).toContain("<NoReasonModal");
   });
   it("signed is final and non-owners just see the badge", () => {
     const triage = companies.slice(companies.indexOf("function RowTriage("), companies.indexOf("export const Route"));
@@ -1052,14 +1075,16 @@ describe("companies list rows triage the call right where the rep is", () => {
   it("the rep hears what actually happened, in plain words", () => {
     const triage = companies.slice(companies.indexOf("function RowTriage("), companies.indexOf("export const Route"));
     expect(triage).toContain("Marked Yes — deal moved to Proposal");
-    expect(triage).toContain("Marked No answer — they stay in the call queue");
+    expect(triage).toContain("Marked No answer — we'll put them back in the queue for a callback");
     expect(triage).toContain("Couldn't save — you may not own this one");
   });
   it("the server fn really does move the deal (the badge isn't cosmetic)", () => {
     const body = fnBody("setCompanyCallOutcome");
     expect(body).toContain('data.outcome === "interested" || data.outcome === "maybe"');
     expect(body).toContain('"Proposal",');
-    expect(body).toContain("LOST_STAGE, now, now, deal.id");
+    // The lost deal carries the reason the rep just tapped, so "why we lose"
+    // is answerable from the pipeline and not only from the Calls tally.
+    expect(body).toContain("LOST_STAGE, now, now, noReason ? noReasonLabel(noReason) : null, deal.id");
   });
 });
 
