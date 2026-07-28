@@ -43,7 +43,7 @@ import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
 import { isStripeConfigured, stripeFetch } from "./stripe.server";
 import { aiComplete, aiDefaultModel, aiResearchBrief, isAiConfigured, AI_PROMPT_VERSION, type AiBrief } from "./ai.server";
-import { draftQualityIssue } from "./emails";
+import { draftQualityIssue, outreachFacts, specificityTokens } from "./emails";
 import { fetchNewFilings, isSunbizConfigured, titleCaseBusiness } from "./sunbiz.server";
 import { fetchDomainContacts, isOutscraperConfigured, websiteDomain } from "./outscraper.server";
 import { probeForWebsite } from "./siteprobe.server";
@@ -6030,7 +6030,16 @@ async function redraftAiEmailsCore(
         // gate), so blank it and stamp: templates take over cleanly instead
         // of burning tokens on the same hopeless dossier every night.
         const old = dossier.ai;
-        if (old && draftQualityIssue(old.email_subject ?? "", old.email_body ?? "") === null) return;
+        if (
+          old &&
+          draftQualityIssue(
+            old.email_subject ?? "",
+            old.email_body ?? "",
+            specificityTokens(outreachFacts({ ...c, research: dossier })),
+          ) === null
+        ) {
+          return;
+        }
         dossier.ai = old
           ? { ...old, email_subject: "", email_body: "", v: AI_PROMPT_VERSION }
           : { brief: "", email_subject: "", email_body: "", v: AI_PROMPT_VERSION };

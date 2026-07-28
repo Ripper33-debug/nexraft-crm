@@ -20,7 +20,7 @@
 // inside a 60s serverless window.
 
 import type { ResearchDossier } from "./data";
-import { draftQualityIssue } from "./emails";
+import { draftQualityIssue, outreachFacts, specificityTokens } from "./emails";
 
 const ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
@@ -148,7 +148,14 @@ export async function aiComplete(req: {
 // assert something false to an owner who can see their own site. Bumping the
 // version is what forces the redraft pass to rewrite them all from the honest
 // facts — it is the only way to get the bad drafts out of the outbox.
-export const AI_PROMPT_VERSION = 3;
+// v4 (2026-07-27): Barry on the drafts — "i want every email tailored to each
+// business and them to sound like real people and i want them to be good
+// enough maybe even offering a free mockup we can show them dont discuss
+// price." So: money is gone from cold outreach entirely (the offer is a free
+// mockup they can look at), the specificity requirement is now enforced by
+// the quality gate rather than merely requested here, and the voice rules got
+// stricter about sounding like a person who lives nearby.
+export const AI_PROMPT_VERSION = 4;
 
 export type AiBrief = {
   brief: string; // 2-3 sentence "what they are + how to pitch them"
@@ -201,7 +208,7 @@ function dossierFacts(
   return lines.join("\n");
 }
 
-const SYSTEM = `You write sales intel for Nexraft, a web design agency that builds and maintains websites for local businesses (a one-time build fee plus a managed plan from $299/month — design, hosting, updates, everything handled for them). The reader is a sales rep about to cold-call or email the business described.
+const SYSTEM = `You write sales intel for Nexraft, a small web design studio in southwest Florida that builds and runs websites for local businesses — design, hosting, updates, all handled for them. The reader is a sales rep about to cold-call or email the business described. The rep lives in the same area as the business and can say so.
 
 Respond with ONLY a JSON object, no markdown fences, in this exact shape:
 {"brief": "...", "email_subject": "...", "email_body": "..."}
@@ -213,9 +220,13 @@ Rules:
 
 The one test that matters: if this email could be sent to a different business by swapping the name, it is WRONG. Delete it and start from what makes THIS business different — their exact rating and review count, how long they've been at it, a service they name, their town, the specific thing broken or missing about their site. Work at least two of those facts in, stated plainly ("4.9 stars across 212 reviews", "pouring concrete in Cape Coral since 2009") — numbers and proper nouns are what make it obviously written for them.
 
-Voice: a neighbor who happens to build websites, texting between jobs. Contractions. Short sentences. It's fine to sound almost blunt. Never introduce yourself or your company in the first sentence — the first sentence is entirely about THEM. Never use the mass-mail phrases every business owner deletes on sight: "I noticed", "I came across", "reaching out", "my name is", "quick question", "just following up", "hope you're doing well", "we specialize in", "free consultation". If you catch yourself opening with "I", rewrite the sentence to start with them ("Your reviews...", "Joe's Plumbing shows up...", "Searched for a plumber in Naples and...").
+Voice: a neighbor who happens to build websites, texting between jobs. Contractions. Short sentences. It's fine to sound almost blunt. Write like one person to one person — "I", never "we" or "our team", and never a company describing itself. Never introduce yourself or your company in the first sentence — the first sentence is entirely about THEM. Never use the mass-mail phrases every business owner deletes on sight: "I noticed", "I came across", "reaching out", "my name is", "quick question", "just following up", "hope you're doing well", "we specialize in", "free consultation". If you catch yourself opening with "I", rewrite the sentence to start with them ("Your reviews...", "Joe's Plumbing shows up...", "Searched for a plumber in Naples and...").
 
-Structure: (1) the single most specific TRUE observation about this business, and why it's costing them customers — the gap between how good they are and how they look online is the story; (2) one sentence on the fix (we handle everything — plans from $299/month); never quote any other price; (3) ONE question they can answer in a word or two ("worth a look?", "want me to send it over?") plus an easy out ("if not, just say so and I'll leave you be"). No bullet points, zero corporate speak. Sign off with just "{{REP_NAME}}" on its own line — the CRM fills the name in.
+NEVER MENTION MONEY. No prices, no monthly figures, no "affordable", no "starting at", no dollar signs anywhere — not ours, not theirs. A number in a first email gets argued with before anything has been shown, and the draft will be rejected outright if it contains one. Price is a conversation for after they've seen something and want it.
+
+THE OFFER IS A FREE MOCKUP. Not a call, not a meeting, not a consultation — a real homepage you will build and show them, free, theirs to keep whether or not they ever hire you. That is what the email asks for permission to do, and it's the only ask. It works because it costs them nothing and gives them something to look at instead of something to decide.
+
+Structure: (1) the single most specific TRUE observation about this business, and why it's costing them customers — the gap between how good they are and how they look online is the story; (2) the offer of the free mockup, in one or two plain sentences, with the no-obligation part said out loud; (3) ONE question they can answer in a word or two ("want me to put one together?", "want the link?") plus an easy out ("if not, just say so and I'll leave you be"). No bullet points, zero corporate speak. Sign off with just "{{REP_NAME}}" on its own line — the CRM fills the name in.
 
 - Refer to the business the way a local would say it out loud — "Mills Plumbing", never "Mills Plumbing & Drain Cleaning LLC". Legal suffixes (LLC, Inc., Corp) never appear in the subject or body.
 - If the facts include an owner name, address them by first name in the email.
@@ -240,6 +251,12 @@ export async function aiResearchBrief(
     // stored and the canned templates take over. "Best every time" beats
     // "always something".
     const facts = dossierFacts(company, dossier);
+    // The mail-merge test, enforced instead of merely asked for: at least one
+    // of this business's own details (town, trade, rating, review count,
+    // founding year, a named service) has to survive into the copy, or the
+    // draft is rejected and rewritten. Empty for a company we know nothing
+    // about — there is nothing to require and the gate skips it.
+    const mustMention = specificityTokens(outreachFacts({ ...company, research: dossier }));
     let feedback: string | null = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       const text = await aiComplete({
@@ -259,7 +276,7 @@ export async function aiResearchBrief(
         email_subject: String(parsed.email_subject).slice(0, 200),
         email_body: String(parsed.email_body).slice(0, 3000),
       };
-      feedback = draftQualityIssue(brief.email_subject, brief.email_body);
+      feedback = draftQualityIssue(brief.email_subject, brief.email_body, mustMention);
       if (feedback === null) return { ...brief, v: AI_PROMPT_VERSION };
     }
     return null; // two strikes — ship the dossier without a draft

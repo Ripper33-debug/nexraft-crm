@@ -622,7 +622,9 @@ function NoAnswerModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const draft = missedCallEmail(company.name as string, repName);
+  // The whole row, not just the name — the city, trade and dossier are what
+  // make this email about them rather than about nobody in particular.
+  const draft = missedCallEmail(company, repName);
   const [to, setTo] = useState(email);
   const [subject, setSubject] = useState(draft.subject);
   const [body, setBody] = useState(draft.body);

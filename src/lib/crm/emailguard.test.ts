@@ -153,7 +153,10 @@ describe("the AI never writes a claim we haven't earned", () => {
   it("bumps the prompt version so the bad drafts already stored get rewritten", () => {
     // Without this, every email written under the old prompt keeps its false
     // opening line and goes out anyway.
-    expect(src("ai.server.ts")).toContain("export const AI_PROMPT_VERSION = 3;");
+    // v4 (2026-07-27): no price at all, free-mockup offer, enforced
+    // per-business specificity. Bumping this is the delivery mechanism — it's
+    // what makes the nightly pass rewrite the drafts already sitting in the DB.
+    expect(src("ai.server.ts")).toContain("export const AI_PROMPT_VERSION = 4;");
   });
 
   it("stops the fit scorer inferring 'no website' from a blank column", () => {

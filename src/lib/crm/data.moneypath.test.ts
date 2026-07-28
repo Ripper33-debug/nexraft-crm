@@ -606,13 +606,21 @@ describe("outreach uses the AI-tailored email for each business", () => {
     expect(source).toContain("web hunt 2026-07"); // source tag reps can filter on
     expect(helperBody("runPendingOneTimeTasks")).toContain("runSeedWebHuntLeads()");
   });
-  it("every AI prompt quotes the real pricing ($299/month, per nexraft.com) — never the old $100", () => {
-    const aiServer = readFileSync(join(__dirname, "ai.server.ts"), "utf8");
-    expect(aiServer).toContain("$299/month");
-    expect(aiServer).not.toContain("$100");
+  // Owner's rule, 2026-07-27: "dont discuss price." The split below matters —
+  // the SCORER reasons about money internally and has to keep the real
+  // numbers to judge affordability at all. The outreach WRITER must never see
+  // one, because anything in that prompt ends up in an email to a stranger who
+  // then argues with the number before we've shown them anything.
+  it("the lead scorer still knows the real pricing — it needs it to judge affordability", () => {
     expect(source).toContain("$299/month"); // AI_FIT_SYSTEM lead-qualification prompt
-    expect(source).not.toContain("$100/mo");
+    expect(source).not.toContain("$100/mo"); // never the old wrong price
     expect(source).not.toContain("$100/month");
+  });
+  it("the outreach writer never sees a price — the offer is a free mockup instead", () => {
+    const aiServer = readFileSync(join(__dirname, "ai.server.ts"), "utf8");
+    expect(aiServer).not.toMatch(/\$\s?\d/);
+    expect(aiServer).toContain("NEVER MENTION MONEY");
+    expect(aiServer.toLowerCase()).toContain("free mockup");
   });
   it("generated drafts must clear the quality bar — one rewrite, then no draft beats a bad draft", () => {
     const aiServer = readFileSync(join(__dirname, "ai.server.ts"), "utf8");
@@ -703,8 +711,15 @@ describe("prompt upgrades reach every stored email draft (redraft pass)", () => 
     expect(body).toContain("ct.email IS NOT NULL");
   });
   it("a failed rewrite keeps a still-good old draft (and retries later), only blanks below-bar ones", () => {
-    expect(body).toContain("draftQualityIssue(old.email_subject");
+    // Whitespace-stripped so a reformat of the call can't fail a test that is
+    // about behaviour. (It did exactly that on 2026-07-27.)
+    expect(body.replace(/\s+/g, "")).toContain(`draftQualityIssue(old.email_subject??""`);
     expect(body).toContain(`email_subject: ""`);
+  });
+  it("re-checks old drafts against TODAY's bar, including the per-business specificity rule", () => {
+    // A draft that was fine under the old rules but names nothing about the
+    // business has to be caught and rewritten, not kept.
+    expect(body.replace(/\s+/g, "")).toContain("specificityTokens(outreachFacts(");
   });
   it("every fresh draft is stamped with the prompt version so the pool drains", () => {
     const aiSource = readFileSync(join(__dirname, "ai.server.ts"), "utf8");
@@ -719,7 +734,13 @@ describe("prompt upgrades reach every stored email draft (redraft pass)", () => 
     const aiSource = readFileSync(join(__dirname, "ai.server.ts"), "utf8");
     expect(aiSource).toContain("if this email could be sent to a different business by swapping the name, it is WRONG");
     expect(aiSource).toContain(`"I noticed"`);
-    expect(aiSource).toContain("plans from $299/month");
+  });
+  it("the prompt enforces the specificity rule at generation time, not just in the wording", () => {
+    const aiSource = readFileSync(join(__dirname, "ai.server.ts"), "utf8");
+    // The mail-merge test is fed into the quality gate as required facts, so a
+    // generic draft is rejected and rewritten rather than merely discouraged.
+    expect(aiSource.replace(/\s+/g, "")).toContain("specificityTokens(outreachFacts(");
+    expect(aiSource).toContain("mustMention");
   });
 });
 

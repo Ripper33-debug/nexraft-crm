@@ -26,60 +26,303 @@ export function friendlyCompanyName(name: string): string {
   return n || (name || "").trim();
 }
 
+// ---- What makes an email about THIS business --------------------------------
+//
+// Owner's call, 2026-07-27: "i want every email tailored to each business and
+// them to sound like real people and i want them to be good enough maybe even
+// offering a free mockup we can show them dont discuss price."
+//
+// The templates below used to be canned: swap the company name and the same
+// email works for anyone, which is exactly the thing an owner deletes without
+// finishing the first line. The AI drafts were tailored, but they only exist
+// when an AI key is configured and the draft clears the quality bar — so the
+// fallback was doing most of the real sending, generically.
+//
+// So the facts come out of the dossier here, once, and BOTH paths use them.
+// A template with the business's own rating, trade and town in it is no longer
+// a fallback that reads like a fallback.
+
+/**
+ * Anything the outreach copy can be built from — a whole company row, ideally.
+ * Fields are `unknown` because the routes hold rows as Record<string, unknown>;
+ * outreachFacts coerces, so passing a raw row is safe and is the point.
+ */
+export type CompanyLike = {
+  name?: unknown;
+  city?: unknown;
+  industry?: unknown;
+  research?: unknown;
+};
+
+export type OutreachFacts = {
+  /** Friendly name — "Mills Plumbing", never "Mills Plumbing & Drain Cleaning LLC". */
+  company: string;
+  city: string | null;
+  /** How a neighbour would say the trade out loud: "plumber", not "Plumbing". */
+  trade: string | null;
+  rating: number | null;
+  reviews: number | null;
+  /** Year they opened, when the site says so. */
+  established: string | null;
+  /** One service they name themselves. */
+  service: string | null;
+  /** null when nobody has actually checked — never assert absence off this. */
+  siteStatus: "live" | "dead" | "none" | null;
+  ownerFirst: string | null;
+};
+
+// "Plumbing" is what a directory calls it. "plumber" is what a person says.
+// Anything not in the list falls through lowercased, which reads fine in
+// "searches for landscaping in Naples" even when it isn't a person-noun.
+const TRADE_WORDS: Record<string, string> = {
+  plumbing: "plumber",
+  roofing: "roofer",
+  electrical: "electrician",
+  landscaping: "landscaper",
+  "lawn care": "lawn guy",
+  painting: "painter",
+  flooring: "flooring guy",
+  concrete: "concrete guy",
+  remodeling: "remodeler",
+  "pest control": "pest control company",
+  "pool service": "pool guy",
+  "pool cleaning": "pool guy",
+  towing: "tow truck",
+  "auto repair": "mechanic",
+  cleaning: "cleaner",
+  "tree service": "tree guy",
+};
+
+export function tradeWord(industry: string | null | undefined): string | null {
+  const raw = (industry || "").trim();
+  if (!raw) return null;
+  const hit = TRADE_WORDS[raw.toLowerCase()];
+  if (hit) return hit;
+  // Acronyms keep their case — "an HVAC company", never "a hvac". On its own
+  // an acronym isn't a thing you can hire ("searches for a HVAC"), so it gets
+  // a noun attached.
+  if (/^[A-Z0-9&/ ]{2,8}$/.test(raw)) return `${raw} company`;
+  return raw.toLowerCase();
+}
+
+// "a plumber" but "an electrician", and "an HVAC company" — English goes by
+// sound, not spelling, and the acronyms that start F/H/L/M/N/R/S/X are said
+// "eff, aitch, ell…" so they take "an" too. Getting this wrong is a small
+// thing that makes an email read like software wrote it.
+function articleFor(word: string): string {
+  const w = word.trim();
+  if (!w) return "a";
+  if (/^[aeiou]/i.test(w)) return "an";
+  if (/^[FHLMNRSX][A-Z0-9&/]/.test(w)) return "an";
+  return "a";
+}
+
+// Pull the tailoring material out of a company row + its research dossier.
+// Pure and defensive: junk JSON, missing keys and half-written dossiers all
+// just mean fewer facts, never a throw.
+export function outreachFacts(c: CompanyLike | null | undefined): OutreachFacts {
+  // The call sites hold company rows typed as Record<string, unknown>, so the
+  // fields arrive as `unknown` and get coerced here rather than cast at every
+  // caller. A non-string is the same as absent: one fact fewer, never a throw.
+  const str = (v: unknown): string => (typeof v === "string" ? v : "");
+  const base: OutreachFacts = {
+    company: friendlyCompanyName(str(c?.name)) || "your business",
+    city: str(c?.city).trim() || null,
+    trade: tradeWord(str(c?.industry)),
+    rating: null,
+    reviews: null,
+    established: null,
+    service: null,
+    siteStatus: null,
+    ownerFirst: null,
+  };
+  let d: Record<string, unknown>;
+  try {
+    const parsed = typeof c?.research === "string" ? JSON.parse(c.research) : c?.research;
+    if (!parsed || typeof parsed !== "object") return base;
+    d = parsed as Record<string, unknown>;
+  } catch {
+    return base;
+  }
+  const rating = Number(d.rating);
+  const reviews = Number(d.reviews);
+  if (Number.isFinite(rating) && rating > 0) base.rating = rating;
+  if (Number.isFinite(reviews) && reviews > 0) base.reviews = Math.round(reviews);
+  if (typeof d.established === "string" && d.established.trim()) base.established = d.established.trim();
+  const services = Array.isArray(d.services) ? d.services : [];
+  const firstService = services.find((s) => typeof s === "string" && s.trim().length > 2);
+  if (typeof firstService === "string") base.service = firstService.trim();
+  const people = Array.isArray(d.people) ? d.people : [];
+  const firstPerson = people.find((p) => typeof p === "string" && p.trim().length > 1);
+  if (typeof firstPerson === "string") base.ownerFirst = firstPerson.trim().split(/\s+/)[0] || null;
+  // The whole point of the 2026-07-27 site-probe work: "none" is only a fact
+  // when someone actually looked. Without the probe stamp we report null and
+  // every line that would have asserted sitelessness stays unwritten.
+  const status = d.siteStatus;
+  if (status === "live" || status === "dead") base.siteStatus = status;
+  else if (status === "none" && d.siteProbe) base.siteStatus = "none";
+  return base;
+}
+
+// The tokens that prove an email was written about this business and not
+// generated from a name. At least one of these has to survive into the final
+// copy or the draft is, by definition, a mail merge.
+export function specificityTokens(f: OutreachFacts): string[] {
+  const t: string[] = [];
+  if (f.city) t.push(f.city);
+  if (f.trade) t.push(f.trade);
+  if (f.rating !== null) t.push(String(f.rating));
+  if (f.reviews !== null) t.push(String(f.reviews));
+  if (f.established) t.push(f.established);
+  if (f.service) t.push(f.service);
+  return t;
+}
+
+// The opening line: the single most specific TRUE thing we know, written so
+// the first word is about them. Ordered by how much it proves we looked.
+// Every branch is honest about what we actually verified — nothing here
+// claims a business has no website unless the probe ran and found nothing.
+export function specificOpener(f: OutreachFacts): string {
+  const where = f.city ? ` in ${f.city}` : " around here";
+  const searches = f.trade
+    ? `someone searches for ${articleFor(f.trade)} ${f.trade}${where}`
+    : `someone looks you up`;
+  if (f.siteStatus === "dead") {
+    return `${f.company}'s website isn't loading — I checked twice to be sure. Anyone looking for you right now finds a dead page and tries the next name down the list.`;
+  }
+  if (f.rating !== null && f.reviews !== null) {
+    // Deliberately NOT "better than anyone in town" — we've never looked at
+    // the competition, and a claim we can't back is the fastest way to lose a
+    // reader who knows their own market better than we do.
+    return `${f.rating} stars across ${f.reviews} reviews is a lot of people vouching for you — but that all lives on Google's page, not yours. When ${searches}, none of it shows.`;
+  }
+  if (f.siteStatus === "none") {
+    return `Went looking for a website for ${f.company} and couldn't find one anywhere. Which means when ${searches}, the work goes to whoever does show up.`;
+  }
+  if (f.established) {
+    return `${f.company} has been${where} since ${f.established}. That's the kind of track record people are actually looking for — and it's nowhere to be seen when ${searches}.`;
+  }
+  if (f.service) {
+    return `Saw ${f.company} does ${f.service.toLowerCase()}. When ${searches}, though, you're not what comes up first — and that's usually the whole ballgame.`;
+  }
+  if (f.trade) {
+    return `When ${searches}, whatever they find is what decides if they call ${f.company} or the next name down. Worth knowing what it's telling them.`;
+  }
+  return `Had a look at how ${f.company} turns up online, and there's an easy win sitting there.`;
+}
+
+// The ask, every time: something they can SEE, free, with no price attached
+// and no obligation. "Want me to put one together?" is a one-word answer for
+// someone reading on a phone between jobs.
+export function mockupAsk(f: OutreachFacts): string {
+  return `Easier to show you than explain it: I'll build ${f.company} a homepage mockup. Real design, your own reviews and photos on it, free, and yours to keep either way.\n\nWant me to put one together?`;
+}
+
 // The copy below is tuned for one thing: getting a REPLY from a busy owner
 // reading on their phone. That means short (under ~90 words), one specific
 // point, one easy question — and an out ("just say no thanks") that
 // paradoxically makes people answer. No pitch walls, no "I'd love to connect".
+//
+// NEVER a price. Barry's rule as of 2026-07-27: a number in a first email
+// gets argued with before anything has been shown. The mockup is the offer;
+// price is a conversation for after they've seen it and want it.
 
-// Nudge 1 — right after a missed call. Reference the call, make replying easy.
-function nudge1(company: string, rep: string, repName: string): EmailDraft {
+// Subjects are lowercase and specific — the way a person in town types one,
+// not the way a campaign tool does. Same fact that drives the opening line.
+function nudgeSubject(f: OutreachFacts): string {
+  if (f.siteStatus === "dead") return `${f.company.toLowerCase()}'s site is down`;
+  if (f.reviews !== null) return `those ${f.reviews} reviews`;
+  if (f.siteStatus === "none") return `couldn't find your site`;
+  if (f.established) return `${f.company.toLowerCase()} since ${f.established}`;
+  return `${f.company.toLowerCase()} on google`;
+}
+
+// A few words naming what this business specifically has going on — for the
+// spots that need to prove the email is about them without re-running the
+// whole opening line. Same fact order as specificOpener, so a sequence reads
+// consistently. Null when we genuinely know nothing, and then the copy simply
+// doesn't make a claim.
+function shortFact(f: OutreachFacts): string | null {
+  if (f.siteStatus === "dead") return "the site that isn't loading";
+  if (f.reviews !== null) return `those ${f.reviews} reviews with nowhere to send anyone`;
+  if (f.siteStatus === "none") return "not being able to find you online";
+  if (f.established) return `everything you've built since ${f.established}`;
+  if (f.service) return `the ${f.service.toLowerCase()} side of it`;
+  if (f.trade) return `how you turn up when someone needs ${articleFor(f.trade)} ${f.trade}`;
+  return null;
+}
+
+// Greet the owner by name when the dossier actually turned one up. Anything
+// else gets "Hi there," — a wrong name is worse than no name.
+function greetOwner(f: OutreachFacts): string {
+  return f.ownerFirst ? `${f.ownerFirst} —` : "Hi there,";
+}
+
+function signOff(repName: string): string {
+  return `${repName || "The Nexraft team"}\nNexraft`;
+}
+
+// Nudge 1 — right after a missed call. Opens on THEM (the missed call is the
+// second line, never the first), offers something they can look at, no price.
+function nudge1(f: OutreachFacts, repName: string): EmailDraft {
   return {
-    subject: `tried calling — ${company}`,
-    body: `Hi,
+    subject: nudgeSubject(f),
+    body: `${greetOwner(f)}
 
-${rep} here — I tried calling about ${company}'s website but didn't catch you.
+${specificOpener(f)}
 
-Short version: we build and run websites for local businesses — design, hosting, updates, all handled. Plans start at $299/month.
+Rang you about it a few minutes ago and missed you.
 
-Worth a look? Reply "sure" and I'll send something over — or "no thanks" and I won't bug you again.
+${mockupAsk(f)} If not, say so and I'll leave you be.
 
-${repName || "The Nexraft team"}
-Nexraft`,
+${signOff(repName)}`,
   };
 }
 
-// Nudge 2 — a few days later. A concrete reason, a yes/no question.
-function nudge2(company: string, rep: string, repName: string): EmailDraft {
+// Nudge 2 — a few days later. Shorter, one angle, same free offer. No new
+// argument: people reply to the second email because it's easy, not because
+// it's more persuasive.
+function nudge2(f: OutreachFacts, repName: string): EmailDraft {
+  // Careful with this one: the reps are spread across southwest Florida, so
+  // "I'm in Cape Coral too" is a coin-flip lie the moment the prospect is a
+  // town over. The regional version is true for every rep and lands the same.
+  const where = f.city ? `up the road from ${f.city}` : "in southwest Florida";
   return {
-    subject: `${company} on google`,
-    body: `Hi,
+    subject: `re: ${nudgeSubject(f)}`,
+    body: `${greetOwner(f)}
 
-${rep} again. One thing, then I'll get out of your inbox:
+Following my note about how ${f.company} shows up online — still happy to build the mockup, and it costs you nothing either way.
 
-When someone in town searches for what ${company} does, are you happy with what they find? Most owners we talk to aren't — and it's usually costing them a few customers a month without them ever knowing.
+It takes me an evening. You'd get a real homepage with your own reviews and photos on it, and you can do whatever you like with it, including nothing.
 
-That's the whole thing we fix, done for you, from $299/month. Want me to send over what your site could look like?
+Want me to send it over? One word does it.
 
-${repName || "The Nexraft team"}
-Nexraft`,
+${signOff(repName)}
+
+P.S. — I'm ${where}, so this isn't a call centre in another state.`,
   };
 }
 
 // Nudge 3 — the breakup email. Consistently the most-replied-to email in any
 // cold sequence: closing the file makes people who were on the fence speak up.
-function nudge3(company: string, rep: string, repName: string): EmailDraft {
+function nudge3(f: OutreachFacts, repName: string): EmailDraft {
+  const fact = shortFact(f);
+  // Even the goodbye names their thing. A breakup email that could have been
+  // sent to anyone reads like the mail merge finally running out of steps.
+  const opening = fact
+    ? `I've written twice about ${f.company} — ${fact} — and heard nothing back.`
+    : `I've written twice about ${f.company}'s website and heard nothing back.`;
   return {
-    subject: `closing your file — ${company}`,
-    body: `Hi,
+    subject: `closing your file — ${f.company.toLowerCase()}`,
+    body: `${greetOwner(f)}
 
-${rep} from Nexraft — I've reached out a couple of times about ${company}'s website and haven't heard back, so I'm going to close your file and stop emailing.
+${opening} That's a fair answer on its own, so I'm closing the file and you won't hear from me again.
 
-Before I do: if the timing was just bad, one word back ("later") and I'll check in down the road. If you're all set, no reply needed at all.
+Before I do: if it was just bad timing, one word ("later") and I'll check back down the road. If you're all set, no reply needed at all.
 
-Either way, good luck out there — and if a website ever becomes the thing, you know where I am.
+Either way, good luck out there. The offer of a free mockup stands if it ever becomes the thing.
 
-${repName || "The Nexraft team"}
-Nexraft`,
+${signOff(repName)}`,
   };
 }
 
@@ -87,18 +330,26 @@ export const NUDGE_LABELS = ["1st nudge", "2nd nudge", "Final nudge"];
 
 // Build the right draft for a given touch. `touch` is 1-based (the nudge being
 // sent now). Anything past 3 reuses the final nudge.
-export function followUpEmail(companyName: string, repName: string, touch: number): EmailDraft {
-  const company = friendlyCompanyName(companyName) || "your business";
-  const rep = firstName(repName);
+//
+// Pass the whole company row, not just its name: the row is what carries the
+// city, the trade and the dossier, and those are the difference between an
+// email about them and an email about nobody. A bare string still works so
+// older call sites keep compiling — it just produces the thinnest version.
+export function followUpEmail(
+  company: string | CompanyLike,
+  repName: string,
+  touch: number,
+): EmailDraft {
+  const f = outreachFacts(typeof company === "string" ? { name: company } : company);
   const t = Math.max(1, Math.min(3, touch));
-  if (t === 1) return nudge1(company, rep, repName);
-  if (t === 2) return nudge2(company, rep, repName);
-  return nudge3(company, rep, repName);
+  if (t === 1) return nudge1(f, repName);
+  if (t === 2) return nudge2(f, repName);
+  return nudge3(f, repName);
 }
 
 // Back-compat alias for the original single-template helper.
-export function missedCallEmail(companyName: string, repName: string): EmailDraft {
-  return followUpEmail(companyName, repName, 1);
+export function missedCallEmail(company: string | CompanyLike, repName: string): EmailDraft {
+  return followUpEmail(company, repName, 1);
 }
 
 // ---- Email tab templates ----------------------------------------------------
@@ -106,7 +357,19 @@ export function missedCallEmail(companyName: string, repName: string): EmailDraf
 // company name, the contact's first name (when we have one), and the rep's
 // name — the rep just tweaks and hits send.
 
-export type TemplateInput = { company: string; firstName?: string | null; repName: string };
+export type TemplateInput = {
+  company: string;
+  firstName?: string | null;
+  repName: string;
+  /**
+   * The whole company row when the caller has it. This is what turns a
+   * template from a mail merge into an email about a specific business —
+   * pass it wherever it's in scope.
+   */
+  row?: CompanyLike | null;
+};
+/** What the build functions actually receive: the input plus the derived facts. */
+type BuiltInput = TemplateInput & { facts: OutreachFacts };
 export type EmailTemplate = { id: string; label: string; hint: string; build: (t: TemplateInput) => EmailDraft };
 
 function greet(firstName?: string | null): string {
@@ -125,41 +388,43 @@ function greet(firstName?: string | null): string {
 // `firstName` param for the CONTACT's name, which would shadow the helper).
 const repFirst = firstName;
 
-const RAW_TEMPLATES: EmailTemplate[] = [
+const RAW_TEMPLATES: { id: string; label: string; hint: string; build: (t: BuiltInput) => EmailDraft }[] = [
   {
     id: "intro",
     label: "Intro",
     hint: "First time reaching out",
-    build: ({ company, firstName, repName }) => ({
-      subject: `${company}'s website`,
-      body: `${greet(firstName)}
+    // Rewritten 2026-07-27. The old one opened "Barry here, from Nexraft — we
+    // build and run websites for local businesses", quoted a monthly price to
+    // a stranger, and would have read identically for any company on earth.
+    // Now: their fact first, the free mockup as the only ask, no price.
+    build: ({ company, firstName, repName, facts }) => ({
+      subject: nudgeSubject(facts),
+      body: `${firstName ? greet(firstName) : greetOwner(facts)}
 
-${repFirst(repName)} here, from Nexraft — we build and run websites for local businesses. Design, hosting, updates, all handled, live in about two weeks, plans from $299/month.
+${specificOpener(facts)}
 
-No site, or one that isn't bringing in work? That's exactly who we're for.
+${mockupAsk(facts)}
 
-Want to see what ${company}'s could look like? Reply "sure" and I'll put something together — or "no thanks" and that's the last you'll hear from me.
+No pitch attached — if you see it and want nothing more, that's a fine outcome.
 
-${repName || "The Nexraft team"}
-Nexraft`,
+${signOff(repName)}`,
     }),
   },
   {
     id: "followup",
     label: "Follow-up",
     hint: "Nudge someone who went quiet",
-    build: ({ company, firstName, repName }) => ({
-      subject: `re: ${company}'s website`,
-      body: `${greet(firstName)}
+    build: ({ company, firstName, repName, facts }) => ({
+      subject: `re: ${nudgeSubject(facts)}`,
+      body: `${firstName ? greet(firstName) : greetOwner(facts)}
 
-${repFirst(repName)} again — my earlier note about a website for ${company} probably got buried, so bumping it once.
+My note about how ${company} turns up online probably got buried, so I'll bump it once and then stop.
 
-The offer's simple: we handle everything — design, hosting, updates — with plans from $299/month.
+The offer hasn't changed: I'll build you a homepage mockup, free, yours to keep, no strings. Takes me an evening and you're not on the hook for anything.
 
-Yes, no, or "ask me in the fall" — any one-word reply works and I'll take it from there.
+Yes, no, or "ask me in the fall" — any one-word reply works.
 
-${repName || "The Nexraft team"}
-Nexraft`,
+${signOff(repName)}`,
     }),
   },
   {
@@ -236,8 +501,16 @@ Nexraft`,
 // "Z Plumber, Inc.") without each build function having to remember to strip
 // it — one wrapper here covers subjects and bodies alike.
 export const EMAIL_TEMPLATES: EmailTemplate[] = RAW_TEMPLATES.map((t) => ({
-  ...t,
-  build: (input) => t.build({ ...input, company: friendlyCompanyName(input.company) || input.company }),
+  id: t.id,
+  label: t.label,
+  hint: t.hint,
+  build: (input) => {
+    // Facts come from the row when the caller passed one, and fall back to
+    // the bare name when it didn't — so a template is never worse than it was
+    // and is a lot better wherever the row is in scope.
+    const facts = outreachFacts(input.row ?? { name: input.company });
+    return t.build({ ...input, company: facts.company, facts });
+  },
 }));
 
 // ---- AI-tailored drafts ------------------------------------------------------
@@ -253,12 +526,30 @@ export const EMAIL_TEMPLATES: EmailTemplate[] = RAW_TEMPLATES.map((t) => ({
 // back to the canned templates). Returns the reason it failed, or null if
 // the draft is good. Pure and client-safe on purpose so it's unit-testable.
 //
-// A draft may quote the PROSPECT's own prices as facts ("$150 service
-// calls") — but the only monthly plan price it may ever state as ours is
-// real Nexraft pricing ($299/$399/$599, Growth add-on $750). This is what
-// catches the pre-2026-07-21 "$100/month" drafts.
-const OUR_MONTHLY_PRICES = new Set(["299", "399", "599", "750"]);
-const MONTHLY_PRICE_RE = /\$\s?([\d,]+)(?:\s*[-–]\s*\$?[\d,]+)?\s*(?:\/|per\s|a\s|each\s)\s*mo/gi;
+// Money, at all, in a first-touch email. Owner's rule 2026-07-27: "dont
+// discuss price." The old rule allowed our real plan prices through and only
+// caught invented ones — which is why every draft still led with $299/month
+// and got argued with before anything had been shown. The offer is a free
+// mockup; the number is a conversation for after they've seen it and want it.
+//
+// Deliberately blunt: any dollar figure at all fails. That also catches the
+// prospect's own prices ("$150 service calls"), which is fine — quoting a
+// stranger's pricing back at them was never a good opening either.
+const ANY_MONEY_RE = /\$\s?\d/;
+const PRICE_TALK = [
+  "plans start",
+  "plans from",
+  "starting at",
+  "per month",
+  "a month",
+  "/month",
+  "/mo",
+  "monthly fee",
+  "our pricing",
+  "price point",
+  "affordable",
+  "budget-friendly",
+];
 const BANNED_PHRASES = [
   "hope this finds you well",
   "i'd love to connect",
@@ -292,7 +583,18 @@ const COLD_CLICHES = [
   "free consultation",
 ];
 
-export function draftQualityIssue(subject: string, body: string): string | null {
+export function draftQualityIssue(
+  subject: string,
+  body: string,
+  /**
+   * Facts that prove the email was written about THIS business — city, trade,
+   * rating, review count, founding year, a named service. When any are given,
+   * at least one has to appear in the copy or the draft is a mail merge by
+   * definition and gets rejected. Omit (or pass an empty list) for a company
+   * we know nothing about, where there is nothing to require.
+   */
+  mustMention: string[] = [],
+): string | null {
   if (!subject.trim()) return "empty subject";
   if (subject.trim().length > 60) return "subject longer than 60 characters";
   const words = body.trim().split(/\s+/).filter(Boolean).length;
@@ -300,7 +602,8 @@ export function draftQualityIssue(subject: string, body: string): string | null 
   if (words > 130) return `body too long (${words} words — keep it under 130)`;
   if (!body.includes("{{REP_NAME}}")) return "missing the {{REP_NAME}} sign-off placeholder";
   if (!body.includes("?")) return "no question — the email must end with one easy question";
-  const lower = `${subject}\n${body}`.toLowerCase();
+  const joined = `${subject}\n${body}`;
+  const lower = joined.toLowerCase();
   for (const phrase of BANNED_PHRASES) {
     if (lower.includes(phrase)) return `banned corporate phrase: "${phrase}"`;
   }
@@ -308,16 +611,26 @@ export function draftQualityIssue(subject: string, body: string): string | null 
     if (lower.includes(phrase))
       return `cold-email cliché: "${phrase}" — open with a specific true fact about this business instead`;
   }
-  for (const m of `${subject}\n${body}`.matchAll(MONTHLY_PRICE_RE)) {
-    const amount = m[1].replaceAll(",", "");
-    if (!OUR_MONTHLY_PRICES.has(amount)) {
-      return `quotes a monthly price that isn't ours ($${amount}/mo — plans are $299/$399/$599)`;
-    }
+  if (ANY_MONEY_RE.test(joined)) {
+    return "mentions a price — first-touch emails never discuss money, the offer is a free mockup";
+  }
+  for (const phrase of PRICE_TALK) {
+    if (lower.includes(phrase)) return `talks about pricing ("${phrase}") — offer the free mockup instead`;
+  }
+  // The mail-merge test, enforced rather than merely requested in the prompt.
+  const facts = mustMention.map((s) => s.trim().toLowerCase()).filter((s) => s.length > 1);
+  if (facts.length > 0 && !facts.some((f) => lower.includes(f))) {
+    return `nothing specific to this business — work in at least one of: ${mustMention.join(", ")}`;
   }
   return null;
 }
 
-export function aiDraftFromResearch(research: unknown, repName: string): EmailDraft | null {
+export function aiDraftFromResearch(
+  research: unknown,
+  repName: string,
+  /** The company row, when the caller has it — adds city and trade to the specificity check. */
+  row?: CompanyLike | null,
+): EmailDraft | null {
   try {
     const parsed = typeof research === "string" ? JSON.parse(research) : research;
     const ai = (parsed as { ai?: { email_subject?: unknown; email_body?: unknown } } | null)?.ai;
@@ -325,10 +638,13 @@ export function aiDraftFromResearch(research: unknown, repName: string): EmailDr
     const body = typeof ai?.email_body === "string" ? ai.email_body.trim() : "";
     if (!subject || !body) return null;
     // Stored drafts must clear today's quality bar, not the one they were
-    // written under — anything stale or sloppy (like the pre-2026-07-21
-    // "$100/month" drafts) silently falls back to the canned templates until
-    // re-research regenerates it.
-    if (draftQualityIssue(subject, body) !== null) return null;
+    // written under — anything stale or sloppy (the pre-2026-07-21 "$100/month"
+    // drafts, and now every draft that quotes a price or could have been sent
+    // to anyone) silently falls back to the templates until the nightly
+    // redraft pass rewrites it. The templates are themselves tailored now, so
+    // falling back is no longer a downgrade to a mail merge.
+    const facts = specificityTokens(outreachFacts({ ...(row ?? {}), research: parsed }));
+    if (draftQualityIssue(subject, body, facts) !== null) return null;
     const rep = (repName || "").trim() || "The Nexraft team";
     return { subject, body: body.replaceAll("{{REP_NAME}}", rep) };
   } catch {

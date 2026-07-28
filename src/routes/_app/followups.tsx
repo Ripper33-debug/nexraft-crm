@@ -97,8 +97,8 @@ function FollowUpCard({
   // FIRST touch we prefer the AI-written email from the company's research —
   // it talks about this specific business, not a template. Later nudges keep
   // the escalating cadence templates so touch 2/3 don't repeat the pitch.
-  const aiDraft = nextTouch === 1 ? aiDraftFromResearch(company.research, repName) : null;
-  const initialDraft = aiDraft ?? followUpEmail(name, repName, nextTouch);
+  const aiDraft = nextTouch === 1 ? aiDraftFromResearch(company.research, repName, company) : null;
+  const initialDraft = aiDraft ?? followUpEmail(company, repName, nextTouch);
   const [subject, setSubject] = useState(initialDraft.subject);
   const [body, setBody] = useState(initialDraft.body);
   const [showDraft, setShowDraft] = useState(false);
@@ -347,8 +347,8 @@ function FollowUpsPage() {
       // First touches use the AI-written email about THIS business when the
       // research has one; later touches stay on the escalating templates.
       const draft =
-        (nextTouch === 1 ? aiDraftFromResearch(t.c.research, me?.name ?? "") : null) ??
-        followUpEmail((t.c.name as string) || "there", me?.name ?? "", nextTouch);
+        (nextTouch === 1 ? aiDraftFromResearch(t.c.research, me?.name ?? "", t.c) : null) ??
+        followUpEmail(t.c, me?.name ?? "", nextTouch);
       try {
         const res = await sendCrmEmail({
           data: { to: t.to, subject: draft.subject, body: draft.body, company_id: t.c.id as string },
@@ -512,6 +512,9 @@ function ComposeSection({
       company: company?.name ?? "your business",
       firstName: company?.contact_first_name ?? null,
       repName,
+      // Hand the template the row so it can write about this business —
+      // its town, its trade, its rating — instead of a name in a slot.
+      row: company,
     });
     setTemplateId(id);
     setSubject(draft.subject);
@@ -524,7 +527,7 @@ function ComposeSection({
     // If the nightly research wrote a bespoke email for this business, lead
     // with it — it's about THEIR site and THEIR situation. Otherwise re-run
     // the current template so the draft at least speaks to this client.
-    const ai = aiDraftFromResearch(c.research, repName);
+    const ai = aiDraftFromResearch(c.research, repName, c);
     if (ai) {
       setTemplateId(TAILORED_ID);
       setSubject(ai.subject);
@@ -533,14 +536,14 @@ function ComposeSection({
     }
     const tplId = templateId === TAILORED_ID ? "intro" : templateId;
     const tpl = EMAIL_TEMPLATES.find((t) => t.id === tplId) ?? EMAIL_TEMPLATES[0];
-    const draft = tpl.build({ company: c.name, firstName: c.contact_first_name, repName });
+    const draft = tpl.build({ company: c.name, firstName: c.contact_first_name, repName, row: c });
     setTemplateId(tplId);
     setSubject(draft.subject);
     setBody(draft.body);
   }
 
   // The AI draft for the currently selected client, if their research has one.
-  const selectedAiDraft = selected ? aiDraftFromResearch(selected.research, repName) : null;
+  const selectedAiDraft = selected ? aiDraftFromResearch(selected.research, repName, selected) : null;
   // What we've already sent this company — shown above the draft, not below it.
   const selectedHistory = emailHistory(selected);
 
