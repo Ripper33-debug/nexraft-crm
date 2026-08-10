@@ -55,7 +55,7 @@ export function Toaster() {
           <div
             key={t.id}
             className={
-              "pointer-events-auto flex items-center gap-2.5 rounded-lg border bg-surface px-3.5 py-2.5 text-sm text-bone shadow-xl shadow-black/40 " +
+              "pointer-events-auto flex items-center gap-2.5 rounded-md border bg-surface px-3.5 py-2.5 text-sm text-bone shadow-sm " +
               k.ring
             }
             style={{ animation: "nx-toast-in 180ms ease-out" }}

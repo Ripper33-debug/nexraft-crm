@@ -316,7 +316,7 @@ function PipelinePage() {
       {needToCall > 0 ? (
         <Link
           to="/calls"
-          className="mt-4 flex items-center gap-3 rounded-xl border border-signal/30 bg-signal-soft/30 px-4 py-3 transition-colors hover:bg-signal-soft/50"
+          className="mt-4 flex items-center gap-3 rounded-md border border-signal/30 bg-signal-soft/30 px-4 py-3 transition-colors hover:bg-signal-soft/50"
         >
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-signal text-xs font-bold text-ink">
             {needToCall}
@@ -479,7 +479,7 @@ function KanbanBoard({
             onDragLeave={() => setOverStage((cur) => (cur === s.name ? null : cur))}
             onDrop={() => handleDrop(s.name)}
             className={cx(
-              "flex w-72 shrink-0 flex-col rounded-xl border bg-surface/60 transition-all duration-150",
+              "flex w-72 shrink-0 flex-col rounded-md border bg-surface/60 transition-all duration-150",
               isOver ? "border-signal/60 bg-surface-2/70 ring-2 ring-signal/20" : "border-line",
             )}
           >
@@ -660,7 +660,7 @@ function PipelineTable({
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-wider text-faint">
+              <tr className="border-b border-line text-left text-xs font-medium text-faint">
                 <th className="px-4 py-2.5 font-medium">Deal</th>
                 <th className="px-4 py-2.5 font-medium">Company</th>
                 <th className="px-4 py-2.5 font-medium">Owner</th>

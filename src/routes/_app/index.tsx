@@ -353,7 +353,7 @@ function Dashboard() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-wider text-faint">
+              <tr className="border-b border-line text-left text-xs font-medium text-faint">
                 <th className="px-4 py-2 font-medium">Team member</th>
                 <th className="px-4 py-2 font-medium">Open pipeline</th>
                 <th className="px-4 py-2 font-medium">Open</th>
@@ -682,7 +682,7 @@ function AnalyticsSection({ initial, isAdmin }: { initial: AnalyticsData; isAdmi
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-wider text-faint">
+                <tr className="border-b border-line text-left text-xs font-medium text-faint">
                   <th className="px-4 py-2 font-medium">Team member</th>
                   <th className="px-4 py-2 font-medium">Won</th>
                   <th className="px-4 py-2 font-medium">Lost</th>

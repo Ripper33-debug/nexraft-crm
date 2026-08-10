@@ -780,7 +780,7 @@ export function CallMode({
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-md duration-200 animate-in fade-in-0 sm:p-8"
     >
-      <div className="mt-2 w-full max-w-4xl rounded-xl border border-line-strong bg-surface shadow-md ring-1 ring-black/5 duration-200 animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 sm:mt-6">
+      <div className="mt-2 w-full max-w-4xl rounded-md border border-line-strong bg-surface shadow-sm ring-1 ring-black/5 duration-200 animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 sm:mt-6">
         {/* Header — who you're calling + a live pulsing indicator */}
         <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
           <div className="flex items-center gap-3">
@@ -867,7 +867,7 @@ export function CallMode({
           {activeResp ? (
             <div
               key={activeResp.id}
-              className="mt-3 rounded-xl border border-signal/30 bg-signal-soft p-3 shadow-sm duration-200 animate-in fade-in-0 slide-in-from-top-1"
+              className="mt-3 rounded-md border border-signal/30 bg-signal-soft p-3 shadow-sm duration-200 animate-in fade-in-0 slide-in-from-top-1"
             >
               <div className="mb-2 flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-xs font-semibold text-signal">

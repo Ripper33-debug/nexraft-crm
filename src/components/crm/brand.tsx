@@ -5,13 +5,13 @@
 
 // Light theme: the CRM's marks use near-black tile (neutral, clean) with
 // the signal accent for the period dot.
-const TILE = "#18181b"; // clean near-black tile
-const ACCENT = "#f97316"; // orange dot (back to the site's signature)
+const TILE = "#171717"; // clean near-black tile (Comp AI foreground)
+const ACCENT = "#006b4f"; // Comp AI green dot — matches the app's primary accent
 const BONE = "#fafafa"; // off-white for legibility inside the dark tile
 const WORD = "var(--color-bone)"; // wordmark text follows the app's primary text color
 
 // Square monogram tile (sidebar, favicon, mobile bar): bone "N" over the warm
-// near-black tile with the signature orange dot in the corner.
+// near-black tile with the green accent dot in the corner.
 export function LogoMark({ size = 32, radius = 8 }: { size?: number; radius?: number }) {
   return (
     <svg
@@ -48,13 +48,12 @@ export function FullLogo({ className = "" }: { className?: string }) {
   );
 }
 
-// Sidebar / header lockup: monogram + product name. The mark tips in 3D toward
-// the cursor on hover — a small "alive" moment every time you glance at it.
-// `onDark` renders the cream-on-ink version for the dark sidebar anchor.
+// Sidebar / header lockup: monogram + product name, flat product chrome.
+// `onDark` renders the light-on-dark version for dark surfaces.
 export function Wordmark({ small, onDark }: { small?: boolean; onDark?: boolean }) {
   return (
-    <div className="group flex items-center gap-2.5" style={{ perspective: "480px" }}>
-      <span className="inline-flex transition-transform duration-300 ease-out will-change-transform group-hover:[transform:rotateY(-16deg)_rotateX(8deg)_scale(1.06)]">
+    <div className="flex items-center gap-2.5">
+      <span className="inline-flex">
         <LogoMark size={small ? 28 : 32} radius={small ? 7 : 8} />
       </span>
       <div className="leading-tight">
@@ -67,7 +66,7 @@ export function Wordmark({ small, onDark }: { small?: boolean; onDark?: boolean 
         {!small ? (
           <div
             className="font-mono text-[10px] uppercase tracking-[0.14em]"
-            style={{ color: onDark ? "#9a8a67" : "var(--color-faint)" }}
+            style={{ color: onDark ? "#8a8a8a" : "var(--color-faint)" }}
           >
             Sales OS
           </div>

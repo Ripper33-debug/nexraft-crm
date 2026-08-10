@@ -336,7 +336,7 @@ function RepActivityPanel({
       <div className={"overflow-x-auto" + (loading ? " opacity-50" : "")}>
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-wider text-faint">
+            <tr className="border-b border-line text-left text-xs font-medium text-faint">
               <th className="px-4 py-2.5 font-medium">Rep</th>
               <th className="px-4 py-2.5 font-medium">Calls</th>
               <th className="px-4 py-2.5 font-medium">Emails</th>
@@ -477,7 +477,7 @@ function TeamPage() {
         <SummaryCard label="Open pipeline" value={formatRange(totalRange.low, totalRange.high)} sub={totals.open_unpriced > 0 ? `${totals.open_count} deals · ${totals.open_unpriced} est.` : `${totals.open_count} deals`} accent />
         <SummaryCard label="Potential MRR" value={`${formatRange(totalMrrRange.low, totalMrrRange.high)}/mo`} sub={`rep cut ${formatRange(Math.round(totalMrrRange.low * 0.3), Math.round(totalMrrRange.high * 0.3))}/mo`} />
         <SummaryCard label="Won (all time)" value={formatMoney(totals.won_value)} />
-        <div className="rounded-xl border border-line bg-surface p-4">
+        <div className="rounded-md border border-line bg-surface p-4">
           <Eyebrow>Team access code</Eyebrow>
           <div className="mt-2 font-mono text-lg font-semibold text-signal">{code}</div>
           <div className="mt-0.5 text-xs text-faint">Share so teammates can sign up</div>
@@ -491,7 +491,7 @@ function TeamPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-wider text-faint">
+              <tr className="border-b border-line text-left text-xs font-medium text-faint">
                 <th className="px-4 py-2.5 font-medium">Member</th>
                 <th className="px-4 py-2.5 font-medium">Open pipeline</th>
                 <th className="px-4 py-2.5 font-medium">Potential MRR</th>

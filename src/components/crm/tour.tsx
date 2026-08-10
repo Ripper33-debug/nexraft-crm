@@ -116,7 +116,7 @@ export function WelcomeTour({ name }: { name?: string }) {
         style={{ animation: "nx-tour-fade 150ms ease-out" }}
       />
       <div
-        className="relative w-full max-w-md overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-2xl shadow-black/50"
+        className="relative w-full max-w-md overflow-hidden rounded-md border border-line-strong bg-surface shadow-sm"
         style={{ animation: "nx-tour-pop 180ms ease-out" }}
       >
         {/* Skip */}
@@ -127,7 +127,7 @@ export function WelcomeTour({ name }: { name?: string }) {
           Skip
         </button>
 
-        <div className="bg-gradient-to-br from-signal-soft/50 via-surface to-surface px-6 pb-5 pt-8">
+        <div className="bg-surface px-6 pb-5 pt-8">
           <div className="text-4xl leading-none">{step.emoji}</div>
           <h2 className="mt-3 text-xl font-semibold tracking-tight text-bone">{title}</h2>
           <p className="mt-2 text-sm leading-relaxed text-mute">{step.body}</p>

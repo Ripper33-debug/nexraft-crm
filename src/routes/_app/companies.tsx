@@ -660,7 +660,7 @@ function CompaniesPage() {
           pile", not "start at the top of 900 rows and hope". */}
       <Card className="mt-4 p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Why we'd call them</span>
+          <span className="text-xs font-medium text-faint">Why we'd call them</span>
           <span className="text-xs text-mute">
             {needs.withReason > 0
               ? `${needs.withReason} of ${(companies as Row[]).length} have something true to open with.`
@@ -750,7 +750,7 @@ function CompaniesPage() {
 
         {/* Owner + call-status filters */}
         <div className="ml-auto flex items-center gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Call</span>
+          <span className="text-xs font-medium text-faint">Call</span>
           <Select
             value={callFilter}
             onChange={(e) => setCallFilter(e.target.value)}
@@ -763,7 +763,7 @@ function CompaniesPage() {
             <option value="not_interested">No</option>
             <option value="signed">Signed</option>
           </Select>
-          <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Owner</span>
+          <span className="text-xs font-medium text-faint">Owner</span>
           <Select
             value={ownerFilter}
             onChange={(e) => setOwnerFilter(e.target.value)}
@@ -781,7 +781,7 @@ function CompaniesPage() {
       </div>
 
       {isAdmin && needFilter === "good_site" && rows.length > 0 ? (
-        <div className="mt-3 flex items-center justify-between rounded-xl border border-signal/25 bg-signal-soft px-4 py-3">
+        <div className="mt-3 flex items-center justify-between rounded-md border border-signal/25 bg-signal-soft px-4 py-3">
           <span className="text-sm text-bone">
             These {rows.length} companies already have a good website — the hardest pitch in the book.
           </span>
@@ -817,7 +817,7 @@ function CompaniesPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-wider text-faint">
+              <tr className="border-b border-line text-left text-xs font-medium text-faint">
                 <th className="px-4 py-2.5 font-medium">Company</th>
                 <th className="px-4 py-2.5 font-medium">Tags</th>
                 <th className="px-4 py-2.5 font-medium">Industry</th>

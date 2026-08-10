@@ -200,7 +200,7 @@ export function CommandPalette({ isAdmin }: { isAdmin: boolean }) {
         if (e.target === e.currentTarget) close();
       }}
     >
-      <div className="w-full max-w-xl overflow-hidden rounded-xl border border-line-strong bg-surface shadow-md ring-1 ring-black/5 duration-150 animate-in fade-in-0 zoom-in-95 slide-in-from-top-2">
+      <div className="w-full max-w-xl overflow-hidden rounded-md border border-line-strong bg-surface shadow-sm ring-1 ring-black/5 duration-150 animate-in fade-in-0 zoom-in-95 slide-in-from-top-2">
         <div className="flex items-center gap-2.5 border-b border-line px-4 py-3">
           <svg className="text-faint" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="8" />

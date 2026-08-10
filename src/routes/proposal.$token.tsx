@@ -75,7 +75,7 @@ function ProposalPage() {
   if (!proposal) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-ink px-4">
-        <div className="w-full max-w-md rounded-xl border border-line bg-surface p-6 text-center shadow-xl">
+        <div className="w-full max-w-md rounded-md border border-line bg-surface p-6 text-center shadow-sm">
           <div className="mb-4 flex items-center justify-center gap-2.5">
             <LogoMark size={34} radius={9} />
             <span className="text-lg font-semibold tracking-tight text-bone">
@@ -106,7 +106,7 @@ function ProposalPage() {
             Nexraft<span className="text-signal">.</span>
           </span>
         </div>
-        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-faint">
+        <span className="text-xs font-medium text-faint">
           Website proposal
         </span>
       </header>
@@ -117,11 +117,11 @@ function ProposalPage() {
           className="pointer-events-none absolute inset-x-0 -top-24 h-72"
           style={{ background: "radial-gradient(60% 100% at 50% 0%, rgba(24,24,27,0.07), transparent 70%)" }}
         />
-        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-signal">
+        <p className="text-xs font-medium text-signal">
           Prepared for {company}
           {proposal.company_city ? ` · ${proposal.company_city}` : ""}
         </p>
-        <h1 className="mt-3 max-w-2xl font-display text-4xl font-bold leading-[1.05] tracking-tight sm:text-5xl">
+        <h1 className="mt-3 max-w-2xl font-display text-4xl font-semibold leading-[1.05] tracking-tight sm:text-5xl">
           A website that wins <span className="text-signal">{company}</span> more customers.
         </h1>
         <p className="mt-4 max-w-xl text-base leading-relaxed text-mute">
@@ -132,12 +132,12 @@ function ProposalPage() {
 
       {/* What you get */}
       <section className="mx-auto max-w-4xl px-5 pb-14">
-        <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-faint">
+        <h2 className="text-xs font-medium text-faint">
           What we&apos;d build for you
         </h2>
         <ul className="mt-4 grid gap-3 sm:grid-cols-2">
           {benefits.map((b) => (
-            <li key={b} className="flex items-start gap-3 rounded-xl border border-line bg-surface px-4 py-3.5">
+            <li key={b} className="flex items-start gap-3 rounded-md border border-line bg-surface px-4 py-3.5">
               <span className="mt-1.5 h-2 w-2 shrink-0 rounded-sm bg-signal" />
               <span className="text-sm leading-relaxed text-bone">{b}</span>
             </li>
@@ -155,20 +155,20 @@ function ProposalPage() {
               <div
                 key={p.id}
                 className={cx(
-                  "relative rounded-xl border p-5",
+                  "relative rounded-md border p-5",
                   hot
                     ? "border-signal/60 bg-signal-soft"
                     : "border-line bg-surface",
                 )}
               >
                 {hot ? (
-                  <span className="absolute -top-2.5 left-5 rounded-full bg-signal px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-ink">
+                  <span className="absolute -top-2.5 left-5 rounded-full bg-signal px-2.5 py-0.5 text-xs font-medium text-ink">
                     Our pick for you
                   </span>
                 ) : null}
-                <h3 className="font-display text-lg font-bold">{p.name}</h3>
+                <h3 className="font-display text-lg font-semibold">{p.name}</h3>
                 <p className="mt-1 text-xs text-mute">{p.blurb}</p>
-                <p className="mt-4 text-3xl font-bold tabular-nums tracking-tight">
+                <p className="mt-4 text-3xl font-semibold tabular-nums tracking-tight">
                   {p.startsAt ? <span className="text-sm font-medium text-faint">from </span> : null}
                   {formatMoney(p.build)}
                 </p>
@@ -194,7 +194,7 @@ function ProposalPage() {
         </h2>
         <ol className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map((s, i) => (
-            <li key={s.name} className="rounded-xl border border-line bg-surface p-4">
+            <li key={s.name} className="rounded-md border border-line bg-surface p-4">
               <span className="font-mono text-[11px] font-bold text-signal">0{i + 1}</span>
               <h3 className="mt-1 text-sm font-semibold text-bone">{s.name}</h3>
               <p className="mt-1 text-xs leading-relaxed text-mute">{s.body}</p>
@@ -205,8 +205,8 @@ function ProposalPage() {
 
       {/* CTA */}
       <section className="mx-auto max-w-4xl px-5 pb-16">
-        <div className="rounded-2xl border border-signal/40 bg-surface p-6 text-center sm:p-8">
-          <h2 className="font-display text-2xl font-bold tracking-tight">
+        <div className="rounded-md border border-signal/40 bg-surface p-6 text-center sm:p-8">
+          <h2 className="font-display text-2xl font-semibold tracking-tight">
             Ready when you are.
           </h2>
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-mute">

@@ -125,7 +125,7 @@ export function GlobalSearch() {
       </div>
 
       {open ? (
-        <div className="absolute z-40 mt-1.5 w-full overflow-hidden rounded-lg border border-line bg-surface shadow-xl shadow-black/40">
+        <div className="absolute z-40 mt-1.5 w-full overflow-hidden rounded-md border border-line bg-surface shadow-sm">
           {loading && hits.length === 0 ? (
             <div className="px-3 py-4 text-center text-xs text-faint">Searching…</div>
           ) : hits.length === 0 ? (

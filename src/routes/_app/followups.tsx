@@ -394,7 +394,7 @@ function FollowUpsPage() {
           {dueNow.length > 0 ? (
             <div className="grid grid-cols-1 gap-3">
               {gmailConnected && bulkTargets.length > 1 ? (
-                <div className="flex items-center justify-between rounded-xl border border-signal/25 bg-signal-soft px-4 py-3">
+                <div className="flex items-center justify-between rounded-md border border-signal/25 bg-signal-soft px-4 py-3">
                   <span className="text-sm text-bone">
                     {bulkTargets.length} drafts written and waiting for approval.
                   </span>

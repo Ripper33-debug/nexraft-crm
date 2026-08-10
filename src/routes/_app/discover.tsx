@@ -76,7 +76,7 @@ function DiscoverPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="relative h-[calc(100dvh-6.5rem)] min-h-[520px] overflow-hidden rounded-2xl border border-line bg-black shadow-2xl shadow-black/40">
+      <div className="relative h-[calc(100dvh-6.5rem)] min-h-[520px] overflow-hidden rounded-md border border-line bg-black shadow-sm">
         <OrbStage reps={users.map((u) => u.name)} live={live} feed={st.feed} />
 
         {/* Vignette so the scene falls off into darkness at the edges */}
@@ -97,7 +97,7 @@ function DiscoverPage() {
                 (live ? "bg-signal" : "bg-faint/40")
               }
             />
-            <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.22em] text-bone">
+            <span className="text-xs font-medium text-bone">
               {engine.paused
                 ? "Lead engine paused — working the book"
                 : st.paused
@@ -130,7 +130,7 @@ function DiscoverPage() {
           >
             <span
               className={
-                "font-mono text-[11px] font-bold uppercase tracking-[0.2em] " +
+                "text-xs font-medium " +
                 (on ? "text-signal" : "text-mute group-hover:text-bone")
               }
             >
@@ -159,7 +159,7 @@ function DiscoverPage() {
             type="button"
             onClick={() => void pullNewBusinesses()}
             disabled={pulling}
-            className="absolute right-5 top-[3.9rem] rounded-full border border-line-strong bg-surface/80 px-4 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-mute transition-all duration-300 hover:border-signal/40 hover:text-bone disabled:opacity-60"
+            className="absolute right-5 top-[3.9rem] rounded-full border border-line-strong bg-surface/80 px-4 py-1.5 text-xs font-medium text-mute transition-all duration-300 hover:border-signal/40 hover:text-bone disabled:opacity-60"
           >
             {pulling ? "Pulling filings…" : "🏢 New businesses"}
           </button>

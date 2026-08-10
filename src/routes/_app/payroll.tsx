@@ -283,15 +283,15 @@ function RepCard({
 
       <div className="mt-4 grid grid-cols-3 gap-2">
         <div className="rounded-lg border border-line bg-surface px-3 py-2">
-          <div className="font-mono text-[10px] uppercase tracking-wider text-faint">Earned</div>
+          <div className="text-xs font-medium text-faint">Earned</div>
           <div className="tnum mt-0.5 text-lg font-semibold text-bone">{formatMoney(rep.earned)}</div>
         </div>
         <div className="rounded-lg border border-line bg-surface px-3 py-2">
-          <div className="font-mono text-[10px] uppercase tracking-wider text-faint">Paid</div>
+          <div className="text-xs font-medium text-faint">Paid</div>
           <div className="tnum mt-0.5 text-lg font-semibold text-mute">{formatMoney(rep.paid)}</div>
         </div>
         <div className="rounded-lg border border-signal/30 bg-signal-soft/20 px-3 py-2">
-          <div className="font-mono text-[10px] uppercase tracking-wider text-signal">Owed</div>
+          <div className="text-xs font-medium text-signal">Owed</div>
           <div className="tnum mt-0.5 text-lg font-semibold text-signal">{formatMoney(rep.owed)}</div>
         </div>
       </div>
@@ -323,7 +323,7 @@ function RepCard({
           ) : null}
 
           <div>
-            <div className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-faint">
+            <div className="mb-1.5 text-xs font-medium text-faint">
               Signed retainers ({formatMoney(rep.commissionEarned)} earned so far)
             </div>
             {rep.deals.length === 0 ? (
@@ -352,7 +352,7 @@ function RepCard({
           </div>
 
           <div>
-            <div className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-faint">Payments</div>
+            <div className="mb-1.5 text-xs font-medium text-faint">Payments</div>
             {rep.payments.length === 0 ? (
               <p className="text-xs text-faint">Nothing paid out yet.</p>
             ) : (

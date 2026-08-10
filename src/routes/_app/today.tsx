@@ -469,7 +469,7 @@ function TodayPage() {
 
       {plan.length > 0 ? (
         <Card className="overflow-hidden border-signal/25">
-          <div className="flex items-center justify-between border-b border-line bg-gradient-to-r from-signal-soft/30 to-transparent px-4 py-3">
+          <div className="flex items-center justify-between border-b border-line bg-surface px-4 py-3">
             <div className="flex items-center gap-2">
               <span className="text-base">🎯</span>
               <Eyebrow>Your game plan — work it top to bottom</Eyebrow>
@@ -500,7 +500,7 @@ function TodayPage() {
       ) : null}
 
       {nothing ? (
-        <Card className="flex items-center gap-3 border-signal/25 bg-gradient-to-br from-signal-soft/40 via-surface to-surface p-5">
+        <Card className="flex items-center gap-3 border-signal/25 bg-surface p-5">
           <span className="text-2xl">✅</span>
           <div>
             <div className="text-sm font-semibold text-bone">You're all caught up</div>
@@ -766,12 +766,12 @@ function ArcadeDeck({
             style={{ width: `${Math.max(2, pct)}%` }}
           />
         </div>
-        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-mute">
+        <span className="text-xs font-medium text-mute">
           <span className="font-bold text-signal">{done}</span>/{ARCADE_DAILY_TARGET} calls
         </span>
         {streak > 0 ? (
           <span className="font-mono text-[11px] text-mute" title="Days in a row with at least one call">
-            <span className="animate-pulse">🔥</span> {streak}-day streak
+            <span>🔥</span> {streak}-day streak
           </span>
         ) : null}
       </div>
@@ -782,20 +782,19 @@ function ArcadeDeck({
           <div className="px-4 py-5 sm:px-6" style={{ perspective: "1200px" }}>
             <div
               className={cx(
-                "relative mx-auto max-w-xl rounded-2xl border border-line-strong bg-surface p-6 shadow-[0_30px_70px_-30px_rgba(0,0,0,0.2)] transition-all duration-300",
+                "relative mx-auto max-w-xl rounded-md border border-line-strong bg-surface p-6 shadow-sm transition-all duration-300",
                 phase === "out-left" && "-translate-x-[120%] rotate-[-6deg] opacity-0",
                 phase === "out-up" && "-translate-y-16 rotate-[3deg] scale-105 opacity-0",
               )}
             >
-              <span className="pointer-events-none absolute right-0 top-0 h-3 w-3 rounded-tr-2xl border-r-2 border-t-2 border-signal" />
-              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-faint">
+              <div className="text-xs font-medium text-faint">
                 Card {handled.size + 1} of {leads.length}
                 {current.outcome === "no_answer" ? " · callback" : current.outcome === "maybe" ? " · warm" : " · fresh"}
               </div>
-              <div className="font-display mt-2 text-2xl font-extrabold leading-tight text-bone sm:text-3xl">
+              <div className="font-display mt-2 text-2xl font-semibold leading-tight text-bone sm:text-3xl">
                 {(current.row.name as string) || "Untitled company"}
               </div>
-              <div className="mt-2 font-mono text-[11px] uppercase tracking-[0.08em] text-faint">
+              <div className="mt-2 text-xs font-medium text-faint">
                 {[(current.row.industry as string) || null, (current.row.city as string) || null]
                   .filter(Boolean)
                   .join(" · ") || "No details on file"}
@@ -815,7 +814,7 @@ function ArcadeDeck({
                 return (
                   <div className="mt-4 space-y-2 rounded-r-lg border-l-2 border-signal bg-signal-soft/30 px-4 py-3 text-sm leading-relaxed text-mute">
                     {current.need?.worthCalling ? (
-                      <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-signal">
+                      <div className="text-xs font-medium text-signal">
                         Why them: {current.need.label}
                       </div>
                     ) : null}
@@ -825,7 +824,7 @@ function ArcadeDeck({
                   </div>
                 );
               })()}
-              <div className="font-display mt-4 text-xl font-extrabold tracking-wide text-signal">
+              <div className="font-display mt-4 text-xl font-semibold tracking-wide text-signal">
                 {(current.row.phone as string) ? (
                   <a href={`tel:${(current.row.phone as string).replace(/[^\d+]/g, "")}`} className="hover:underline" title="Tap to call">
                     ☎ {current.row.phone as string}
@@ -842,27 +841,27 @@ function ArcadeDeck({
             <button
               onClick={() => play("no_answer")}
               disabled={busy}
-              className="flex w-36 flex-col items-center gap-1 rounded-xl border border-line bg-surface-2/60 py-3 text-sm font-semibold text-mute transition-all hover:-translate-y-0.5 hover:border-line-strong hover:text-bone disabled:opacity-50"
+              className="flex w-36 flex-col items-center gap-1 rounded-md border border-line bg-surface-2/60 py-3 text-sm font-semibold text-mute transition-all hover:-translate-y-0.5 hover:border-line-strong hover:text-bone disabled:opacity-50"
             >
               <span className="text-xl">📵</span>No answer
             </button>
             <button
               onClick={() => play("maybe")}
               disabled={busy}
-              className="flex w-36 flex-col items-center gap-1 rounded-xl border border-line bg-surface-2/60 py-3 text-sm font-semibold text-mute transition-all hover:-translate-y-0.5 hover:border-line-strong hover:text-bone disabled:opacity-50"
+              className="flex w-36 flex-col items-center gap-1 rounded-md border border-line bg-surface-2/60 py-3 text-sm font-semibold text-mute transition-all hover:-translate-y-0.5 hover:border-line-strong hover:text-bone disabled:opacity-50"
             >
               <span className="text-xl">📅</span>Callback
             </button>
             <button
               onClick={() => play("interested")}
               disabled={busy}
-              className="flex w-36 flex-col items-center gap-1 rounded-xl bg-signal py-3 text-sm font-bold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:bg-signal-strong hover:shadow-md disabled:opacity-50"
+              className="flex w-36 flex-col items-center gap-1 rounded-md bg-signal py-3 text-sm font-semibold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:bg-signal-strong hover:shadow-md disabled:opacity-50"
             >
               <span className="text-xl">🔥</span>Interested!
             </button>
           </div>
           <div className="pb-4 text-center">
-            <Link to="/calls" className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint hover:text-signal">
+            <Link to="/calls" className="text-xs font-medium text-faint hover:text-signal">
               Need the full script + notes? Open call mode →
             </Link>
           </div>

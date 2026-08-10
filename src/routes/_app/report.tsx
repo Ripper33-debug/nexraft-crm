@@ -67,12 +67,12 @@ function ReportPage() {
           </span>
         </div>
 
-        <div className="rounded-xl border border-line bg-surface p-6 shadow-xl">
+        <div className="rounded-md border border-line bg-surface p-6 shadow-sm">
           {report?.grade ? (
             <ReportCard report={report} business={business} onReset={() => setReport(null)} />
           ) : (
             <>
-              <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-signal">
+              <p className="text-xs font-medium text-signal">
                 Free website report card
               </p>
               <h1 className="mt-1 text-2xl font-semibold tracking-tight text-bone">
@@ -117,7 +117,7 @@ function ReportPage() {
                 <button
                   type="submit"
                   disabled={busy}
-                  className="w-full rounded-[3px] bg-signal px-4 py-2.5 font-mono text-[12px] font-bold uppercase tracking-[0.1em] text-ink transition-opacity hover:opacity-90 disabled:opacity-60"
+                  className="w-full rounded-[3px] bg-signal px-4 py-2.5 text-xs font-semibold text-ink transition-opacity hover:opacity-90 disabled:opacity-60"
                 >
                   {busy ? "Checking your site…" : "Grade my website — free"}
                 </button>
@@ -153,7 +153,7 @@ function ReportCard({
   const good = grade.letter === "A";
   return (
     <div>
-      <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-signal">
+      <p className="text-xs font-medium text-signal">
         Report card{business ? ` — ${business}` : ""}
       </p>
       <div className="mt-3 flex items-center gap-5">
@@ -213,7 +213,7 @@ function ReportCard({
       <button
         type="button"
         onClick={onReset}
-        className="mt-4 w-full rounded-[3px] border border-line-strong px-4 py-2 font-mono text-[11px] uppercase tracking-[0.1em] text-mute transition-colors hover:border-signal/40 hover:text-bone"
+        className="mt-4 w-full rounded-[3px] border border-line-strong px-4 py-2 text-xs font-medium text-mute transition-colors hover:border-signal/40 hover:text-bone"
       >
         Check another site
       </button>
@@ -227,7 +227,7 @@ const INPUT =
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block font-mono text-[11px] uppercase tracking-[0.12em] text-mute">
+      <span className="mb-1 block text-xs font-medium text-mute">
         {label}
       </span>
       {children}

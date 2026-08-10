@@ -165,7 +165,7 @@ function CallQueue({
   const emailed = emailHistory(current);
 
   return (
-    <Card className="mt-5 border-signal/30 bg-gradient-to-b from-signal-soft/40 to-surface p-4">
+    <Card className="mt-5 border-signal/30 bg-surface p-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-signal text-[11px] font-bold text-ink">
@@ -181,7 +181,7 @@ function CallQueue({
         <span className="font-mono text-[11px] text-faint">{total} left</span>
       </div>
 
-      <div className="mt-3 rounded-xl border border-line bg-surface p-3 sm:p-4">
+      <div className="mt-3 rounded-md border border-line bg-surface p-3 sm:p-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -351,14 +351,14 @@ function SignModal({
               type="button"
               onClick={() => setPicked(pkg.id)}
               className={
-                "relative rounded-xl border p-4 text-left transition-all " +
+                "relative rounded-md border p-4 text-left transition-all " +
                 (active
                   ? "border-signal bg-signal-soft/40 ring-1 ring-signal/40"
                   : "border-line bg-surface hover:border-line-strong")
               }
             >
               {pkg.recommended ? (
-                <span className="absolute right-2 top-2 rounded-sm bg-signal-soft px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-signal">
+                <span className="absolute right-2 top-2 rounded-sm bg-signal-soft px-1.5 py-0.5 text-xs font-medium text-signal">
                   Popular
                 </span>
               ) : null}
@@ -518,7 +518,7 @@ function CompanyBoard({
               onDragLeave={() => setOverCol((o) => (o === col.key ? null : o))}
               onDrop={() => onDrop(col)}
               className={
-                "flex min-h-[8rem] flex-col rounded-xl border bg-surface/60 p-2 transition-colors " +
+                "flex min-h-[8rem] flex-col rounded-md border bg-surface/60 p-2 transition-colors " +
                 (isOver ? "border-signal/60 bg-signal-soft/20" : "border-line")
               }
             >
@@ -695,7 +695,7 @@ function NoAnswerModal({
 
       <div className="mt-4 space-y-3">
         <div>
-          <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-faint">To</label>
+          <label className="mb-1 block text-xs font-medium text-faint">To</label>
           <Input
             value={to}
             onChange={(e) => setTo(e.target.value)}
@@ -710,12 +710,12 @@ function NoAnswerModal({
         </div>
 
         <div>
-          <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-faint">Subject</label>
+          <label className="mb-1 block text-xs font-medium text-faint">Subject</label>
           <Input value={subject} onChange={(e) => setSubject(e.target.value)} className="text-sm" />
         </div>
 
         <div>
-          <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-faint">Message</label>
+          <label className="mb-1 block text-xs font-medium text-faint">Message</label>
           <textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
@@ -1069,7 +1069,7 @@ function ListView({
 
         {isAdmin ? (
           <div className="flex items-center gap-2">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Owner</span>
+            <span className="text-xs font-medium text-faint">Owner</span>
             <Select
               value={ownerFilter}
               onChange={(e) => setOwnerFilter(e.target.value)}
@@ -1085,7 +1085,7 @@ function ListView({
             </Select>
           </div>
         ) : (
-          <span className="font-mono text-[10px] uppercase tracking-wider text-faint">Your book only</span>
+          <span className="text-xs font-medium text-faint">Your book only</span>
         )}
       </div>
 
