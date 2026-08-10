@@ -209,7 +209,7 @@ function DealDetail() {
 
       {d.proposal_viewed_at ? (
         <div className="mt-3 flex items-center gap-2 rounded-lg border border-signal/40 bg-signal-soft px-3 py-2 text-xs text-bone">
-          <span className="h-1.5 w-1.5 rounded-full bg-signal shadow-[0_0_8px_rgba(168,132,44,0.9)]" />
+          <span className="h-1.5 w-1.5 rounded-full bg-signal shadow-[0_0_8px_rgba(24,24,27,0.4)]" />
           They opened the proposal {relativeTime(d.proposal_viewed_at as string)} — that&apos;s your window. Call and ask what stood out.
         </div>
       ) : null}

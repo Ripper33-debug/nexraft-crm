@@ -309,14 +309,16 @@ describe("AI lead qualification rates real research, never invents leads", () =>
     expect(source).toContain("Judge ONLY from the facts given");
     expect(source).toContain(`{"fit": <integer 0-100>, "why": "<one sentence>"}`);
   });
-  it("runs from the nightly cron so the engine's own finds arrive pre-rated, best-effort", () => {
+  it("runs nightly through the work queue so the engine's own finds arrive pre-rated", () => {
+    // Nightly jobs moved from a hardcoded pile in runDueSweeps into the
+    // crm_tasks queue: the dispatcher owns the call, the cron drains the queue
+    // before the pause gate (rating existing leads is housekeeping, not
+    // importing), and a per-task failure backs off instead of stalling.
+    const dispatch = source.slice(source.indexOf("async function runTaskDispatch"));
+    expect(dispatch.indexOf("await aiQualifyCore(")).toBeGreaterThan(-1);
     const cron = source.slice(source.indexOf("export const runDueSweeps"));
-    const idx = cron.indexOf("await aiQualifyCore(");
-    expect(idx).toBeGreaterThan(-1);
-    // …after research, before the pause gate (rating existing leads is
-    // housekeeping, not importing), and wrapped so a failure can't stall it.
-    expect(idx).toBeGreaterThan(cron.indexOf("enrichNewLeads("));
-    expect(idx).toBeLessThan(cron.indexOf("readLeadEnginePaused()"));
+    expect(cron.indexOf("runTaskQueue(")).toBeGreaterThan(-1);
+    expect(cron.indexOf("runTaskQueue(")).toBeLessThan(cron.indexOf("readLeadEnginePaused()"));
   });
 });
 
@@ -426,8 +428,8 @@ describe("dead-site alerts catch the live→dead flip", () => {
     expect(core).toContain("next_followup_at = CASE");
     expect(core).toContain("INSERT INTO notes");
   });
-  it("runs from the daily cron as best-effort housekeeping", () => {
-    expect(fnBody("runDueSweeps")).toContain("verifyWebsitesCore(null)");
+  it("runs nightly as a queued task (verify_websites) off the cron", () => {
+    expect(helperBody("runTaskDispatch")).toContain("verifyWebsitesCore(null)");
   });
   it("surfaces on the boss briefing but never for signed/interested companies", () => {
     const body = fnBody("getCooBriefing");
@@ -632,7 +634,7 @@ describe("outreach uses the AI-tailored email for each business", () => {
     const body = helperBody("enrichNewLeads");
     expect(body).toContain("EXISTS");
     expect(body).toContain("ct.email IS NOT NULL");
-    expect(fnBody("runDueSweeps")).toContain("enrichNewLeadsWithin(25_000, 10)");
+    expect(helperBody("runTaskDispatch")).toContain("enrichNewLeadsWithin(20_000, 10)");
   });
   // An un-researched lead is one no rep can dial, so the cron works the
   // backlog to a clock instead of stopping at a flat ten.
@@ -694,7 +696,7 @@ describe("Outscraper enrichment spends credits carefully and never blocks", () =
     expect(body).toContain("byDomain.has(domain)");
   });
   it("runs nightly from the cron, capped and best-effort, and the admin trigger is admin-only", () => {
-    expect(fnBody("runDueSweeps")).toContain("outscraperEnrichCore(6)");
+    expect(helperBody("runTaskDispatch")).toContain("outscraperEnrichCore(6)");
     expect(fnBody("runOutscraperEnrich")).toContain("requireAdmin()");
   });
 });
@@ -727,7 +729,7 @@ describe("prompt upgrades reach every stored email draft (redraft pass)", () => 
     expect(aiSource).toContain("{ ...brief, v: AI_PROMPT_VERSION }");
   });
   it("runs nightly from the cron and the on-demand batch is admin-only", () => {
-    expect(fnBody("runDueSweeps")).toContain("redraftAiEmailsCore(6)");
+    expect(helperBody("runTaskDispatch")).toContain("redraftAiEmailsCore(6)");
     expect(fnBody("runRedraftEmailsBatch")).toContain("requireAdmin()");
   });
   it("the prompt itself forbids the mass-mail voice Barry flagged", () => {

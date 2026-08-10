@@ -38,7 +38,21 @@ import {
   CALLBACK_MAX_ATTEMPTS,
   isNoReason,
   noReasonLabel,
+  siteWasChecked,
+  FACT_WEIGHTS,
+  factDisposition,
+  type FactEvidenceKind,
 } from "./constants";
+import { checkEmailDeliverable, emailDomain } from "./emailcheck.server";
+import {
+  claimDueTasks,
+  completeTask,
+  enqueueTask,
+  failTask,
+  inHours,
+  recurringInterval,
+  seedRecurringTasks,
+} from "./tasks.server";
 import { ensureExtraSchema, logEvent, notify } from "./schema.server";
 import { sendEmail, getConnection, isGmailConfigured } from "./gmail.server";
 import { isStripeConfigured, stripeFetch } from "./stripe.server";
@@ -1786,6 +1800,11 @@ const importCompanyRow = z.object({
   phone: z.string().nullable().optional(),
   city: z.string().nullable().optional(),
   source: z.string().nullable().optional(),
+  // Optional inbox address (Barry's prospect lists carry one per company).
+  // Import stores it as an "Office / Main inbox" contact; the nightly
+  // vet_book queue task MX-checks it, so a dead domain gets caught within a
+  // day without slowing the import itself down with 250 DNS lookups.
+  email: z.string().nullable().optional(),
 });
 const importContactRow = z.object({
   first_name: z.string().min(1),
@@ -1821,13 +1840,14 @@ export const importCompanies = createServerFn({ method: "POST" })
       }
       seenNames.add(nameKey);
       if (phKey) seenPhones.add(phKey);
+      const companyId = uid();
       await db()
         .prepare(
           `INSERT INTO companies (id, name, industry, website, phone, city, source, owner_id)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
-          uid(),
+          companyId,
           name,
           r.industry?.trim() || null,
           r.website?.trim() || null,
@@ -1837,6 +1857,29 @@ export const importCompanies = createServerFn({ method: "POST" })
           user.id,
         )
         .run();
+      // An email column becomes an Office contact right away — that's what
+      // makes an imported row emailable. Only if it's at least shaped like an
+      // email; deliverability is the nightly vet sweep's job (MX check).
+      const email = (r.email ?? "").trim().toLowerCase();
+      if (email && emailDomain(email)) {
+        await db()
+          .prepare(
+            `INSERT INTO contacts (id, first_name, last_name, company_id, title, email, phone, owner_id, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            uid(),
+            "Office",
+            name,
+            companyId,
+            "Main inbox",
+            email,
+            r.phone?.trim() || null,
+            user.id,
+            "Email came in with the CSV import.",
+          )
+          .run();
+      }
       added++;
     }
     if (added) {
@@ -3719,7 +3762,9 @@ export const getEmailWorkspace = createServerFn({ method: "GET" }).handler(async
            SELECT id, first_name, email FROM contacts
             WHERE company_id = c.id AND archived_at IS NULL
               AND email IS NOT NULL AND email <> ''
-            ORDER BY first_name LIMIT 1
+              AND COALESCE(email_status, '') <> 'invalid'
+            ORDER BY CASE WHEN email_status = 'valid' THEN 0 ELSE 1 END, first_name
+            LIMIT 1
          ) ct ON TRUE
         WHERE c.archived_at IS NULL
         ORDER BY CASE WHEN c.owner_id = ? THEN 0 ELSE 1 END, c.name`,
@@ -4607,6 +4652,333 @@ export const undoLastBulkArchive = createServerFn({ method: "POST" })
     return { ok: true as const, found: true as const, restored: stamp.n, count: stamp.n, at: stamp.at };
   });
 
+// ==================== Vet the book (owner's ask, 2026-08-10) ====================
+// The sales team's complaint, verbatim: "the companies u are putting into the
+// crm are fake or there emails are wrong and they dont need us." The vet
+// sweep answers all three with checks, not vibes:
+//   wrong emails — every contact email gets a free MX lookup (emailcheck).
+//     A domain that can't receive mail marks the contact 'invalid' and the
+//     Outreach queue skips it from that moment.
+//   they don't need us — leadNeed() re-read per company. A VERIFIED healthy
+//     site (good_site + siteWasChecked) means there's nothing to sell:
+//     archived, restorable, with the reason written on the company.
+//   fake — no phone, no website, and no deliverable email means no way any
+//     rep can act on it: archived as 'unreachable'.
+// Protections mirror pruneWeakLeads: signed/interested/maybe, referrals,
+// worked deals and scheduled follow-ups are never touched. Failures in one
+// run share one archived_at stamp so undoLastBulkArchive can undo a pass.
+
+type VetTally = { vetted: number; archived: number; emailsChecked: number; badEmails: number };
+
+// companies.research is a JSON blob; a corrupt one must read as "never
+// checked", not crash the sweep.
+function safeParseResearch(raw: string | null | undefined): Parameters<typeof siteWasChecked>[0] {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Parameters<typeof siteWasChecked>[0];
+  } catch {
+    return null;
+  }
+}
+
+async function vetCompanyEmails(companyId: string): Promise<{ checked: number; bad: number; anyDeliverable: boolean }> {
+  const { results } =
+    await db()
+      .prepare(
+        `SELECT id, email, email_status FROM contacts
+          WHERE company_id = ? AND archived_at IS NULL AND email IS NOT NULL AND email <> ''`,
+      )
+      .bind(companyId)
+      .all<{ id: string; email: string; email_status: string | null }>();
+  let checked = 0;
+  let bad = 0;
+  let anyDeliverable = false;
+  for (const ct of results ?? []) {
+    let status = ct.email_status;
+    if (!status) {
+      const verdict = await checkEmailDeliverable(ct.email);
+      checked += 1;
+      // 'unknown' (resolver had a bad day) stays NULL so tomorrow retries.
+      if (verdict !== "unknown") {
+        status = verdict;
+        await db()
+          .prepare(`UPDATE contacts SET email_status = ?, email_checked_at = ? WHERE id = ?`)
+          .bind(verdict, new Date().toISOString(), ct.id)
+          .run();
+      }
+    }
+    if (status === "invalid") bad += 1;
+    else anyDeliverable = true; // valid, or not-yet-condemned
+  }
+  return { checked, bad, anyDeliverable };
+}
+
+async function vetBookCore(cap = 8): Promise<VetTally> {
+  await ensureExtraSchema();
+  const nowIso = new Date().toISOString();
+  const { results } = await db()
+    .prepare(
+      `SELECT c.id, c.name, c.phone, c.website, c.research, c.tags, c.site_down_at,
+              c.created_at, c.call_outcome,
+              (COALESCE(c.call_outcome,'') IN ('signed','interested','maybe')
+               OR LOWER(COALESCE(c.source,'')) = 'referral'
+               OR c.referred_by_company_id IS NOT NULL
+               OR EXISTS (SELECT 1 FROM companies r WHERE r.referred_by_company_id = c.id AND r.archived_at IS NULL)
+               OR EXISTS (SELECT 1 FROM deals d WHERE d.company_id = c.id AND d.archived_at IS NULL
+                            AND (d.stage <> 'To Call' OR COALESCE(d.value,0) > 0))
+               OR (c.next_followup_at IS NOT NULL AND c.next_followup_at > ?)
+              ) AS protected
+         FROM companies c
+        WHERE c.archived_at IS NULL AND c.vetted_at IS NULL
+        ORDER BY CASE WHEN c.owner_id IS NOT NULL THEN 0 ELSE 1 END, c.created_at ASC
+        LIMIT ?`,
+    )
+    .bind(nowIso, cap)
+    .all<{
+      id: string;
+      name: string;
+      phone: string | null;
+      website: string | null;
+      research: string | null;
+      tags: string | null;
+      site_down_at: string | null;
+      created_at: string;
+      call_outcome: string | null;
+      protected: boolean;
+    }>();
+  const rows = results ?? [];
+  const tally: VetTally = { vetted: 0, archived: 0, emailsChecked: 0, badEmails: 0 };
+  // One shared stamp per pass — that's what makes the pass undoable as a unit.
+  const stamp = new Date().toISOString();
+  for (const c of rows) {
+    const emails = await vetCompanyEmails(c.id);
+    tally.emailsChecked += emails.checked;
+    tally.badEmails += emails.bad;
+    const need = leadNeed({
+      website: c.website,
+      research: c.research,
+      tags: c.tags,
+      siteDownAt: c.site_down_at,
+      createdAt: c.created_at,
+    });
+    let verdict: "ok" | "no_need" | "unreachable" = "ok";
+    let note = "Passed vetting.";
+    if (c.protected) {
+      note = "Protected — active relationship or worked deal; vetting never touches these.";
+    } else if (need.key === "good_site" && siteWasChecked(safeParseResearch(c.research))) {
+      verdict = "no_need";
+      note = "Verified healthy website — no visible reason to sell them a new one.";
+    } else if (!(c.phone ?? "").trim() && !(c.website ?? "").trim() && !emails.anyDeliverable) {
+      verdict = "unreachable";
+      note = "No phone, no website, no deliverable email — no way to verify this business or reach it.";
+    } else if (emails.bad > 0 && !emails.anyDeliverable && !(c.phone ?? "").trim()) {
+      verdict = "unreachable";
+      note = "Every email on file bounces (dead domain) and there's no phone.";
+    }
+    await db()
+      .prepare(`UPDATE companies SET vetted_at = ?, vet_verdict = ?, vet_note = ? WHERE id = ?`)
+      .bind(stamp, verdict, note, c.id)
+      .run();
+    if (verdict !== "ok") {
+      await db()
+        .prepare(`UPDATE companies SET archived_at = ? WHERE id = ? AND archived_at IS NULL`)
+        .bind(stamp, c.id)
+        .run();
+      await db()
+        .prepare(`UPDATE deals SET archived_at = ? WHERE company_id = ? AND archived_at IS NULL`)
+        .bind(stamp, c.id)
+        .run();
+      tally.archived += 1;
+    }
+    tally.vetted += 1;
+  }
+  return tally;
+}
+
+// Time-budgeted wrapper for the cron, same shape as enrichNewLeadsWithin.
+async function vetBookWithin(budgetMs: number, chunk = 6): Promise<VetTally> {
+  const start = Date.now();
+  const total: VetTally = { vetted: 0, archived: 0, emailsChecked: 0, badEmails: 0 };
+  for (;;) {
+    const r = await vetBookCore(chunk);
+    total.vetted += r.vetted;
+    total.archived += r.archived;
+    total.emailsChecked += r.emailsChecked;
+    total.badEmails += r.badEmails;
+    if (r.vetted === 0) break; // backlog cleared
+    if (Date.now() - start > budgetMs) break;
+  }
+  return total;
+}
+
+// Admin loop-button backend: one bounded batch per call, the UI keeps
+// clicking until `vetted` comes back 0. Also logs a feed line per pass.
+export const runVetBatch = createServerFn({ method: "POST" }).handler(async () => {
+  const me = await requireAdmin();
+  const r = await vetBookCore(10);
+  if (r.archived > 0) {
+    await logEvent({
+      actorId: me.id,
+      verb: "archived",
+      entityType: "companies",
+      summary: `${me.name} vetted ${r.vetted} lead${r.vetted === 1 ? "" : "s"} — ${r.archived} failed (fake/unreachable/no need) and moved to Archived, all restorable`,
+    });
+  }
+  return { ok: true as const, ...r };
+});
+
+// ==================== Fact ledger (evidence-backed enrichment) ====================
+// Pattern from Comp AI's CRM: enrichment never just writes — it records WHAT
+// it believes, WHY, and how strong the evidence kind is (FACT_WEIGHTS in
+// constants). Strong evidence auto-applies, middling evidence becomes a
+// suggestion chip on the company page, and a dismissed suggestion is never
+// offered again. recordCompanyFact is the single write path into the ledger.
+
+type FactOutcome = "applied" | "proposed" | "skipped";
+
+async function recordCompanyFact(input: {
+  companyId: string;
+  field: "email" | "website" | "phone";
+  value: string;
+  evidenceKind: FactEvidenceKind;
+  evidenceUrl?: string | null;
+  note?: string | null;
+}): Promise<FactOutcome> {
+  await ensureExtraSchema();
+  const value = input.value.trim();
+  if (!value) return "skipped";
+  const dispo = factDisposition(input.evidenceKind);
+  if (dispo === "discard") return "skipped";
+  // The ledger remembers: same claim already applied, already waiting, or
+  // already dismissed by a human → never write it twice, never re-offer it.
+  const existing = await db()
+    .prepare(
+      `SELECT status FROM company_facts
+        WHERE company_id = ? AND field = ? AND lower(value) = lower(?)
+        ORDER BY created_at DESC LIMIT 1`,
+    )
+    .bind(input.companyId, input.field, value)
+    .first<{ status: string }>();
+  if (existing && existing.status !== "superseded") return "skipped";
+  const status = dispo === "apply" ? "applied" : "proposed";
+  await db()
+    .prepare(
+      `INSERT INTO company_facts (id, company_id, field, value, evidence_kind, evidence_url, weight, status, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      uid(),
+      input.companyId,
+      input.field,
+      value,
+      input.evidenceKind,
+      input.evidenceUrl ?? null,
+      FACT_WEIGHTS[input.evidenceKind],
+      status,
+      input.note ?? null,
+    )
+    .run();
+  return status;
+}
+
+export type CompanyFactRow = {
+  id: string;
+  field: string;
+  value: string;
+  evidence_kind: string;
+  evidence_url: string | null;
+  note: string | null;
+  created_at: string;
+};
+
+export const getCompanyFacts = createServerFn({ method: "GET" })
+  .validator(z.object({ companyId: z.string() }))
+  .handler(async ({ data }) => {
+    await requireUser();
+    await ensureExtraSchema();
+    const { results } = await db()
+      .prepare(
+        `SELECT id, field, value, evidence_kind, evidence_url, note, created_at
+           FROM company_facts
+          WHERE company_id = ? AND status = 'proposed'
+          ORDER BY weight DESC, created_at ASC`,
+      )
+      .bind(data.companyId)
+      .all<CompanyFactRow>();
+    return { facts: results ?? [] };
+  });
+
+export const decideCompanyFact = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string(), accept: z.boolean() }))
+  .handler(async ({ data }) => {
+    const me = await requireUser();
+    await ensureExtraSchema();
+    const fact = await db()
+      .prepare(`SELECT * FROM company_facts WHERE id = ? AND status = 'proposed'`)
+      .bind(data.id)
+      .first<{
+        id: string;
+        company_id: string;
+        field: string;
+        value: string;
+        evidence_kind: string;
+      }>();
+    if (!fact) return { ok: false as const, error: "That suggestion is gone — someone may have decided it already." };
+    const now = new Date().toISOString();
+    if (!data.accept) {
+      await db()
+        .prepare(`UPDATE company_facts SET status = 'dismissed', decided_by = ?, decided_at = ? WHERE id = ?`)
+        .bind(me.id, now, fact.id)
+        .run();
+      return { ok: true as const, applied: false as const };
+    }
+    // Accepting applies the value — same guarded writes the enrichers use,
+    // so a human's existing data still can't be overwritten.
+    if (fact.field === "email") {
+      const dupe = await db()
+        .prepare(`SELECT 1 AS x FROM contacts WHERE lower(email) = lower(?) AND archived_at IS NULL LIMIT 1`)
+        .bind(fact.value)
+        .first<{ x: number }>();
+      if (!dupe) {
+        const company = await db()
+          .prepare(`SELECT name, owner_id FROM companies WHERE id = ?`)
+          .bind(fact.company_id)
+          .first<{ name: string; owner_id: string | null }>();
+        await db()
+          .prepare(
+            `INSERT INTO contacts (id, first_name, last_name, company_id, title, email, owner_id, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            uid(),
+            "Office",
+            company?.name ?? "",
+            fact.company_id,
+            "Main inbox",
+            fact.value.toLowerCase(),
+            company?.owner_id ?? null,
+            `Suggested address accepted by ${me.name} (evidence: ${fact.evidence_kind}).`,
+          )
+          .run();
+      }
+    } else if (fact.field === "website") {
+      await db()
+        .prepare(`UPDATE companies SET website = COALESCE(NULLIF(website, ''), ?) WHERE id = ?`)
+        .bind(fact.value, fact.company_id)
+        .run();
+    } else if (fact.field === "phone") {
+      await db()
+        .prepare(`UPDATE companies SET phone = COALESCE(NULLIF(phone, ''), ?) WHERE id = ?`)
+        .bind(fact.value, fact.company_id)
+        .run();
+    }
+    await db()
+      .prepare(`UPDATE company_facts SET status = 'applied', decided_by = ?, decided_at = ? WHERE id = ?`)
+      .bind(me.id, now, fact.id)
+      .run();
+    return { ok: true as const, applied: true as const };
+  });
+
 // ==================== Bulk pool handoff (owner's ask, 2026-07-21) ====================
 // "Give him 40 companies evenly from what's left." Deals `count` unowned,
 // unarchived leads to ONE rep in an EVEN quality spread: the pool is sorted
@@ -4949,6 +5321,46 @@ async function runPendingOneTimeTasks(): Promise<void> {
   await runRetireLeadDiscoveryStages();
   await runPromoteNickBesserToManager();
   await runPromoteMichaelToManager();
+  await runPauseLeadEngine20260810();
+}
+
+// One-time shutoff (owner's ask, 2026-08-10): "remove the lead gen right now
+// its not working well." The Discover toggle's app_settings row overrides the
+// LEAD_ENGINE_PAUSED constant, so flipping the constant alone wouldn't stop a
+// prod DB where the toggle was last set to running. This forces the row to
+// paused ONCE; the Discover toggle keeps working afterwards if Barry ever
+// wants the engine back.
+const PAUSE_ENGINE_TASK_KEY = "task_pause_lead_engine_2026_08_10";
+
+async function runPauseLeadEngine20260810(): Promise<void> {
+  try {
+    const row = await db()
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES (?, 'running')
+         ON CONFLICT (key) DO NOTHING RETURNING key`,
+      )
+      .bind(PAUSE_ENGINE_TASK_KEY)
+      .first<{ key: string }>();
+    if (!row) return; // already ran (or another instance is on it)
+    await db()
+      .prepare(
+        `INSERT INTO app_settings (key, value) VALUES ('lead_engine_paused', 'true')
+         ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+      )
+      .run();
+    await db()
+      .prepare(`UPDATE app_settings SET value='done' WHERE key=?`)
+      .bind(PAUSE_ENGINE_TASK_KEY)
+      .run();
+    await logEvent({
+      actorId: null,
+      verb: "updated",
+      entityType: "settings",
+      summary: "⏸️ Automatic lead intake switched off (owner's ask 2026-08-10) — new leads come from hand-picked CSV imports now. Re-enable any time from Discover.",
+    });
+  } catch {
+    /* best-effort; the constant default is paused as a backstop */
+  }
 }
 
 // One-time promotion (owner's ask, 2026-07-22): "give Nick Besser access to
@@ -5926,16 +6338,33 @@ async function outscraperEnrichCore(
     await db().prepare(`UPDATE companies SET research = ? WHERE id = ?`).bind(JSON.stringify(dossier), c.id).run();
     if (!hit) continue;
     enriched += 1;
-    // Turn the best email into a contact so the company shows up emailable in
-    // Outreach — same shape and dedupe rule as backfillResearchEmails. Prefer
-    // an address on the company's own domain over gmail/aol forwarders.
-    const email = hit.emails.find((e) => e.endsWith(`@${domain}`)) ?? hit.emails[0];
+    // Route the best address through the fact ledger (2026-08-10, after the
+    // reps' "wrong emails" complaint). An address AT the company's own domain
+    // is strong evidence → auto-applies as a contact, exactly like before.
+    // A free-mail address Outscraper merely "associated" with the site is the
+    // kind that kept being wrong → it becomes a suggestion chip on the
+    // company page instead of silently entering the Outreach queue.
+    const own = hit.emails.find((e) => e.endsWith(`@${domain}`)) ?? null;
+    const email = own ?? hit.emails[0];
     if (!email) continue;
     const dupe = await db()
       .prepare("SELECT 1 AS x FROM contacts WHERE lower(email) = ? AND archived_at IS NULL LIMIT 1")
       .bind(email)
       .first<{ x: number }>();
     if (dupe) continue;
+    // Free MX gate even on strong evidence: a domain that can't receive mail
+    // is wrong no matter who printed it.
+    if ((await checkEmailDeliverable(email)) === "invalid") continue;
+    const outcome = await recordCompanyFact({
+      companyId: c.id,
+      field: "email",
+      value: email,
+      evidenceKind: own ? "outscraper.own-domain" : "outscraper.generic",
+      note: own
+        ? `Found at the company's own domain (${domain}).`
+        : `Free-mail address Outscraper associates with ${domain} — confirm before trusting it.`,
+    });
+    if (outcome !== "applied") continue;
     await db()
       .prepare(
         `INSERT INTO contacts (id, first_name, last_name, company_id, title, email, phone, owner_id, notes)
@@ -5950,7 +6379,7 @@ async function outscraperEnrichCore(
         email,
         hit.phones[0] ?? null,
         c.owner_id,
-        "Email found by Outscraper domain enrichment.",
+        "Email found by Outscraper domain enrichment (own-domain address).",
       )
       .run();
     contacts += 1;
@@ -7636,6 +8065,9 @@ export const huntLeadsBatch = createServerFn({ method: "POST" })
     let imported = 0;
     for (const l of picks) {
       try {
+        // Hard gate (2026-08-10): don't import an address that provably
+        // bounces. One free MX lookup per domain, cached for the whole run.
+        if ((await checkEmailDeliverable(l.email)) === "invalid") continue;
         const r = await importLeadCore(
           {
             name: l.name,
@@ -7697,6 +8129,85 @@ export const huntLeadsBatch = createServerFn({ method: "POST" })
 // which doubles as abuse protection if the endpoint is hit repeatedly.
 // createServerOnlyFn keeps this export out of the client bundle (it throws if a
 // client ever calls it; only the cron route does).
+// ==================== Work queue dispatch ====================
+// The switchboard between crm_tasks rows and the actual job code. Each kind
+// maps to one of the existing cores with a bounded budget, so a single cron
+// hit can make progress on several jobs without blowing its 60 seconds.
+async function runTaskDispatch(kind: string): Promise<void> {
+  switch (kind) {
+    case "enrich_new_leads":
+      await enrichNewLeadsWithin(20_000, 10);
+      return;
+    case "vet_book":
+      await vetBookWithin(12_000, 6);
+      return;
+    case "outscraper_enrich":
+      await outscraperEnrichCore(6);
+      return;
+    case "ai_qualify":
+      await aiQualifyCore(6);
+      return;
+    case "redraft_emails":
+      await redraftAiEmailsCore(6);
+      return;
+    case "verify_websites":
+      await verifyWebsitesCore(null);
+      return;
+    case "recheck_sites":
+      await recheckUnverifiedSitesWithin(10_000, 10);
+      return;
+    case "research_company":
+      // Per-company job (enqueued with priority when a rep adds a company by
+      // hand) — dispatch resolves the id from the row in runTaskQueue.
+      return;
+    default:
+      // Unknown kind: complete it rather than let it poison the queue. It
+      // stays in the table as a done row if anyone wants to investigate.
+      return;
+  }
+}
+
+async function runTaskQueue(budgetMs: number): Promise<{ ran: number; failed: number }> {
+  const start = Date.now();
+  await seedRecurringTasks();
+  let ran = 0;
+  let failed = 0;
+  while (Date.now() - start < budgetMs) {
+    const claimed = await claimDueTasks(2);
+    if (claimed.length === 0) break;
+    for (const t of claimed) {
+      try {
+        if (t.kind === "research_company" && t.company_id) {
+          const company = await db()
+            .prepare("SELECT id, name, website, city, phone FROM companies WHERE id = ? AND archived_at IS NULL")
+            .bind(t.company_id)
+            .first<{ id: string; name: string; website: string | null; city: string | null; phone: string | null }>();
+          if (company) {
+            const dossier = await researchCompanyCore(company);
+            await saveDossier(company.id, dossier, null);
+          }
+        } else {
+          await runTaskDispatch(t.kind);
+        }
+        await completeTask(t.id);
+        ran += 1;
+        const every = recurringInterval(t.kind);
+        if (every) {
+          await enqueueTask({
+            kind: t.kind,
+            reason: t.reason,
+            dueAt: inHours(every),
+          });
+        }
+      } catch (e) {
+        failed += 1;
+        await failTask(t.id, t.attempts, e);
+      }
+    }
+  }
+  return { ran, failed };
+}
+
 export const runDueSweeps = createServerOnlyFn(
   async (): Promise<{ ran: number; imported: number; nudged: number; recycled: number }> => {
     await ensureExtraSchema();
@@ -7711,61 +8222,17 @@ export const runDueSweeps = createServerOnlyFn(
     } catch {
       /* housekeeping is best-effort */
     }
-    // Auto-research: give un-researched leads a dossier so reps open them to
-    // ready-made intel. This is no longer a bonus — since the call queue holds
-    // back anything with no known reason to call, an un-researched lead is a
-    // lead nobody can dial. So it gets a real slice of the cron's 60s instead
-    // of a fixed ten, and keeps going until the budget runs out or the backlog
-    // does. Best-effort as always: a slow crawl can't take the sweep down.
-    try {
-      await enrichNewLeadsWithin(25_000, 10);
-    } catch {
-      /* research is a bonus, never a blocker */
-    }
-    // Contact enrichment: Outscraper fills in emails/extra phones/socials for
-    // researched companies whose website we know but whose inbox we don't —
-    // the missing piece that makes the scanner's own finds emailable.
-    // Config-gated inside (no OUTSCRAPER_API_KEY = no-op, no credits spent).
-    try {
-      await outscraperEnrichCore(6);
-    } catch {
-      /* enrichment is a bonus, never a blocker */
-    }
-    // One-time tasks also fire from the cron, in case nobody opens the app
-    // right after the deploy. Run-once lock makes double-firing harmless.
+    // One-time tasks fire from the cron, in case nobody opens the app right
+    // after the deploy. Run-once lock makes double-firing harmless.
     await runPendingOneTimeTasks();
-    // AI qualification: the leads researched above (and any backlog) get their
-    // 0-100 buy-likelihood verdict overnight, so the engine's own finds show
-    // up pre-rated with the 🎯 badge. Config-gated inside (no API key = no-op).
+    // Everything nightly now runs through the crm_tasks work queue (pattern
+    // from Comp AI's CRM): each job is a leased row claimed with SKIP LOCKED,
+    // so a crash mid-run releases the job instead of starving everything
+    // behind it, and the whole overnight plan is visible as table rows.
     try {
-      await aiQualifyCore(6);
+      await runTaskQueue(40_000);
     } catch {
-      /* rating is a bonus, never a blocker */
-    }
-    // Draft refresh: any stored email written under an older prompt version
-    // gets rewritten overnight, emailable companies first — so a prompt
-    // improvement reaches every draft without anyone re-researching by hand.
-    try {
-      await redraftAiEmailsCore(6);
-    } catch {
-      /* redrafting is a bonus, never a blocker */
-    }
-    // Dead-site watch: re-probe the stalest checked websites so a prospect
-    // whose site just went down gets flagged within a day — the hottest lead
-    // there is. Best-effort like the rest of housekeeping.
-    try {
-      await verifyWebsitesCore(null);
-    } catch {
-      /* liveness watch is a bonus, never a blocker */
-    }
-    // Un-probed backlog: every dossier written before the site probe existed
-    // claims "no website" without ever having looked. This chips away at that
-    // backlog nightly — finding the sites we missed, and confirming the ones
-    // that really are siteless so those leads get the strong opener back.
-    try {
-      await recheckUnverifiedSitesWithin(15_000, 10);
-    } catch {
-      /* the re-check is a bonus, never a blocker */
+      /* the queue is a bonus, never a blocker */
     }
     // Master pause: housekeeping and research above still ran, but no new
     // companies get imported while the lead engine is switched off.

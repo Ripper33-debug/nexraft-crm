@@ -68,14 +68,13 @@ function buildHead(meta: AppMeta) {
       ...(ogVideo ? [{ property: "og:video", content: ogVideo }] : []),
     ],
     links: [
-      // "Ivory & Brass" type stack: Fraunces (a warm display serif) carries the
-      // headings/KPI numbers, Geist stays for body copy, JetBrains Mono for the
-      // small mono labels. (Inter stays as a fallback.)
+      // Clean sans-serif stack: Geist for body and headings, JetBrains Mono
+      // for infrastructure labels. Inter as fallback.
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" as const },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap",
       },
       { rel: "stylesheet", href: appCss },
       // Custom favicon override wins; otherwise fall back to the bundled brand mark.

@@ -18,6 +18,7 @@ import {
   tagFacebookOnlyCompanies,
   archiveGoodSiteCompanies,
   pruneWeakLeads,
+  runVetBatch,
   undoLastBulkArchive,
   aiQualifyLeadsBatch,
 } from "../../lib/crm/data";
@@ -275,6 +276,7 @@ function CompaniesPage() {
   const [taggingFb, setTaggingFb] = useState(false);
   const [clearingGoodSites, setClearingGoodSites] = useState(false);
   const [pruning, setPruning] = useState(false);
+  const [vetting, setVetting] = useState(false);
   const [undoing, setUndoing] = useState(false);
   const [aiRating, setAiRating] = useState(false);
 
@@ -368,13 +370,14 @@ function CompaniesPage() {
               label="Import companies from CSV"
               fields={[
                 { key: "name", label: "Company", required: true, aliases: ["company", "name", "company name"] },
-                { key: "industry", label: "Industry", aliases: ["industry"] },
-                { key: "website", label: "Website", aliases: ["website", "url", "site"] },
-                { key: "phone", label: "Phone", aliases: ["phone", "telephone", "tel"] },
+                { key: "industry", label: "Industry", aliases: ["industry", "category"] },
+                { key: "website", label: "Website", aliases: ["website", "url", "site", "domain"] },
+                { key: "phone", label: "Phone", aliases: ["phone", "primary phone", "telephone", "tel"] },
                 { key: "city", label: "City", aliases: ["city", "location"] },
                 { key: "source", label: "Source", aliases: ["source", "lead source"] },
+                { key: "email", label: "Email", aliases: ["email", "primary email", "best contact email", "e-mail"] },
               ]}
-              sampleHint="Only a Company name is required. Extra columns are ignored."
+              sampleHint="Only a Company name is required. An Email column becomes an Office contact automatically. Extra columns are ignored."
               onImport={(rows) => importCompanies({ data: { rows: rows as { name: string }[] } })}
               onDone={() => router.invalidate()}
             />
@@ -500,6 +503,47 @@ function CompaniesPage() {
                 }}
               >
                 {pruning ? "Scoring the book…" : "🧹 Prune weak leads"}
+              </Button>
+            ) : null}
+            {isAdmin ? (
+              <Button
+                variant="outline"
+                disabled={vetting}
+                onClick={async () => {
+                  setVetting(true);
+                  try {
+                    // Answers the reps' complaint directly: MX-check every
+                    // email, confirm the need is real, archive the unreachable.
+                    // Runs in small batches until the whole book is vetted.
+                    let vetted = 0;
+                    let archived = 0;
+                    let emailsChecked = 0;
+                    let badEmails = 0;
+                    for (let pass = 0; pass < 40; pass++) {
+                      const res = await runVetBatch();
+                      vetted += res.vetted;
+                      archived += res.archived;
+                      emailsChecked += res.emailsChecked;
+                      badEmails += res.badEmails;
+                      if (res.vetted === 0) break;
+                    }
+                    if (vetted === 0) {
+                      toast("The whole book is already vetted — nothing new to check.", "info");
+                      return;
+                    }
+                    toast(
+                      `Vetted ${vetted} compan${vetted === 1 ? "y" : "ies"}: checked ${emailsChecked} email${emailsChecked === 1 ? "" : "s"} (${badEmails} bounced), archived ${archived} unreachable/no-need lead${archived === 1 ? "" : "s"}. Everything archived is restorable below.`,
+                      "success",
+                    );
+                    void router.invalidate();
+                  } catch {
+                    toast("Vet pass hit an error — try again.", "error");
+                  } finally {
+                    setVetting(false);
+                  }
+                }}
+              >
+                {vetting ? "Vetting the book…" : "🧼 Vet the book"}
               </Button>
             ) : null}
             {isAdmin ? (

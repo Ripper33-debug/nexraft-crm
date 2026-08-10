@@ -124,7 +124,7 @@ function DiscoverPage() {
             className={
               "group absolute right-5 top-5 flex items-center gap-3 rounded-full border px-4 py-2 transition-all duration-300 " +
               (on
-                ? "border-signal/50 bg-signal-soft shadow-[0_0_24px_rgba(168,132,44,0.25)]"
+                ? "border-signal/50 bg-signal-soft shadow-[0_0_24px_rgba(24,24,27,0.12)]"
                 : "border-line-strong bg-surface/80 hover:border-signal/40")
             }
           >

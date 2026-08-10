@@ -123,8 +123,8 @@ describe("the book gets re-checked instead of staying a guess", () => {
     expect(data).toContain("(website IS NULL OR btrim(website) = '')");
   });
 
-  it("runs nightly off the cron with no button to remember", () => {
-    expect(data).toContain("recheckUnverifiedSitesWithin(15_000, 10)");
+  it("runs nightly off the cron with no button to remember (queued as recheck_sites)", () => {
+    expect(data).toContain("recheckUnverifiedSitesWithin(10_000, 10)");
   });
 
   it("stamps the probe either way, so a confirmed no-site lead gets promoted", () => {

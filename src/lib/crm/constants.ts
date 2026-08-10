@@ -1720,6 +1720,90 @@ export function canAdministerRecord(user: Actor, ownerId: string | null | undefi
   return ownerId === user.id;
 }
 
+// ---------------- fact ledger (evidence weights) ----------------
+
+// Borrowed from Comp AI's CRM: no model "confidence scores" — every enriched
+// value carries a fixed, human-chosen weight for the KIND of evidence behind
+// it. High evidence auto-applies (never over human-entered data), middling
+// evidence becomes a suggestion a rep accepts or dismisses on the company
+// page, weak evidence is discarded. A dismissed fact is never offered again.
+// This is the same discipline as siteWasChecked(): the claim is only as good
+// as the check that produced it.
+export const FACT_WEIGHTS = {
+  // An address published on the business's own domain — they printed it.
+  "site.own-domain-email": 0.9,
+  // Outscraper found an address AT the company's own domain.
+  "outscraper.own-domain": 0.9,
+  // Outscraper found a gmail/yahoo/etc address "associated" with the domain.
+  // Right often enough to suggest, wrong often enough to never auto-send to.
+  "outscraper.generic": 0.6,
+  // The site probe found a live site whose page carries the company's phone.
+  "siteprobe.phone-match": 0.85,
+  // Sunbiz officer/registered-agent record — official, but often the lawyer.
+  "sunbiz.officer": 0.75,
+  // A human typed it. Always wins; the ledger only records it for provenance.
+  human: 1.0,
+} as const;
+
+export type FactEvidenceKind = keyof typeof FACT_WEIGHTS;
+
+export const FACT_APPLY_MIN = 0.85; // at/above: auto-apply (via COALESCE — never over human data)
+export const FACT_PROPOSE_MIN = 0.5; // at/above: suggestion chip; below: discard
+
+export type FactDisposition = "apply" | "propose" | "discard";
+
+export function factDisposition(kind: FactEvidenceKind): FactDisposition {
+  const w = FACT_WEIGHTS[kind];
+  if (w >= FACT_APPLY_MIN) return "apply";
+  if (w >= FACT_PROPOSE_MIN) return "propose";
+  return "discard";
+}
+
+// One-line, rep-readable label per evidence kind — shown on the suggestion
+// chip so "accept or dismiss" is a judgment call with receipts, not a guess.
+export function factEvidenceLabel(kind: FactEvidenceKind): string {
+  switch (kind) {
+    case "site.own-domain-email":
+      return "printed on their own website";
+    case "outscraper.own-domain":
+      return "found at their own domain";
+    case "outscraper.generic":
+      return "associated with their site (free-mail address)";
+    case "siteprobe.phone-match":
+      return "live site matching their phone number";
+    case "sunbiz.officer":
+      return "Sunbiz officer record";
+    case "human":
+      return "entered by a teammate";
+  }
+}
+
+// ---------------- CRM access allowlist ----------------
+
+// Owner's ask (2026-08-10): "only have barry castelli, ayden, micheal, brady
+// have access to the crm for now, the rest jus remove there access."
+// A signed-in user must match one of these tokens (case-insensitive substring
+// of their name OR email) to use the app. The account owner (ownerEmail) is
+// always allowed regardless — that safety net lives in auth.server.ts.
+// NOTE: "barry" alone is NOT a token on purpose — Barry Birch (a rep, plain
+// "Barry") is exactly who this lockout is meant to exclude; only "castelli"
+// matches the owner. "micheal" covers the common misspelling of Michael.
+// Ayden and Brady match as soon as they sign up with a name or email that
+// contains their name. Set NEXRAFT_ACCESS_OPEN=true in Vercel to lift the
+// lockout without a deploy.
+export const ACCESS_ALLOW_TOKENS = ["castelli", "ayden", "michael", "micheal", "brady"] as const;
+
+export const ACCESS_DENIED_MESSAGE =
+  "The CRM is limited to the core team right now. Ask Barry if you think this is a mistake.";
+
+export function isAllowedUser(
+  name: string | null | undefined,
+  email: string | null | undefined,
+): boolean {
+  const hay = `${name ?? ""} ${email ?? ""}`.toLowerCase();
+  return ACCESS_ALLOW_TOKENS.some((t) => hay.includes(t));
+}
+
 // ---------------- lead auto-assign balancing ----------------
 
 // A rep eligible for auto-assignment plus their current open-deal load.
@@ -2074,8 +2158,10 @@ export function explainSiteIssue(issue: string): string {
 
 // ---------- Lead engine master switch ----------
 // Barry paused all automatic lead intake on 2026-07-20 (team had enough to
-// work), then turned it back ON on 2026-07-21 after the weak-lead prune
-// thinned the book. This constant is only the DEFAULT — once an admin uses
-// the Discover-page toggle, the app_settings row wins, so flipping intake
-// on/off day-to-day is a UI click, not a deploy.
-export const LEAD_ENGINE_PAUSED = false;
+// work), turned it back ON 2026-07-21 after the weak-lead prune thinned the
+// book, then switched it OFF again 2026-08-10 ("remove the lead gen right
+// now its not working well") — he's moving to hand-picked CSV imports. This
+// constant is only the DEFAULT — once an admin uses the Discover-page
+// toggle, the app_settings row wins (a one-time task also forces that row to
+// paused for the 2026-08-10 shutoff, so the toggle still works afterwards).
+export const LEAD_ENGINE_PAUSED = true;

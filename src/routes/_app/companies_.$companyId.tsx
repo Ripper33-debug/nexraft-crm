@@ -1,7 +1,16 @@
 import { createFileRoute, Link, useRouter, useRouteContext } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { getCompanies, getContacts, getDeals, researchCompany, setCompanyReferredBy, type ResearchDossier } from "../../lib/crm/data";
+import {
+  getCompanies,
+  getContacts,
+  getDeals,
+  getCompanyFacts,
+  decideCompanyFact,
+  setCompanyReferredBy,
+  type CompanyFactRow,
+  type ResearchDossier,
+} from "../../lib/crm/data";
 import { toast } from "../../components/crm/toast";
 import {
   Button,
@@ -17,16 +26,17 @@ import { NotesThread } from "../../components/crm/notes";
 import { CallMode } from "../../components/crm/call-mode";
 import { ResearchPanel } from "../../components/crm/research-panel";
 import { Timeline } from "../../components/crm/timeline";
-import { formatMoney, relativeTime, stageInfo } from "../../lib/crm/constants";
+import { factEvidenceLabel, formatMoney, relativeTime, stageInfo, type FactEvidenceKind } from "../../lib/crm/constants";
 
 type Row = Record<string, unknown>;
 
 export const Route = createFileRoute("/_app/companies_/$companyId")({
   loader: async ({ params }) => {
-    const [companies, contacts, deals] = await Promise.all([
+    const [companies, contacts, deals, factsRes] = await Promise.all([
       getCompanies(),
       getContacts(),
       getDeals(),
+      getCompanyFacts({ data: { companyId: params.companyId } }),
     ]);
     const company = (companies as Row[]).find((c) => c.id === params.companyId) ?? null;
     const theirContacts = (contacts as Row[]).filter((c) => c.company_id === params.companyId);
@@ -37,7 +47,7 @@ export const Route = createFileRoute("/_app/companies_/$companyId")({
       .filter((c) => c.id !== params.companyId && (c.call_outcome === "signed" || Number(c.won_deals) > 0))
       .map((c) => ({ id: c.id as string, name: c.name as string }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    return { company, contacts: theirContacts, deals: theirDeals, referrers };
+    return { company, contacts: theirContacts, deals: theirDeals, referrers, facts: factsRes.facts };
   },
   component: CompanyDetail,
   pendingComponent: () => <PageSkeleton cards={0} rows={6} />,
@@ -215,8 +225,81 @@ function NextStepBar({
   );
 }
 
+// Fact suggestions: things the enrichers found but weren't sure enough to
+// apply on their own (weight under the auto-apply bar). Each chip shows the
+// value AND where it came from, and a human decides. Dismissed suggestions
+// are never re-offered — that's the ledger's whole promise.
+function FactSuggestions({ facts }: { facts: CompanyFactRow[] }) {
+  const router = useRouter();
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  if (facts.length === 0) return null;
+
+  async function decide(fact: CompanyFactRow, accept: boolean) {
+    if (busyId) return;
+    setBusyId(fact.id);
+    try {
+      const res = await decideCompanyFact({ data: { id: fact.id, accept } });
+      if (!res.ok) {
+        toast(res.error ?? "Couldn't save that decision — try again.", "error");
+      } else if (accept) {
+        toast(`✅ Added ${fact.field}: ${fact.value}`, "success");
+      } else {
+        toast("Dismissed — we won't suggest that again.");
+      }
+      void router.invalidate();
+    } catch {
+      toast("Couldn't save that decision — try again.", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const fieldIcon = (f: string) => (f === "email" ? "✉" : f === "phone" ? "☎" : "🔗");
+
+  return (
+    <Card className="p-4">
+      <Eyebrow className="mb-2">Suggested info ({facts.length})</Eyebrow>
+      <p className="mb-3 text-xs text-faint">
+        Found automatically but not confirmed — accept only what looks right. Dismissed suggestions never come back.
+      </p>
+      <ul className="space-y-2">
+        {facts.map((f) => (
+          <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line px-3 py-2">
+            <div className="min-w-0">
+              <div className="truncate text-sm text-bone">
+                <span aria-hidden className="mr-1.5">{fieldIcon(f.field)}</span>
+                {f.value}
+              </div>
+              <div className="truncate text-xs text-faint">
+                {f.field} · {factEvidenceLabel(f.evidence_kind as FactEvidenceKind)}
+                {f.evidence_url ? (
+                  <>
+                    {" · "}
+                    <a href={f.evidence_url} target="_blank" rel="noreferrer" className="text-signal hover:underline">
+                      source
+                    </a>
+                  </>
+                ) : null}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Button size="sm" disabled={busyId === f.id} onClick={() => void decide(f, true)}>
+                Use it
+              </Button>
+              <Button size="sm" variant="outline" disabled={busyId === f.id} onClick={() => void decide(f, false)}>
+                Dismiss
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 function CompanyDetail() {
-  const { company, contacts, deals, referrers } = Route.useLoaderData();
+  const { company, contacts, deals, referrers, facts } = Route.useLoaderData();
   const { companyId } = Route.useParams();
   const router = useRouter();
   const { user } = useRouteContext({ from: "/_app" }) as { user?: { name?: string } };
@@ -360,6 +443,8 @@ function CompanyDetail() {
               </p>
             ) : null}
           </Card>
+
+          <FactSuggestions facts={facts as CompanyFactRow[]} />
 
           <ResearchPanel key={companyId} company={c} />
 

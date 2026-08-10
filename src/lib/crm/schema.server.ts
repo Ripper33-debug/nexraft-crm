@@ -243,6 +243,63 @@ export function ensureExtraSchema(): Promise<void> {
          value TEXT NOT NULL,
          updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
        )`,
+      // Email deliverability (reps' complaint 2026-08-10: "their emails are
+      // wrong"): a free MX lookup per contact email. 'valid' = the domain
+      // publishes mail records; 'invalid' = it can't receive mail at all —
+      // those addresses leave the Outreach queue. NULL = never checked.
+      `ALTER TABLE contacts ADD COLUMN IF NOT EXISTS email_status TEXT`,
+      `ALTER TABLE contacts ADD COLUMN IF NOT EXISTS email_checked_at TEXT`,
+      // Book vetting (same complaint: "the companies are fake / they don't
+      // need us"): a per-company verdict from the vet sweep. 'ok' = passed,
+      // 'no_need' = has a healthy site, 'unreachable' = no phone, no valid
+      // email, no site — nothing a rep can act on. Failures get archived
+      // (restorable), the note says exactly why.
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS vetted_at TEXT`,
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS vet_verdict TEXT`,
+      `ALTER TABLE companies ADD COLUMN IF NOT EXISTS vet_note TEXT`,
+      // Background work queue (pattern borrowed from Comp AI's agentTask):
+      // every piece of overnight automation becomes a row here. The cron
+      // claims small batches with FOR UPDATE SKIP LOCKED and leases them for
+      // ten minutes, so a crashed run releases its work instead of losing it,
+      // and urgent jobs (priority DESC) jump the nightly line. `reason` is
+      // rep-readable — every queued job can say why it exists.
+      `CREATE TABLE IF NOT EXISTS crm_tasks (
+         id TEXT PRIMARY KEY,
+         kind TEXT NOT NULL,
+         company_id TEXT,
+         reason TEXT,
+         due_at TEXT NOT NULL,
+         priority INTEGER NOT NULL DEFAULT 0,
+         attempts INTEGER NOT NULL DEFAULT 0,
+         leased_until TEXT,
+         done_at TEXT,
+         last_error TEXT,
+         created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_crm_tasks_due ON crm_tasks(due_at, priority) WHERE done_at IS NULL`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_tasks_one_open
+         ON crm_tasks(kind, (COALESCE(company_id, ''))) WHERE done_at IS NULL`,
+      // Fact ledger (borrowed from Comp AI's ContactFact): every enriched
+      // value carries evidence — what kind of source said so and how much we
+      // trust it. High-confidence facts auto-apply (still never over human
+      // data); mid-confidence ones sit as PROPOSED suggestions a rep can
+      // accept or dismiss on the company page. A DISMISSED fact is never
+      // offered again — the ledger remembers.
+      `CREATE TABLE IF NOT EXISTS company_facts (
+         id TEXT PRIMARY KEY,
+         company_id TEXT NOT NULL,
+         field TEXT NOT NULL,
+         value TEXT NOT NULL,
+         evidence_kind TEXT NOT NULL,
+         evidence_url TEXT,
+         weight NUMERIC NOT NULL DEFAULT 0,
+         status TEXT NOT NULL DEFAULT 'proposed',
+         note TEXT,
+         decided_by TEXT,
+         decided_at TEXT,
+         created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_company_facts_company ON company_facts(company_id, status)`,
       // Query-path indexes for the columns the app filters on constantly.
       // All IF NOT EXISTS, all safe on existing data (plain b-tree indexes
       // never conflict with live rows the way unique constraints could).

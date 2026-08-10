@@ -80,9 +80,8 @@ export function Button({
   return (
     <button
       className={cx(
-        // Ivory & Brass controls: soft-rounded, sentence case, quiet press.
-        // Buttons read like invitations from expensive stationery, not shouted
-        // terminal commands — the mono-uppercase era is retired.
+        // Clean controls: soft-rounded, sentence case, quiet press.
+        // Buttons read as product infrastructure, not marketing speak.
         "inline-flex items-center justify-center gap-2 rounded-lg font-medium tracking-[0.01em] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/40 focus-visible:ring-offset-2 focus-visible:ring-offset-ink",
         size === "sm" ? "px-3 py-1.5 text-xs" : "px-4 py-2 text-sm",
         btnStyles[variant],
@@ -135,7 +134,7 @@ export function Card({
         tilt
           ? "will-change-transform transition-[border-color,box-shadow,transform] duration-300"
           : "transition-[border-color,box-shadow] duration-300",
-        "nx-spot rounded-xl border border-line bg-gradient-to-br from-[#fffdf8] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.1),0_8px_24px_-16px_rgba(0,0,0,0.12),inset_0_1px_0_0_rgba(255,255,255,0.03)] hover:border-line-strong hover:shadow-[0_16px_40px_-14px_rgba(0,0,0,0.12),0_0_0_1px_rgba(168,132,44,0.1)]",
+        "nx-spot rounded-xl border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.1),0_8px_24px_-16px_rgba(0,0,0,0.12)] hover:border-line-strong hover:shadow-[0_16px_40px_-14px_rgba(0,0,0,0.12)]",
         className,
       )}
     >
@@ -185,10 +184,8 @@ export function PageHeader({
     <div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-[1.7rem] font-semibold tracking-[-0.01em]">
-            {/* Fraunces serif in ink with the brass period — the Ivory & Brass
-                headline treatment: quiet, warm, expensive. No uppercase; serifs
-                want their lowercase letterforms. */}
+          <h1 className="font-display text-[1.7rem] font-semibold tracking-[-0.02em]">
+            {/* Clean sans-serif with signal accent period. */}
             <span className="text-bone">{title}</span>
             <span className="text-signal">.</span>
           </h1>
@@ -236,10 +233,9 @@ export function SummaryCard({
       className={cx(
         "nx-spot group relative overflow-hidden rounded-md border p-4 transition-[border-color,box-shadow,transform] duration-300 will-change-transform",
         accent
-          ? // Ivory & Brass hero tile: the one dark ink card among the cream —
-            // gold numerals on near-black, exactly the mock's "Signed" KPI.
-            "border-[#1f1a10] bg-gradient-to-br from-[#292214] via-[#1f1a10] to-[#1f1a10] shadow-[0_14px_36px_-16px_rgba(31,26,16,0.55)] hover:shadow-[0_18px_44px_-16px_rgba(31,26,16,0.65)]"
-          : "border-line bg-gradient-to-br from-[#fffdf8] to-surface shadow-[0_1px_2px_rgba(0,0,0,0.1)] hover:border-line-strong hover:shadow-[0_12px_30px_-16px_rgba(0,0,0,0.15)]",
+          ? // Accent variant: clean white emphasized card with subtle shadow.
+            "border-bone/20 bg-surface shadow-sm hover:shadow-md"
+          : "border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.1)] hover:border-line-strong hover:shadow-[0_12px_30px_-16px_rgba(0,0,0,0.15)]",
       )}
     >
       <span className="nx-edge" aria-hidden="true" />
@@ -248,25 +244,22 @@ export function SummaryCard({
         aria-hidden="true"
         className={cx(
           "pointer-events-none absolute right-0 top-0 h-2.5 w-2.5 border-r-2 border-t-2",
-          accent ? "border-[#c9a648]" : "border-line-strong",
+          "border-line-strong",
         )}
       />
-      {accent ? (
-        <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-[#c9a648]/20 blur-2xl" />
-      ) : null}
-      <Eyebrow className={cx("flex items-center", accent ? "text-[#cbb987]" : undefined)}>
+      <Eyebrow className="flex items-center">
         {label}
         {hint ? <InfoDot text={hint} /> : null}
       </Eyebrow>
       <div
         className={cx(
           "tnum mt-2 font-display text-[1.6rem] font-semibold leading-none tracking-tight",
-          accent ? "text-[#e9c96a]" : "text-bone",
+          "text-bone",
         )}
       >
         <CountUp value={value} />
       </div>
-      {sub ? <div className={cx("mt-1.5 text-xs", accent ? "text-[#cbb987]" : "text-faint")}>{sub}</div> : null}
+      {sub ? <div className="mt-1.5 text-xs text-mute">{sub}</div> : null}
     </div>
   );
 }

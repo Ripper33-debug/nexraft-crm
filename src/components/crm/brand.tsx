@@ -1,13 +1,13 @@
 // Nexraft brand marks, rebuilt as crisp vectors so they scale perfectly and can
 // be recolored via CSS. Faithful to nexraft.com: a bone/cream "NEXRAFT."
-// wordmark whose trailing period is the signature red-orange dot — no tile, no
-// underline. The compact monogram carries the same bone "N" + orange dot.
+// wordmark whose trailing period is the signature accent dot — no tile, no
+// underline. The compact monogram carries the same bone "N" + accent dot.
 
-// Ivory & Brass recolor: the CRM's marks trade the site's red-orange for the
-// theme's brass-gold, and the tile warms up to match the ink used app-wide.
-const TILE = "#1f1a10"; // warm near-black tile — matches --color-bone
-const ACCENT = "#c9a648"; // brass-gold (the "." dot) — bright enough on the dark tile
-const BONE = "#f0e5cf"; // cream — only used INSIDE the dark tile, where it still reads
+// Light theme: the CRM's marks use near-black tile (neutral, clean) with
+// the signal accent for the period dot.
+const TILE = "#18181b"; // clean near-black tile
+const ACCENT = "#f97316"; // orange dot (back to the site's signature)
+const BONE = "#fafafa"; // off-white for legibility inside the dark tile
 const WORD = "var(--color-bone)"; // wordmark text follows the app's primary text color
 
 // Square monogram tile (sidebar, favicon, mobile bar): bone "N" over the warm

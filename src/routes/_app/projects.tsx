@@ -79,7 +79,7 @@ function ProgressBar({ done, total }: { done: number; total: number }) {
             "h-full rounded-full transition-all duration-500",
             pct >= 100
               ? "bg-gradient-to-r from-emerald-500 to-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.55)]"
-              : "bg-gradient-to-r from-signal-strong to-signal shadow-[0_0_10px_rgba(168,132,44,0.5)]",
+              : "bg-signal shadow-[0_0_10px_rgba(24,24,27,0.3)]",
           )}
           style={{ width: `${pct}%` }}
         />
@@ -199,7 +199,7 @@ function ProjectCard({
                       checked={item.done}
                       disabled={busy}
                       onChange={() => void toggleItem(i)}
-                      className="mt-0.5 h-4 w-4 accent-[#a8842c]"
+                      className="mt-0.5 h-4 w-4 accent-[#18181b]"
                     />
                     <span className={cx("leading-snug", item.done ? "text-faint line-through" : "text-mute")}>
                       {item.label}

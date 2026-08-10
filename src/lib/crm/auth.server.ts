@@ -1,5 +1,6 @@
 import { getRequest } from "@tanstack/react-start/server";
 
+import { ACCESS_DENIED_MESSAGE, isAllowedUser } from "./constants";
 import { db, uid } from "./db.server";
 
 export type AuthUser = { id: string; email: string; name: string; role: string };
@@ -68,6 +69,19 @@ export function ownerEmail(): string {
   return (fromEnv && fromEnv.length > 0 ? fromEnv : "barry@nexraft.com").trim().toLowerCase();
 }
 
+// ---- access lockout (Barry, 2026-08-10) ----
+// Only the core team may use the CRM for now. The owner always passes; the
+// escape hatch NEXRAFT_ACCESS_OPEN=true lifts the lockout without a deploy.
+export function accessOpen(): boolean {
+  return (process.env.NEXRAFT_ACCESS_OPEN ?? "").trim().toLowerCase() === "true";
+}
+
+export function userHasAccess(name: string, email: string): boolean {
+  if (accessOpen()) return true;
+  if (email.trim().toLowerCase() === ownerEmail()) return true;
+  return isAllowedUser(name, email);
+}
+
 // ---- cookies ----
 function readCookie(name: string): string | null {
   const req = getRequest();
@@ -122,6 +136,10 @@ export async function currentUser(): Promise<AuthUser | null> {
     await db().prepare("DELETE FROM sessions WHERE id = ?").bind(token).run();
     return null;
   }
+  // Access lockout: a valid session for a non-allowlisted user reads as
+  // signed-out. This cuts existing sessions the moment the lockout ships,
+  // not just future logins.
+  if (!userHasAccess(row.name, row.email)) return null;
   let role = row.role;
   // Owner safety net: if the account owner ever ends up as a plain member,
   // quietly restore their admin role so they can't be locked out.
@@ -163,6 +181,7 @@ export async function userFromRequest(request: Request): Promise<AuthUser | null
     .first<{ id: string; email: string; name: string; role: string; exp: string }>();
   if (!row) return null;
   if (new Date(row.exp).getTime() < Date.now()) return null;
+  if (!userHasAccess(row.name, row.email)) return null;
   return { id: row.id, email: row.email, name: row.name, role: row.role };
 }
 
@@ -186,6 +205,7 @@ export async function registerUser(input: {
     return { ok: false, error: "Password must be at least 8 characters." };
   if (input.code.trim() !== signupCode())
     return { ok: false, error: "That team access code is not correct." };
+  if (!userHasAccess(name, email)) return { ok: false, error: ACCESS_DENIED_MESSAGE };
 
   const existing = await db()
     .prepare("SELECT id FROM users WHERE email = ?")
@@ -212,12 +232,13 @@ export async function loginUser(input: {
 }): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
   const email = input.email.trim().toLowerCase();
   const row = await db()
-    .prepare("SELECT id, password_hash FROM users WHERE email = ?")
+    .prepare("SELECT id, name, password_hash FROM users WHERE email = ?")
     .bind(email)
-    .first<{ id: string; password_hash: string }>();
+    .first<{ id: string; name: string; password_hash: string }>();
   if (!row) return { ok: false, error: "Incorrect email or password." };
   const ok = await verifyPassword(input.password, row.password_hash);
   if (!ok) return { ok: false, error: "Incorrect email or password." };
+  if (!userHasAccess(row.name, email)) return { ok: false, error: ACCESS_DENIED_MESSAGE };
   const token = await createSession(row.id);
   return { ok: true, token };
 }
