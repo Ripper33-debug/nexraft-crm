@@ -760,9 +760,9 @@ function ArcadeDeck({
       {/* Mission strip */}
       <div className="flex flex-wrap items-center gap-3 border-b border-line bg-signal-soft/20 px-4 py-3">
         <Eyebrow>🎮 Today's mission</Eyebrow>
-        <div className="h-2 min-w-[120px] flex-1 overflow-hidden rounded-full bg-surface-2 shadow-[inset_0_1px_3px_rgba(0,0,0,0.12)]">
+        <div className="h-2 min-w-[120px] flex-1 overflow-hidden rounded-full bg-surface-2">
           <div
-            className="h-full rounded-full bg-signal shadow-[0_0_12px_rgba(24,24,27,0.4)] transition-[width] duration-500"
+            className="h-full rounded-full bg-signal transition-[width] duration-500"
             style={{ width: `${Math.max(2, pct)}%` }}
           />
         </div>

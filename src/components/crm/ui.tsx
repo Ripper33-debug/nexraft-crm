@@ -56,12 +56,12 @@ function CountUp({ value }: { value: string }) {
 
 type BtnVariant = "primary" | "outline" | "ghost" | "danger";
 const btnStyles: Record<BtnVariant, string> = {
-  // Flat, product-grade controls: solid fill, one hairline/shadow, a quiet
-  // press. No gradient or fake gloss — reads as legit software, not a demo.
+  // Flat, product-grade controls: solid fill, subtle shadow, quiet press.
+  // No gradients or glows — reads as enterprise software.
   primary:
-    "bg-signal text-ink hover:bg-signal-strong active:translate-y-px disabled:opacity-50 disabled:active:translate-y-0",
+    "bg-signal text-white hover:bg-signal-strong active:translate-y-px disabled:opacity-50 disabled:active:translate-y-0",
   outline:
-    "border border-line-strong bg-surface text-bone hover:border-signal/50 hover:bg-surface-2 active:translate-y-px disabled:opacity-50",
+    "border border-line bg-surface text-bone hover:bg-surface-2 active:translate-y-px disabled:opacity-50",
   ghost: "text-mute hover:bg-surface-2 hover:text-bone disabled:opacity-50",
   danger:
     "bg-red-500 text-white hover:bg-red-600 active:translate-y-px disabled:opacity-50",
@@ -82,7 +82,7 @@ export function Button({
       className={cx(
         // Clean controls: soft-rounded, sentence case, quiet press.
         // Buttons read as product infrastructure, not marketing speak.
-        "inline-flex items-center justify-center gap-2 rounded-lg font-medium tracking-[0.01em] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/40 focus-visible:ring-offset-2 focus-visible:ring-offset-ink",
+        "inline-flex items-center justify-center gap-2 rounded-md font-medium tracking-[0.01em] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/40 focus-visible:ring-offset-2 focus-visible:ring-offset-ink",
         size === "sm" ? "px-3 py-1.5 text-xs" : "px-4 py-2 text-sm",
         btnStyles[variant],
         className,
@@ -92,15 +92,6 @@ export function Button({
       {children}
     </button>
   );
-}
-
-// Shared pointer handler: feeds the cursor position into CSS vars so the
-// .nx-spot spotlight and .nx-edge border glow track the mouse (Ember Command).
-function trackPointer(e: React.PointerEvent<HTMLDivElement>) {
-  const el = e.currentTarget;
-  const r = el.getBoundingClientRect();
-  el.style.setProperty("--mx", `${e.clientX - r.left}px`);
-  el.style.setProperty("--my", `${e.clientY - r.top}px`);
 }
 
 export function Card({
@@ -114,40 +105,22 @@ export function Card({
       (projects board), not big page-width panels where tilt feels seasick. */
   tilt?: boolean;
 }) {
-  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    trackPointer(e);
-    if (!tilt) return;
-    const el = e.currentTarget;
-    const r = el.getBoundingClientRect();
-    const rx = ((e.clientY - r.top) / r.height - 0.5) * -4;
-    const ry = ((e.clientX - r.left) / r.width - 0.5) * 4;
-    el.style.transform = `perspective(800px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(-2px)`;
-  };
-  const onLeave = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (tilt) e.currentTarget.style.transform = "";
-  };
   return (
     <div
-      onPointerMove={onMove}
-      onPointerLeave={onLeave}
       className={cx(
-        tilt
-          ? "will-change-transform transition-[border-color,box-shadow,transform] duration-300"
-          : "transition-[border-color,box-shadow] duration-300",
-        "nx-spot rounded-xl border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.1),0_8px_24px_-16px_rgba(0,0,0,0.12)] hover:border-line-strong hover:shadow-[0_16px_40px_-14px_rgba(0,0,0,0.12)]",
+        "transition-[border-color,box-shadow] duration-300",
+        "rounded-md border border-line bg-surface shadow-sm hover:border-line-strong",
         className,
       )}
     >
-      <span className="nx-edge" aria-hidden="true" />
       {children}
     </div>
   );
 }
 
-// Uppercase mono label — the "technical / built like infrastructure" Nexraft feel.
 export function Eyebrow({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cx("font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-faint", className)}>
+    <div className={cx("text-xs font-medium text-mute", className)}>
       {children}
     </div>
   );
@@ -184,17 +157,13 @@ export function PageHeader({
     <div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-[1.7rem] font-semibold tracking-[-0.02em]">
-            {/* Clean sans-serif with signal accent period. */}
-            <span className="text-bone">{title}</span>
-            <span className="text-signal">.</span>
+          <h1 className="text-xl font-semibold tracking-tight text-bone">
+            {title}
           </h1>
           {subtitle ? <p className="mt-1 text-sm text-mute">{subtitle}</p> : null}
         </div>
         {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
       </div>
-      {/* Section seam: the site's signal sweep wipes across once on load. */}
-      <div className="nx-seam mt-3" aria-hidden="true" />
     </div>
   );
 }
@@ -213,40 +182,16 @@ export function SummaryCard({
   accent?: boolean;
   hint?: string;
 }) {
-  // Ember Command: KPI tiles tilt gently toward the cursor and light up where
-  // it points. Transform is driven inline so it never fights hover classes.
-  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    trackPointer(e);
-    const el = e.currentTarget;
-    const r = el.getBoundingClientRect();
-    const rx = ((e.clientY - r.top) / r.height - 0.5) * -6;
-    const ry = ((e.clientX - r.left) / r.width - 0.5) * 6;
-    el.style.transform = `perspective(700px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(-3px) scale(1.015)`;
-  };
-  const onLeave = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.style.transform = "";
-  };
   return (
     <div
-      onPointerMove={onMove}
-      onPointerLeave={onLeave}
       className={cx(
-        "nx-spot group relative overflow-hidden rounded-md border p-4 transition-[border-color,box-shadow,transform] duration-300 will-change-transform",
+        "relative overflow-hidden rounded-md border p-4 transition-[border-color,box-shadow] duration-300",
         accent
           ? // Accent variant: clean white emphasized card with subtle shadow.
-            "border-bone/20 bg-surface shadow-sm hover:shadow-md"
-          : "border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.1)] hover:border-line-strong hover:shadow-[0_12px_30px_-16px_rgba(0,0,0,0.15)]",
+            "border-line bg-surface shadow-sm hover:shadow-md"
+          : "border-line bg-surface shadow-sm hover:border-line-strong",
       )}
     >
-      <span className="nx-edge" aria-hidden="true" />
-      {/* Corner bracket — the quiet "instrument panel" tell. */}
-      <span
-        aria-hidden="true"
-        className={cx(
-          "pointer-events-none absolute right-0 top-0 h-2.5 w-2.5 border-r-2 border-t-2",
-          "border-line-strong",
-        )}
-      />
       <Eyebrow className="flex items-center">
         {label}
         {hint ? <InfoDot text={hint} /> : null}

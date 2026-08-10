@@ -49,24 +49,23 @@
   --font-display: "Geist", "Inter", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* ---- Nexraft palette — clean "Comp AI / shadcn" light theme (2026-08-10):
-   * pure white cards, very light gray canvas, subtle gray borders, compact
-   * sans-serif, near-black single accent. Token NAMES keep original meanings
+  /* ---- Nexraft palette — deep green accent, pure white cards, light gray canvas.
+   * Single accent color: #006b4f (deep green). Token NAMES keep original meanings
    * (ink = canvas, bone = primary text) so every component runs unchanged;
-   * only the VALUES moved to the light palette. */
-  --color-ink: #fafafa; /* app background base — very light gray canvas */
+   * only the VALUES are updated to the light, clean Comp AI palette. */
+  --color-ink: #ffffff; /* app background base — pure white */
   --color-surface: #ffffff; /* cards, modals — pure white */
-  --color-surface-2: #f4f4f5; /* inputs, hover rows — one step below */
-  --color-line: #e4e4e7; /* hairline borders — subtle gray */
+  --color-surface-2: #f4f4f4; /* inputs, hover rows — one step below */
+  --color-line: #e2e2e2; /* hairline borders — subtle gray */
   --color-line-strong: #d4d4d8; /* stronger dividers */
-  --color-bone: #09090b; /* primary text — near-black */
-  --color-mute: #52525b; /* secondary text — neutral gray */
-  --color-faint: #a1a1aa; /* tertiary / placeholders */
-  --color-signal: #18181b; /* clean near-black accent (single accent) */
-  --color-signal-strong: #000000; /* signal hover / pressed */
-  --color-signal-soft: #f4f4f5; /* tinted signal background */
-  --color-sunk: #f4f4f5; /* deepest recess (wells, insets) */
-  --color-signal-top: #3f3f46; /* light top-stop for gradients */
+  --color-bone: #171717; /* primary text — near-black */
+  --color-mute: #6b6b6b; /* secondary text — neutral gray */
+  --color-faint: #9a9a9a; /* tertiary / placeholders */
+  --color-signal: #006b4f; /* deep green accent (single accent) */
+  --color-signal-strong: #005a42; /* signal hover / pressed */
+  --color-signal-soft: #e6f2ee; /* tinted signal background */
+  --color-sunk: #f4f4f4; /* deepest recess (wells, insets) */
+  --color-signal-top: #338c70; /* light top-stop for gradients */
 }
 
 @theme inline {
@@ -116,11 +115,11 @@
 }
 
 :root {
-  --radius: 0.625rem;
+  --radius: 5px;
 
   /* ---- Flat clean canvas (light theme, no grain/glow) ---- */
   color-scheme: light;
-  --nx-body-bg: #fafafa;
+  --nx-body-bg: #ffffff;
   /* No glow — flat, clean, minimal visual noise. */
   --nx-body-glow: none;
   /* No grain — pure flat light surface. */
@@ -195,166 +194,6 @@
   animation: nx-rise 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Top-lit gradient sheen for display headings — lifted straight from
- * nexraft.com's .text-sheen so page titles carry the same premium depth. */
-.text-sheen {
-  background-image: linear-gradient(
-    180deg,
-    var(--color-bone) 0%,
-    color-mix(in srgb, var(--color-bone) 64%, var(--color-ink)) 100%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-}
-
-/* Section seam (site's .section-seam): a hairline that a signal-orange sweep
- * wipes across once when the page mounts. Pure decoration. */
-.nx-seam {
-  position: relative;
-  height: 2px;
-  overflow: hidden;
-  background: var(--color-line);
-}
-.nx-seam::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, var(--color-signal), transparent);
-  transform: translateX(-100%);
-  animation: nx-seam-sweep 1.15s cubic-bezier(0.16, 1, 0.3, 1) 0.15s forwards;
-}
-@keyframes nx-seam-sweep {
-  to {
-    transform: translateX(100%);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .nx-seam::after {
-    display: none;
-  }
-}
-
-/* Command Deck radar: conic sweep spinning inside concentric rings. The
-   sweep is its own layer so the rings/blips stay put. Whisper-subtle gray. */
-.nx-radar-sweep {
-  position: absolute;
-  inset: 0;
-  border-radius: 9999px;
-  background: conic-gradient(from 0deg, rgba(24, 24, 27, 0.2), transparent 70deg);
-  animation: nx-radar-spin 3.4s linear infinite;
-}
-@keyframes nx-radar-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Terminal caret for the dashboard's "// system message" greeting line. */
-.nx-caret::after {
-  content: "";
-  display: inline-block;
-  width: 7px;
-  height: 0.9em;
-  margin-left: 4px;
-  vertical-align: text-bottom;
-  background: var(--color-signal);
-  animation: nx-caret-blink 0.9s steps(1) infinite;
-}
-@keyframes nx-caret-blink {
-  50% {
-    opacity: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .nx-radar-sweep,
-  .nx-caret::after {
-    animation: none;
-  }
-}
 
 /* ---------------- Ember Command interaction layer ---------------- */
 
-/* Cursor-tracking spotlight: cards set --mx/--my from a pointermove handler and
- * this overlay lights the glass right where the cursor is. Whisper-subtle gray. */
-.nx-spot {
-  position: relative;
-}
-.nx-spot::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  opacity: 0;
-  transition: opacity 0.4s;
-  pointer-events: none;
-  z-index: 1;
-  background: radial-gradient(
-    340px circle at var(--mx, 50%) var(--my, 50%),
-    rgba(24, 24, 27, 0.03),
-    transparent 65%
-  );
-}
-.nx-spot:hover::after {
-  opacity: 1;
-}
-
-/* Glowing border that follows the cursor along the card edge. Whisper-subtle gray. */
-.nx-edge {
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1px;
-  opacity: 0;
-  transition: opacity 0.4s;
-  pointer-events: none;
-  z-index: 2;
-  background: radial-gradient(
-    240px circle at var(--mx, 50%) var(--my, 50%),
-    rgba(24, 24, 27, 0.15),
-    transparent 70%
-  );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-}
-.nx-spot:hover .nx-edge {
-  opacity: 1;
-}
-
-/* Hero KPI numeral: molten gradient — dark-to-signal with soft shadow. */
-.nx-molten {
-  background: linear-gradient(180deg, var(--color-bone), #3f3f46 90%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 14px rgba(24, 24, 27, 0.06));
-}
-
-/* Live ticker tape: edge-faded, pauses on hover. */
-.nx-ticker {
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
-}
-.nx-tape {
-  display: inline-flex;
-  gap: 52px;
-  white-space: nowrap;
-  animation: nx-tape 38s linear infinite;
-  will-change: transform;
-}
-.nx-ticker:hover .nx-tape {
-  animation-play-state: paused;
-}
-@keyframes nx-tape {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
-}
-
-/* Everything decorative respects reduced-motion. */
-@media (prefers-reduced-motion: reduce) {
-  .nx-tape { animation: none; }
-  .nx-spot::after, .nx-edge { display: none; }
-}

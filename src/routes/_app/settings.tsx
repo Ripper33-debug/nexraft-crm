@@ -84,7 +84,7 @@ function SettingsPage() {
                 <form method="post" action="/api/gmail/disconnect">
                   <button
                     type="submit"
-                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-line-strong bg-surface-2 px-3.5 py-2 text-sm font-semibold text-bone shadow-[0_1px_2px_rgba(0,0,0,0.08)] transition-all duration-150 hover:border-red-400/50 hover:text-red-700 active:translate-y-px"
+                    className="inline-flex items-center justify-center gap-1.5 rounded-md border border-line-strong bg-surface-2 px-3.5 py-2 text-sm font-semibold text-bone shadow-sm transition-all duration-150 hover:border-red-400/50 hover:text-red-700 active:translate-y-px"
                   >
                     Disconnect
                   </button>

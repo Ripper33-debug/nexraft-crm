@@ -94,7 +94,7 @@ function DiscoverPage() {
             <span
               className={
                 "inline-block h-2 w-2 rounded-full " +
-                (live ? "bg-signal shadow-[0_0_8px_rgba(249,110,60,0.9)]" : "bg-faint/40")
+                (live ? "bg-signal" : "bg-faint/40")
               }
             />
             <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.22em] text-bone">
@@ -124,7 +124,7 @@ function DiscoverPage() {
             className={
               "group absolute right-5 top-5 flex items-center gap-3 rounded-full border px-4 py-2 transition-all duration-300 " +
               (on
-                ? "border-signal/50 bg-signal-soft shadow-[0_0_24px_rgba(24,24,27,0.12)]"
+                ? "border-signal/50 bg-signal-soft"
                 : "border-line-strong bg-surface/80 hover:border-signal/40")
             }
           >

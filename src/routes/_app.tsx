@@ -310,7 +310,7 @@ function QuickAdd() {
         New
       </button>
       {open ? (
-        <div className="absolute right-0 z-[90] mt-2 w-64 overflow-hidden rounded-xl border border-line-strong bg-surface py-1 shadow-[0_16px_40px_-14px_rgba(0,0,0,0.25)]">
+        <div className="absolute right-0 z-[90] mt-2 w-64 overflow-hidden rounded-xl border border-line-strong bg-surface py-1 shadow-md">
           {items.map((i) => (
             <Link
               key={i.to}

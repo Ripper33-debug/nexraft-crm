@@ -155,9 +155,9 @@ function ProposalPage() {
               <div
                 key={p.id}
                 className={cx(
-                  "relative rounded-2xl border p-5",
+                  "relative rounded-xl border p-5",
                   hot
-                    ? "border-signal/60 bg-signal-soft shadow-[0_0_40px_rgba(24,24,27,0.08)]"
+                    ? "border-signal/60 bg-signal-soft"
                     : "border-line bg-surface",
                 )}
               >

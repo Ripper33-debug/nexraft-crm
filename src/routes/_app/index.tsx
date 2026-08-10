@@ -100,35 +100,6 @@ function TrendCard({
   );
 }
 
-// Live ticker tape — an editorial, stock-ticker style strip of the latest team
-// activity. Content is duplicated once so the -50% translate loop is seamless;
-// the .nx-ticker mask fades the edges and hovering pauses the tape. Decorative
-// (aria-hidden) — the full activity feed below remains the accessible record.
-function LiveTicker({ feed }: { feed: FeedRow[] }) {
-  const items = feed.slice(0, 12);
-  if (items.length < 3) return null;
-  const tape = (keyPrefix: string) =>
-    items.map((e) => (
-      <span key={`${keyPrefix}-${e.id}`} className="inline-flex items-center gap-2 text-xs">
-        <span
-          className="h-1.5 w-1.5 rounded-full"
-          style={{ backgroundColor: feedDot(e.verb) }}
-        />
-        <span className="font-mono uppercase tracking-wider text-faint">
-          {relativeTime(e.created_at)}
-        </span>
-        <span className="text-mute">{e.summary}</span>
-      </span>
-    ));
-  return (
-    <div className="nx-ticker mt-4 border-y border-line/60 py-2" aria-hidden="true">
-      <div className="nx-tape">
-        {tape("a")}
-        {tape("b")}
-      </div>
-    </div>
-  );
-}
 
 // A time-of-day greeting. Computed after mount so SSR and client agree.
 function useGreeting(): string {
@@ -174,7 +145,7 @@ function MyDayBanner({
   const caughtUp = parts.length === 0;
 
   return (
-    <Card className="mt-5 flex flex-wrap items-center justify-between gap-3 border-signal/25 bg-gradient-to-br from-signal-soft/40 via-surface to-surface p-4">
+    <Card className="mt-5 flex flex-wrap items-center justify-between gap-3 p-4">
       <div className="flex min-w-0 items-center gap-3">
         <span className="text-xl">{caughtUp ? "✅" : "🌅"}</span>
         <div className="min-w-0">
@@ -190,7 +161,7 @@ function MyDayBanner({
       </div>
       <Link
         to="/today"
-        className="shrink-0 rounded-lg bg-signal px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-signal-strong"
+        className="shrink-0 rounded-md bg-signal px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-signal-strong"
       >
         Open My Day →
       </Link>
@@ -237,18 +208,9 @@ function Dashboard() {
             <span className="text-bone">
               {greeting}, {firstName}
             </span>
-            <span className="text-signal">.</span>
           </h1>
-          {/* Terminal-style system line with a blinking caret — Command Deck. */}
-          <p className="nx-caret mt-2 font-mono text-xs tracking-wide text-faint">
-            <span className="text-signal">{"// "}</span>
-            here's how your team's pipeline is tracking
-          </p>
         </div>
-        <Radar />
       </div>
-
-      <LiveTicker feed={d.feed as FeedRow[]} />
 
       {d.coo ? <CooBriefing flags={d.coo.flags} /> : null}
 
@@ -771,33 +733,6 @@ const WEEKLY_GOALS = { calls: 50, emails: 15, wins: 1 };
 // A winnable daily slice of the call pool for the Today card.
 const DAILY_CALL_TARGET = 20;
 
-// Command Deck radar: decorative sweep with lead "blips" — pure theatre, but
-// it sells the mission-control feel the moment the dashboard opens.
-function Radar() {
-  const blips: [string, string][] = [
-    ["30%", "60%"],
-    ["62%", "38%"],
-    ["48%", "72%"],
-    ["70%", "58%"],
-  ];
-  return (
-    <div
-      aria-hidden="true"
-      className="relative hidden h-28 w-28 shrink-0 overflow-hidden rounded-full border border-signal/25 bg-[radial-gradient(circle,rgba(24,24,27,0.03),transparent_70%)] md:block"
-    >
-      <span className="absolute inset-[25%] rounded-full border border-signal/15" />
-      <span className="absolute inset-[45%] rounded-full border border-signal/10" />
-      <span className="nx-radar-sweep" />
-      {blips.map(([top, left], i) => (
-        <span
-          key={i}
-          className="absolute h-1 w-1 rounded-full bg-signal shadow-[0_0_6px_rgba(24,24,27,0.4)]"
-          style={{ top, left }}
-        />
-      ))}
-    </div>
-  );
-}
 
 function Leaderboard({ rows }: { rows: LeaderboardRow[] }) {
   // Only rank reps who've done something — a wall of 0-0-0 rows is dead
@@ -832,8 +767,8 @@ function Leaderboard({ rows }: { rows: LeaderboardRow[] }) {
                   <div
                     className={
                       callPct >= 100
-                        ? "h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.55)] transition-[width] duration-700 ease-out"
-                        : "h-full rounded-full bg-signal shadow-[0_0_10px_rgba(24,24,27,0.3)] transition-[width] duration-700 ease-out"
+                        ? "h-full rounded-full bg-emerald-500 transition-[width] duration-700 ease-out"
+                        : "h-full rounded-full bg-signal transition-[width] duration-700 ease-out"
                     }
                     style={{ width: `${Math.max(2, callPct)}%` }}
                   />
@@ -866,9 +801,9 @@ function Leaderboard({ rows }: { rows: LeaderboardRow[] }) {
 function CooBriefing({ flags }: { flags: CooFlag[] }) {
   if (flags.length === 0) {
     return (
-      <Card className="mt-5 border-emerald-500/25">
+      <Card className="mt-5">
         <div className="flex items-center gap-2.5">
-          <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+          <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
           <Eyebrow>Needs your attention</Eyebrow>
           <span className="text-sm text-mute">Nothing. Reps active, leads worked, projects moving, invoices current.</span>
         </div>
@@ -876,10 +811,10 @@ function CooBriefing({ flags }: { flags: CooFlag[] }) {
     );
   }
   return (
-    <Card className="mt-5 border-signal/30">
+    <Card className="mt-5">
       <div className="flex items-center justify-between">
         <Eyebrow>Needs your attention</Eyebrow>
-        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-faint">
+        <span className="text-[11px] text-faint">
           {flags.length} item{flags.length === 1 ? "" : "s"}
         </span>
       </div>
@@ -889,7 +824,7 @@ function CooBriefing({ flags }: { flags: CooFlag[] }) {
             <span
               className={
                 "mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full " +
-                (f.severity === "red" ? "bg-red-500 shadow-[0_0_6px_rgba(248,113,113,0.8)]" : "bg-amber-300")
+                (f.severity === "red" ? "bg-red-500" : "bg-amber-300")
               }
             />
             <span className={f.severity === "red" ? "text-bone" : "text-mute"}>{f.text}</span>

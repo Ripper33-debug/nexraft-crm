@@ -212,7 +212,7 @@ export function USStatePicker({
               className={
                 "relative inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors " +
                 (isSel
-                  ? "border-signal bg-signal text-white shadow-[0_0_10px_rgba(24,24,27,0.3)]"
+                  ? "border-signal bg-signal text-white"
                   : "border-black/5 bg-surface-2 text-bone hover:border-signal/50 hover:bg-surface-3") +
                 (isScan && !isSel ? " border-signal/80 ring-1 ring-signal/60" : "")
               }
