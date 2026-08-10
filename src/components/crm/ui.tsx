@@ -157,7 +157,7 @@ export function PageHeader({
     <div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-bone">
+          <h1 className="text-2xl font-medium tracking-tight md:text-3xl text-bone">
             {title}
           </h1>
           {subtitle ? <p className="mt-1 text-sm text-mute">{subtitle}</p> : null}

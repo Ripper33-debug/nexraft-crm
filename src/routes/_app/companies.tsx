@@ -360,7 +360,7 @@ function CompaniesPage() {
   }, [companies, tagFilter, ownerFilter, callFilter, needFilter, needs]);
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
       <PageHeader
         title="Companies"
         subtitle={`${(companies as Row[]).length} accounts · ${needs.withReason} with a real reason to call · ${(companies as Row[]).filter((c) => Number(c.email_contacts ?? 0) > 0).length} with an email on file`}

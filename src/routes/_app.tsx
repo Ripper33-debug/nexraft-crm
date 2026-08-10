@@ -5,7 +5,7 @@ import { getMe, getFollowupCount, getDueTaskCount } from "../lib/crm/data";
 import { Avatar } from "../components/crm/ui";
 import { CommandPalette, CommandPaletteTrigger } from "../components/crm/command-palette";
 import { NotificationBell } from "../components/crm/notifications";
-import { Wordmark } from "../components/crm/brand";
+import { Wordmark, LogoMark } from "../components/crm/brand";
 import { Toaster } from "../components/crm/toast";
 import { WelcomeTour } from "../components/crm/tour";
 import { AutoDiscovery } from "../components/crm/auto-discovery";
@@ -329,6 +329,105 @@ function QuickAdd() {
   );
 }
 
+// Helper components for icon-only nav rail
+function NavIcon({ item, active, badge }: { item: NavItem; active: boolean; badge?: number }) {
+  return (
+    <Link
+      to={item.to}
+      title={item.label}
+      className={
+        "relative flex size-9 items-center justify-center rounded-md transition-colors duration-150 " +
+        (active
+          ? "bg-surface-2 text-bone"
+          : "text-mute hover:bg-surface-2 hover:text-bone")
+      }
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d={item.icon} />
+      </svg>
+      <span className="sr-only">{item.label}</span>
+      {badge && badge > 0 ? (
+        <span
+          className="absolute -right-0.5 -top-0.5 rounded-full bg-signal px-1 text-[9px] font-semibold text-white"
+          title={`${badge} thing${badge === 1 ? "" : "s"} waiting on you here`}
+        >
+          {badge > 99 ? "99+" : badge}
+        </span>
+      ) : null}
+    </Link>
+  );
+}
+
+function NavRail({
+  pathname,
+  isAdmin,
+  followupCount,
+  taskCount,
+}: {
+  pathname: string;
+  isAdmin: boolean;
+  followupCount: number;
+  taskCount: number;
+}) {
+  return (
+    <nav aria-label="Primary" className="hidden w-14 shrink-0 flex-col items-center gap-1 border-r border-line py-3 md:flex">
+      {NAV_GROUPS.map((group, gi) => {
+        const items = group.items.filter((item) => !item.admin || isAdmin);
+        if (items.length === 0) return null;
+        return (
+          <div key={gi} className="flex flex-col gap-1">
+            {items.map((item) => {
+              const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
+              const badge = item.badgeKey === "followups" ? followupCount : item.badgeKey === "tasks" ? taskCount : undefined;
+              return <NavIcon key={item.to} item={item} active={active} badge={badge} />;
+            })}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
+// User menu trigger — compact avatar button for the top-right
+function UserMenuTrigger() {
+  const { user } = Route.useLoaderData();
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [open]);
+  return (
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex size-7 items-center justify-center rounded-full text-mute hover:bg-surface-2 hover:text-bone"
+        title="User menu"
+      >
+        <Avatar name={user.name} size={28} />
+      </button>
+      {open ? (
+        <div className="absolute right-0 z-[90] mt-2 w-48 overflow-hidden rounded-md border border-line bg-surface py-1 shadow-sm">
+          <div className="px-3 py-2">
+            <div className="text-sm font-medium text-bone">{user.name}</div>
+            <div className="text-xs text-mute">{user.email}</div>
+          </div>
+          <div className="border-t border-line" />
+          <form method="post" action="/api/auth/logout">
+            <button className="flex w-full items-center gap-2 px-3 py-2 text-sm text-mute transition-colors hover:bg-surface-2 hover:text-bone">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
+              </svg>
+              Sign out
+            </button>
+          </form>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function AppLayout() {
   const { user, followupCount, taskCount } = Route.useLoaderData();
   const pathname = useLocation().pathname;
@@ -361,140 +460,113 @@ function AppLayout() {
   }, []);
 
   return (
-    <div className="flex min-h-dvh bg-ink">
+    <div className="isolate flex h-svh flex-col bg-ink">
       <Embers />
       <RouteProgress />
       <Toaster />
       <AutoDiscovery />
       <WelcomeTour name={user.name} />
       <CommandPalette isAdmin={isAdmin} />
-      {/* Sidebar (desktop) */}
-      {/* Light sidebar: white background with right hairline border for definition. */}
-      <aside className="hidden w-60 flex-col border-r border-line bg-surface md:flex">
-        <div className="border-b border-line px-5 py-4">
-          <Wordmark />
-        </div>
-        <nav className="flex flex-1 flex-col gap-1 px-3 py-2">
-          <NavLinks pathname={pathname} isAdmin={isAdmin} followupCount={followupCount} taskCount={taskCount} />
-        </nav>
-        <div className="border-t border-line px-3 py-3">
-          <div className="flex items-center gap-2.5 px-2 pb-2">
-            <Avatar name={user.name} size={30} />
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="truncate text-sm font-medium text-bone">{user.name}</span>
-                {isAdmin ? (
-                  <span className="rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider text-bone">
-                    Admin
-                  </span>
-                ) : null}
-              </div>
-              <div className="truncate text-xs text-mute">{user.email}</div>
-            </div>
-          </div>
-          <form method="post" action="/api/auth/logout">
-            <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-mute hover:bg-surface-2 hover:text-bone">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
-              </svg>
-              Sign out
-            </button>
-          </form>
-        </div>
-      </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* Desktop top bar with global search */}
-        <header className="hidden items-center gap-4 border-b border-line bg-surface/80 px-6 py-2.5 backdrop-blur md:flex">
+      {/* Full-width top header */}
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-surface px-3">
+        {/* Mobile hamburger */}
+        <button
+          onClick={() => setMenuOpen(true)}
+          aria-label="Open menu"
+          className="flex md:hidden h-9 w-9 items-center justify-center rounded-lg text-mute hover:bg-surface-2 hover:text-bone"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 12h18M3 6h18M3 18h18" />
+          </svg>
+        </button>
+
+        {/* Logo and app name */}
+        <Link to="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+          <LogoMark size={24} radius={6} />
+          <span className="min-w-0 truncate text-sm font-medium">Nexraft</span>
+        </Link>
+
+        {/* Right side controls */}
+        <div className="ml-auto flex items-center gap-1.5">
           <CommandPaletteTrigger />
-          <div className="ml-auto flex items-center gap-4">
-            <StatusStrip />
-            <QuickAdd />
-            <NotificationBell />
-          </div>
-        </header>
-
-        {/* Mobile top bar */}
-        <header className="flex items-center justify-between border-b border-line bg-surface px-4 py-3 md:hidden">
-          <button
-            onClick={() => setMenuOpen(true)}
-            aria-label="Open menu"
-            className="-ml-1 flex h-9 w-9 items-center justify-center rounded-lg text-mute hover:bg-surface-2 hover:text-bone"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 12h18M3 6h18M3 18h18" />
-            </svg>
-          </button>
-          <Wordmark small />
-          <div className="flex items-center gap-2">
-            <QuickAdd />
-            <NotificationBell />
-          </div>
-        </header>
-        <div className="border-b border-line bg-surface px-3 py-2 md:hidden">
-          <CommandPaletteTrigger />
+          <NotificationBell />
+          <UserMenuTrigger />
         </div>
+      </header>
 
-        {/* Mobile slide-in drawer */}
-        {menuOpen ? (
-          <div className="fixed inset-0 z-[120] md:hidden">
-            <div
-              onClick={() => setMenuOpen(false)}
-              className="absolute inset-0 bg-black/30 backdrop-blur-sm"
-              style={{ animation: "nx-fade-in 150ms ease-out" }}
-            />
-            <div
-              className="absolute inset-y-0 left-0 flex w-[82%] max-w-xs flex-col border-r border-line bg-surface shadow-sm"
-              style={{ animation: "nx-drawer-in 200ms ease-out" }}
-            >
-              <div className="flex items-center justify-between border-b border-line px-5 py-4">
-                <Wordmark />
-                <button
-                  onClick={() => setMenuOpen(false)}
-                  aria-label="Close menu"
-                  className="flex h-8 w-8 items-center justify-center rounded-lg text-mute hover:bg-surface-2 hover:text-bone"
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 6L6 18M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-3">
-                <NavLinks pathname={pathname} isAdmin={isAdmin} followupCount={followupCount} taskCount={taskCount} onNavigate={() => setMenuOpen(false)} />
-              </nav>
-              <div className="border-t border-line px-3 py-3">
-                <div className="flex items-center gap-2.5 px-2 pb-2">
-                  <Avatar name={user.name} size={30} />
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="truncate text-sm font-medium text-bone">{user.name}</span>
-                      {isAdmin ? (
-                        <span className="rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider text-bone">
-                          Admin
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="truncate text-xs text-mute">{user.email}</div>
-                  </div>
-                </div>
-                <form method="post" action="/api/auth/logout">
-                  <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-mute hover:bg-surface-2 hover:text-bone">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
-                    </svg>
-                    Sign out
-                  </button>
-                </form>
-              </div>
-            </div>
-            <style>{`@keyframes nx-fade-in{from{opacity:0}to{opacity:1}}@keyframes nx-drawer-in{from{transform:translateX(-100%)}to{transform:translateX(0)}}`}</style>
-          </div>
-        ) : null}
+      <div className="flex min-h-0 flex-1">
+        {/* Icon rail (desktop) */}
+        <NavRail pathname={pathname} isAdmin={isAdmin} followupCount={followupCount} taskCount={taskCount} />
 
-        <main className="flex-1 overflow-x-hidden">
+        {/* Main content area */}
+        <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
           <Outlet />
         </main>
       </div>
+
+      {/* Mobile slide-in drawer */}
+      {menuOpen ? (
+        <div className="fixed inset-0 z-[120] md:hidden">
+          <div
+            onClick={() => setMenuOpen(false)}
+            className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+            style={{ animation: "nx-fade-in 150ms ease-out" }}
+          />
+          <div
+            className="absolute inset-y-0 left-0 flex w-[82%] max-w-xs flex-col border-r border-line bg-surface shadow-sm"
+            style={{ animation: "nx-drawer-in 200ms ease-out" }}
+          >
+            <div className="flex items-center justify-between border-b border-line px-5 py-4">
+              <Link to="/" className="flex items-center gap-2">
+                <LogoMark size={28} radius={7} />
+                <div className="leading-tight">
+                  <div className="font-display text-[15px] font-semibold tracking-[-0.01em]">
+                    Nexraft<span style={{ color: "#006b4f" }}>.</span>
+                  </div>
+                </div>
+              </Link>
+              <button
+                onClick={() => setMenuOpen(false)}
+                aria-label="Close menu"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-mute hover:bg-surface-2 hover:text-bone"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-3">
+              <NavLinks pathname={pathname} isAdmin={isAdmin} followupCount={followupCount} taskCount={taskCount} onNavigate={() => setMenuOpen(false)} />
+            </nav>
+            <div className="border-t border-line px-3 py-3">
+              <div className="flex items-center gap-2.5 px-2 pb-2">
+                <Avatar name={user.name} size={30} />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-sm font-medium text-bone">{user.name}</span>
+                    {isAdmin ? (
+                      <span className="rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider text-bone">
+                        Admin
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="truncate text-xs text-mute">{user.email}</div>
+                </div>
+              </div>
+              <form method="post" action="/api/auth/logout">
+                <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-mute hover:bg-surface-2 hover:text-bone">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
+                  </svg>
+                  Sign out
+                </button>
+              </form>
+            </div>
+          </div>
+          <style>{`@keyframes nx-fade-in{from{opacity:0}to{opacity:1}}@keyframes nx-drawer-in{from{transform:translateX(-100%)}to{transform:translateX(0)}}`}</style>
+        </div>
+      ) : null}
     </div>
   );
 }
