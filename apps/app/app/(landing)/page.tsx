@@ -18,6 +18,8 @@ export const metadata: Metadata = {
 		"The first agentic CRM experience — durable research agents that read your inbox, keep every record current and book their own follow-ups.",
 };
 
+export const instant = false;
+
 export default async function Home() {
 	await connection();
 
