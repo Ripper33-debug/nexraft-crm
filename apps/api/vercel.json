@@ -3,7 +3,7 @@
 	"crons": [
 		{
 			"path": "/internal/sync/mailboxes",
-			"schedule": "*/5 * * * *"
+			"schedule": "0 3 * * *"
 		},
 		{
 			"path": "/internal/sync/rates",

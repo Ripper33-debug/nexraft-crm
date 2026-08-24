@@ -17,6 +17,12 @@ const workspaceRoot = dirname(dirname(apiDir));
 const outDir = join(apiDir, ".vercel/output");
 const funcDir = join(outDir, "functions/api/index.func");
 const bun = process.env.BUN_BIN || "bun";
+const projectVercelConfig = JSON.parse(
+	readFileSync(join(apiDir, "vercel.json"), "utf8"),
+);
+const crons = Array.isArray(projectVercelConfig.crons)
+	? projectVercelConfig.crons
+	: [];
 
 const EXTERNALS = [
 	"@nestjs/microservices",
@@ -42,6 +48,7 @@ const VENDOR_ROOTS = [
 
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(funcDir, { recursive: true });
+mkdirSync(join(outDir, "static"), { recursive: true });
 
 console.log("• bundling function with bun build...");
 execSync(
@@ -177,14 +184,7 @@ writeFileSync(
 	JSON.stringify({
 		version: 3,
 		routes: [{ src: "/(.*)", dest: "/api/index" }],
-		crons: [
-			{ path: "/internal/sync/mailboxes", schedule: "*/5 * * * *" },
-			{ path: "/internal/sync/google", schedule: "*/5 * * * *" },
-			{ path: "/internal/sync/rates", schedule: "0 6 * * *" },
-			{ path: "/internal/telemetry/rollup", schedule: "0 7 * * *" },
-			{ path: "/internal/tracking/retention", schedule: "0 4 * * *" },
-			{ path: "/internal/archive/prune", schedule: "0 5 * * *" },
-		],
+		...(crons.length > 0 ? { crons } : {}),
 	}),
 );
 
