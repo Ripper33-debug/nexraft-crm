@@ -28,6 +28,10 @@ import type { RouterOutputs } from "@/lib/trpc/types";
 import { callsSearchParams } from "./calls-search-params";
 
 type CompanyRow = RouterOutputs["companies"]["list"]["rows"][number];
+type CallTarget = {
+	label: string | null;
+	phone: string | null;
+};
 
 function contactName(contact: CompanyRow["primaryContact"]): string | null {
 	if (!contact) return null;
@@ -35,10 +39,7 @@ function contactName(contact: CompanyRow["primaryContact"]): string | null {
 	return name || contact.email || null;
 }
 
-function callTarget(row: CompanyRow): {
-	label: string | null;
-	phone: string | null;
-} {
+function callTarget(row: CompanyRow): CallTarget {
 	return {
 		label: contactName(row.primaryContact) ?? row.email,
 		phone: row.primaryContact?.phone ?? row.phone,
