@@ -172,11 +172,6 @@ writeFileSync(
 		runtime: "nodejs22.x",
 		handler: "index.mjs",
 		launcherType: "Nodejs",
-		shouldAddHelpers: false,
-		maxDuration: 60,
-		memory: 1769,
-		environment: { NODE_ENV: "production" },
-		regions: ["iad1"],
 	}),
 );
 writeFileSync(
