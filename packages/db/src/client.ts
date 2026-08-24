@@ -1,11 +1,13 @@
 import "@crm/env/load";
 
 import { PrismaPg } from "@prisma/adapter-pg";
-import { databaseUrlWithSchema } from "./database-url";
+import { databaseSchema, databaseUrlWithSchema } from "./database-url";
 import { type Prisma, PrismaClient } from "./generated/prisma/client";
 
 const connectionString =
 	process.env.NODE_ENV === "test" ? testDatabase() : liveDatabase();
+const schema =
+	process.env.NODE_ENV === "test" ? undefined : databaseSchema();
 
 function liveDatabase(): string {
 	const url = process.env.DATABASE_URL;
@@ -101,7 +103,10 @@ const logDefinitions: Prisma.LogDefinition[] = [
 
 const createPrismaClient = () => {
 	const client = new PrismaClient({
-		adapter: new PrismaPg({ connectionString }),
+		adapter: new PrismaPg(
+			{ connectionString },
+			schema ? { schema } : undefined,
+		),
 		log: logDefinitions,
 	});
 
