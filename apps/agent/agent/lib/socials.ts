@@ -183,7 +183,7 @@ async function fetchGithubUser(
 	const token = process.env.GITHUB_TOKEN;
 	const headers = new Headers({
 		accept: "application/vnd.github+json",
-		"user-agent": "comp-ai-crm-research-agent",
+		"user-agent": "nexraft-crm-research-agent",
 	});
 	if (token) headers.set("authorization", `Bearer ${token}`);
 
