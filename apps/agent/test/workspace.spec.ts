@@ -11,21 +11,21 @@ import { composeClosing } from "../agent/lib/preamble";
 import { usMarkdown, type WorkspaceIdentity } from "../agent/lib/workspace";
 
 const profile: WorkspaceProfile = {
-	website: "trycomp.ai",
+	website: "nexraft.com",
 	narrative:
-		"Comp AI takes a startup from nothing to a SOC 2 or ISO 27001 audit by automating the evidence collection, and sells the platform on an annual subscription.",
+		"Nexraft takes a startup from nothing to a SOC 2 or ISO 27001 audit by automating the evidence collection, and sells the platform on an annual subscription.",
 	sections: {
 		sells: "Compliance automation for SOC 2, ISO 27001 and GDPR",
 		sellsTo: "Series A to C startups facing their first framework audit",
 		edge: "Getting there in weeks rather than months",
 	},
-	sourceUrl: "https://trycomp.ai",
+	sourceUrl: "https://nexraft.com",
 	refreshedAt: new Date("2026-08-01T00:00:00.000Z"),
 };
 
 const us: WorkspaceIdentity = {
-	name: "Comp AI",
-	website: "trycomp.ai",
+	name: "Nexraft",
+	website: "nexraft.com",
 	profile,
 };
 
@@ -36,20 +36,20 @@ describe("who we are", () => {
 
 	it("names us, and refuses to invent the rest", () => {
 		const markdown = usMarkdown({
-			name: "Comp AI",
-			website: "trycomp.ai",
+			name: "Nexraft",
+			website: "nexraft.com",
 			profile: null,
 		});
 
-		expect(markdown).toContain("Comp AI");
-		expect(markdown).toContain("trycomp.ai");
+		expect(markdown).toContain("Nexraft");
+		expect(markdown).toContain("nexraft.com");
 		expect(markdown).toContain("do not guess");
 	});
 
 	it("states what we sell and who to", () => {
 		const markdown = usMarkdown(us);
 
-		expect(markdown).toContain("Comp AI");
+		expect(markdown).toContain("Nexraft");
 		expect(markdown).toContain("takes a startup from nothing");
 		expect(markdown).toContain("Compliance automation");
 		expect(markdown).toContain("Series A to C startups");
@@ -103,7 +103,7 @@ describe("every session is told who we are", () => {
 
 describe("a profile belongs to the website it was read from", () => {
 	it("is ours while the website is unchanged", () => {
-		expect(profileOf(profile, "trycomp.ai")).toBe(profile);
+		expect(profileOf(profile, "nexraft.com")).toBe(profile);
 	});
 
 	it("is dropped the moment the website changes", () => {
@@ -117,18 +117,20 @@ describe("a profile belongs to the website it was read from", () => {
 
 describe("the website has to be somewhere a fetch can go", () => {
 	it("takes a bare domain and gives back a URL", () => {
-		expect(websiteUrl("trycomp.ai")).toBe("https://trycomp.ai");
-		expect(websiteUrl(" WWW.Trycomp.ai/ ")).toBe("https://www.trycomp.ai");
+		expect(websiteUrl("nexraft.com")).toBe("https://nexraft.com");
+		expect(websiteUrl(" WWW.Trycomp.ai/ ")).toBe("https://www.nexraft.com");
 	});
 
 	it("keeps a scheme it can fetch, and a path that means something", () => {
-		expect(websiteUrl("http://trycomp.ai")).toBe("http://trycomp.ai");
-		expect(websiteUrl("https://trycomp.ai/uk/")).toBe("https://trycomp.ai/uk");
+		expect(websiteUrl("http://nexraft.com")).toBe("http://nexraft.com");
+		expect(websiteUrl("https://nexraft.com/uk/")).toBe(
+			"https://nexraft.com/uk",
+		);
 	});
 
 	it("refuses anything that is not a web address", () => {
 		for (const input of [
-			"httpx://trycomp.ai",
+			"httpx://nexraft.com",
 			"javascript:alert(1)",
 			"file:///etc/passwd",
 			"not a website",

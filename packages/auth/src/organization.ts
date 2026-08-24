@@ -3,7 +3,7 @@ import { WORKSPACE_ID, workspaceSlug } from "@crm/db/workspace";
 
 export { WORKSPACE_ID };
 
-export const DEFAULT_WORKSPACE_NAME = "CRM";
+export const DEFAULT_WORKSPACE_NAME = "Nexraft";
 
 export const WORKSPACE_ROLES = ["owner", "admin", "member"] as const;
 

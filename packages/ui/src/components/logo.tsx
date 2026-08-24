@@ -7,7 +7,7 @@ const Logo = (props: React.SVGProps<SVGSVGElement>) => (
 		height={512}
 		viewBox="0 0 512 512"
 		fill="none"
-		aria-label="Comp AI Logo"
+		aria-label="Nexraft Logo"
 		{...props}
 	>
 		<path

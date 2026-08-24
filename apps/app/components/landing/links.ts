@@ -1,4 +1,4 @@
-export const REPO_URL = "https://github.com/trycompai/crm";
+export const REPO_URL = "https://github.com/Ripper33-debug/nexraft-crm";
 export const REPO_STARS = "4.4k";
 
 export const REPO_LINKS = [

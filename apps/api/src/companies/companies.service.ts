@@ -98,6 +98,8 @@ export class CompaniesService {
 					id: true,
 					name: true,
 					domain: true,
+					phone: true,
+					email: true,
 					iconUrl: true,
 					iconDarkUrl: true,
 					iconTone: true,
@@ -107,6 +109,16 @@ export class CompaniesService {
 					enrichmentStatus: true,
 					source: true,
 					owner: { select: OWNER_SELECT },
+					primaryContact: {
+						select: {
+							id: true,
+							firstName: true,
+							lastName: true,
+							email: true,
+							phone: true,
+							title: true,
+						},
+					},
 					_count: {
 						select: {
 							contacts: true,
@@ -133,6 +145,8 @@ export class CompaniesService {
 				id: row.id,
 				name: row.name,
 				domain: row.domain,
+				phone: row.phone,
+				email: row.email,
 				iconUrl: row.iconUrl,
 				iconDarkUrl: row.iconDarkUrl,
 				iconTone: row.iconTone,
@@ -143,6 +157,7 @@ export class CompaniesService {
 				queued: queued.has(row.id),
 				source: row.source,
 				owner: row.owner,
+				primaryContact: row.primaryContact,
 				contactCount: row._count.contacts,
 				openDealCount: row._count.deals,
 				lastActivityAt: row.lastActivityAt?.toISOString() ?? null,

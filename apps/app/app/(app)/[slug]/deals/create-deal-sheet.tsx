@@ -147,7 +147,7 @@ function CreateDealForm({ companyId }: { companyId?: string }) {
 								id={nameId}
 								value={name}
 								onChange={(event) => setName(event.target.value)}
-								placeholder="Stripe — Comp AI"
+								placeholder="Stripe — Nexraft"
 								autoComplete="off"
 								required
 							/>

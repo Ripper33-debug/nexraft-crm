@@ -88,6 +88,15 @@ const ownerSummaryOutput = z.object({
 	image: z.string().nullable(),
 });
 
+const companyRowPrimaryContactOutput = z.object({
+	id: z.string(),
+	firstName: z.string(),
+	lastName: z.string().nullable(),
+	email: z.string().nullable(),
+	phone: z.string().nullable(),
+	title: z.string().nullable(),
+});
+
 const companyFieldOptionOutput = z.object({
 	id: z.string(),
 	label: z.string(),
@@ -117,6 +126,8 @@ export const companyRowOutput = z.object({
 	id: z.string(),
 	name: z.string(),
 	domain: z.string().nullable(),
+	phone: z.string().nullable(),
+	email: z.string().nullable(),
 	iconUrl: z.string().nullable(),
 	iconDarkUrl: z.string().nullable(),
 	iconTone: z.string().nullable(),
@@ -127,6 +138,7 @@ export const companyRowOutput = z.object({
 	queued: z.boolean(),
 	source: companyRecordSource,
 	owner: ownerSummaryOutput.nullable(),
+	primaryContact: companyRowPrimaryContactOutput.nullable(),
 	contactCount: z.number(),
 	openDealCount: z.number(),
 	lastActivityAt: z.string().nullable(),
