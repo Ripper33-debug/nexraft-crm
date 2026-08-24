@@ -15,9 +15,9 @@ describe("databaseUrlWithSchema", () => {
 	it("leaves the URL alone when no deployment schema is set", () => {
 		delete process.env.DATABASE_SCHEMA;
 
-		expect(databaseUrlWithSchema("postgresql://db.test/crm?schema=public")).toBe(
-			"postgresql://db.test/crm?schema=public",
-		);
+		expect(
+			databaseUrlWithSchema("postgresql://db.test/crm?schema=public"),
+		).toBe("postgresql://db.test/crm?schema=public");
 	});
 
 	it("overrides an integration-provided schema when a deployment schema is set", () => {
@@ -39,6 +39,8 @@ describe("databaseUrlWithSchema", () => {
 			),
 		);
 
-		expect(result.searchParams.get("options")).toBe("-c statement_timeout=5000");
+		expect(result.searchParams.get("options")).toBe(
+			"-c statement_timeout=5000",
+		);
 	});
 });

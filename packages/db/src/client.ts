@@ -6,8 +6,7 @@ import { type Prisma, PrismaClient } from "./generated/prisma/client";
 
 const connectionString =
 	process.env.NODE_ENV === "test" ? testDatabase() : liveDatabase();
-const schema =
-	process.env.NODE_ENV === "test" ? undefined : databaseSchema();
+const schema = process.env.NODE_ENV === "test" ? undefined : databaseSchema();
 
 function liveDatabase(): string {
 	const url = process.env.DATABASE_URL;
