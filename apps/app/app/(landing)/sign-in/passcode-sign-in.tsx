@@ -8,6 +8,14 @@ import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useId, useState } from "react";
 import { toast } from "sonner";
+import { z } from "zod";
+
+const errorResponse = z
+	.object({
+		message: z.string().optional(),
+		error: z.string().optional(),
+	})
+	.passthrough();
 
 export function PasscodeSignIn() {
 	const id = useId();
@@ -31,14 +39,10 @@ export function PasscodeSignIn() {
 		});
 
 		if (!response.ok) {
-			const body = await response.json().catch(() => null);
-			fail(
-				typeof body?.message === "string"
-					? body.message
-					: typeof body?.error === "string"
-						? body.error
-						: undefined,
+			const body = errorResponse.safeParse(
+				await response.json().catch(() => null),
 			);
+			fail(body.success ? (body.data.message ?? body.data.error) : undefined);
 			return;
 		}
 

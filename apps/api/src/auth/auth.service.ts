@@ -191,10 +191,10 @@ export class AuthService {
 	}
 
 	private async failedPasscodeAttempts(ipAddress: string): Promise<number> {
-		const attempts = await this.cache.get<number>(
-			passcodeAttemptKey(ipAddress),
+		const attempts = Number(
+			await this.cache.get<number>(passcodeAttemptKey(ipAddress)),
 		);
-		return typeof attempts === "number" ? attempts : 0;
+		return Number.isFinite(attempts) ? attempts : 0;
 	}
 }
 

@@ -31,6 +31,8 @@ const passcodeInput = z.object({
 	passcode: z.string().trim().min(1).max(200),
 });
 
+const rawBodyInput = z.union([z.string(), z.instanceof(Buffer)]);
+
 const MAX_PASSCODE_BODY_BYTES = 2048;
 
 @ApiTags("Auth")
@@ -104,9 +106,8 @@ export class AuthController {
 async function readJsonBody(request: Request): Promise<unknown> {
 	const parsed = (request as Request & { body?: unknown }).body;
 	if (parsed !== undefined) {
-		return typeof parsed === "string" || Buffer.isBuffer(parsed)
-			? parseJsonBody(String(parsed))
-			: parsed;
+		const rawBody = rawBodyInput.safeParse(parsed);
+		return rawBody.success ? parseJsonBody(String(rawBody.data)) : parsed;
 	}
 
 	let raw = "";
