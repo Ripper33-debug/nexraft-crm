@@ -13,8 +13,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const apiDir = dirname(dirname(fileURLToPath(import.meta.url)));
-const repoRoot = dirname(dirname(apiDir));
-const outDir = join(repoRoot, ".vercel/output");
+const workspaceRoot = dirname(dirname(apiDir));
+const outDir = join(apiDir, ".vercel/output");
 const funcDir = join(outDir, "functions/api/index.func");
 const bun = process.env.BUN_BIN || "bun";
 
@@ -67,7 +67,7 @@ writeFileSync(
 );
 
 console.log("• vendoring runtime-resolved dependencies...");
-const bunStore = join(repoRoot, "node_modules/.bun");
+const bunStore = join(workspaceRoot, "node_modules/.bun");
 const stores = existsSync(bunStore) ? readdirSync(bunStore) : [];
 const funcNm = join(funcDir, "node_modules");
 mkdirSync(funcNm, { recursive: true });
@@ -177,7 +177,14 @@ writeFileSync(
 	JSON.stringify({
 		version: 3,
 		routes: [{ src: "/(.*)", dest: "/api/index" }],
-		crons: [{ path: "/internal/sync/google", schedule: "*/5 * * * *" }],
+		crons: [
+			{ path: "/internal/sync/mailboxes", schedule: "*/5 * * * *" },
+			{ path: "/internal/sync/google", schedule: "*/5 * * * *" },
+			{ path: "/internal/sync/rates", schedule: "0 6 * * *" },
+			{ path: "/internal/telemetry/rollup", schedule: "0 7 * * *" },
+			{ path: "/internal/tracking/retention", schedule: "0 4 * * *" },
+			{ path: "/internal/archive/prune", schedule: "0 5 * * *" },
+		],
 	}),
 );
 
@@ -201,7 +208,7 @@ if (!process.env.VERCEL) {
 } else if (!directDatabaseUrl) {
 	console.log("• no database URL at build time — skipping migrations");
 } else {
-	const dbDir = join(repoRoot, "packages/db");
+	const dbDir = join(workspaceRoot, "packages/db");
 	const dbEnv = { ...process.env, DATABASE_URL: directDatabaseUrl };
 
 	console.log("• applying migrations (prisma migrate deploy)...");
