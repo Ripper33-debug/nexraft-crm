@@ -12,7 +12,6 @@ describe("isWorkspaceEmail", () => {
 			"lewis@acme.com",
 			"LEWIS@Acme.com",
 			"  lewis@acme.com  ",
-			"someone@mail.acme.com",
 		]) {
 			expect(isWorkspaceEmail(email)).toBe(true);
 		}
@@ -22,6 +21,7 @@ describe("isWorkspaceEmail", () => {
 		for (const email of [
 			"lewis@gmail.com",
 			"stranger@example.com",
+			"someone@mail.acme.com",
 			"",
 			null,
 			undefined,
