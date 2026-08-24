@@ -79,4 +79,8 @@ export function isSlackConfigured(): boolean {
 	return env.slack !== undefined;
 }
 
+export function isPasscodeConfigured(): boolean {
+	return optional("CRM_PASSCODE") !== undefined;
+}
+
 export { apiUrl, appUrl };

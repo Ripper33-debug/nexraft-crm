@@ -141,4 +141,20 @@ describe("the sign-in page's read", () => {
 
 		expect((await sso.signInOptions()).google).toBe(isGoogleConfigured());
 	});
+
+	it("says whether the shared CRM passcode is configured", async () => {
+		const before = process.env.CRM_PASSCODE;
+		process.env.CRM_PASSCODE = "test-passcode";
+
+		try {
+			const { sso } = service(null, [OKTA]);
+			expect((await sso.signInOptions()).passcode).toBe(true);
+		} finally {
+			if (before === undefined) {
+				delete process.env.CRM_PASSCODE;
+			} else {
+				process.env.CRM_PASSCODE = before;
+			}
+		}
+	});
 });

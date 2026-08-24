@@ -90,6 +90,14 @@ export class EnvironmentVariables {
 
 	@IsOptional()
 	@IsString()
+	CRM_PASSCODE?: string;
+
+	@IsOptional()
+	@IsString()
+	CRM_PASSCODE_EMAIL?: string;
+
+	@IsOptional()
+	@IsString()
 	REDIS_URL?: string;
 
 	@IsOptional()
