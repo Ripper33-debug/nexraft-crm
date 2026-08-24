@@ -259,21 +259,7 @@ export const auth = betterAuth({
 		user: {
 			create: {
 				before: async (user) => {
-					if (!hasSignInAllowList()) {
-						throw new APIError("FORBIDDEN", {
-							message:
-								'No one can sign in yet: set ALLOWED_SIGN_IN in .env to your email domain (for example ALLOWED_SIGN_IN="acme.com") and restart.',
-						});
-					}
-
-					if (!isWorkspaceEmail(user.email)) {
-						const domain = primaryWorkspaceDomain();
-						throw new APIError("FORBIDDEN", {
-							message: domain
-								? `This CRM is private. Sign in with your @${domain} account.`
-								: "This CRM is private. That address is not on the allow-list.",
-						});
-					}
+					assertAllowedSignIn(user.email);
 
 					return { data: user };
 				},
@@ -283,6 +269,12 @@ export const auth = betterAuth({
 		session: {
 			create: {
 				before: async (session) => {
+					const user = await db.user.findUnique({
+						where: { id: session.userId },
+						select: { email: true },
+					});
+					assertAllowedSignIn(user?.email);
+
 					const workspaceId = await ensureWorkspaceMembership(session.userId);
 
 					return {
@@ -306,6 +298,24 @@ export const auth = betterAuth({
 export type Auth = typeof auth;
 export type Session = typeof auth.$Infer.Session;
 export type SessionUser = Session["user"];
+
+function assertAllowedSignIn(email: string | null | undefined): void {
+	if (!hasSignInAllowList()) {
+		throw new APIError("FORBIDDEN", {
+			message:
+				'No one can sign in yet: set ALLOWED_SIGN_IN in .env to your email domain (for example ALLOWED_SIGN_IN="nexraft.com") and restart.',
+		});
+	}
+
+	if (!isWorkspaceEmail(email)) {
+		const domain = primaryWorkspaceDomain();
+		throw new APIError("FORBIDDEN", {
+			message: domain
+				? `This CRM is private. Sign in with your @${domain} account.`
+				: "This CRM is private. That address is not on the allow-list.",
+		});
+	}
+}
 
 async function replaceSlackAccount(account: {
 	id: string;

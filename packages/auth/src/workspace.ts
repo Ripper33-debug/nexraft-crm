@@ -55,7 +55,5 @@ export function isWorkspaceEmail(email: string | null | undefined): boolean {
 
 	if (addresses.includes(value)) return true;
 
-	return domains.some(
-		(domain) => host === domain || host.endsWith(`.${domain}`),
-	);
+	return domains.includes(host);
 }

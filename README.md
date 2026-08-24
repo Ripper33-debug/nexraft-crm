@@ -218,7 +218,7 @@ Open `.env` and set these. Everything else in the file is optional and commented
 | Variable                                   | What to put in it                                                    |
 | ------------------------------------------ | -------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`                       | `openssl rand -base64 32`                                             |
-| `ALLOWED_SIGN_IN`                          | Your email domain, e.g. `acme.com`. Or one address, e.g. `you@gmail.com`. |
+| `ALLOWED_SIGN_IN`                          | Your email domain, e.g. `nexraft.com`. Or one address, e.g. `you@gmail.com`. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`| A Google OAuth client — 2 minutes, below. Both or neither.             |
 | `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` | A Microsoft Entra app registration — below. Both or neither. |
 
@@ -292,8 +292,8 @@ sign in, which is the safe direction to fail. It takes whole domains, individual
 addresses, or a mix:
 
 ```sh
-ALLOWED_SIGN_IN="acme.com"                       # everyone at your company
-ALLOWED_SIGN_IN="acme.com,contractor@gmail.com"  # …plus one outsider
+ALLOWED_SIGN_IN="nexraft.com"                    # everyone at Nexraft
+ALLOWED_SIGN_IN="nexraft.com,contractor@gmail.com" # …plus one outsider
 ALLOWED_SIGN_IN="you@gmail.com"                  # a one-person install
 ```
 
