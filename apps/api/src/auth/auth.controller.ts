@@ -102,6 +102,13 @@ export class AuthController {
 }
 
 async function readJsonBody(request: Request): Promise<unknown> {
+	const parsed = (request as Request & { body?: unknown }).body;
+	if (parsed !== undefined) {
+		return typeof parsed === "string" || Buffer.isBuffer(parsed)
+			? parseJsonBody(String(parsed))
+			: parsed;
+	}
+
 	let raw = "";
 
 	for await (const chunk of request) {
@@ -112,6 +119,10 @@ async function readJsonBody(request: Request): Promise<unknown> {
 		}
 	}
 
+	return parseJsonBody(raw);
+}
+
+function parseJsonBody(raw: string): unknown {
 	try {
 		return raw.trim() ? JSON.parse(raw) : {};
 	} catch {
