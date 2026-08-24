@@ -4,9 +4,7 @@ export function databaseUrlWithSchema(url: string): string {
 
 	try {
 		const parsed = new URL(url);
-		if (!parsed.searchParams.has("schema")) {
-			parsed.searchParams.set("schema", schema);
-		}
+		parsed.searchParams.set("schema", schema);
 		return parsed.toString();
 	} catch {
 		return url;
