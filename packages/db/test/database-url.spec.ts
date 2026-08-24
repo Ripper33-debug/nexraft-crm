@@ -28,12 +28,9 @@ describe("databaseUrlWithSchema", () => {
 		);
 
 		expect(result.searchParams.get("schema")).toBe("nexraft_crm_app");
-		expect(result.searchParams.get("options")).toBe(
-			"-c search_path=nexraft_crm_app,public",
-		);
 	});
 
-	it("preserves existing connection options when setting the search path", () => {
+	it("does not add startup options that pooled Neon connections reject", () => {
 		process.env.DATABASE_SCHEMA = "nexraft_crm_app";
 
 		const result = new URL(
@@ -42,8 +39,6 @@ describe("databaseUrlWithSchema", () => {
 			),
 		);
 
-		expect(result.searchParams.get("options")).toBe(
-			"-c statement_timeout=5000 -c search_path=nexraft_crm_app,public",
-		);
+		expect(result.searchParams.get("options")).toBe("-c statement_timeout=5000");
 	});
 });

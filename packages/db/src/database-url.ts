@@ -20,23 +20,8 @@ export function databaseUrlWithSchema(url: string): string {
 	try {
 		const parsed = new URL(url);
 		parsed.searchParams.set("schema", schema);
-		parsed.searchParams.set(
-			"options",
-			withSearchPathOption(parsed.searchParams.get("options"), schema),
-		);
 		return parsed.toString();
 	} catch {
 		return url;
 	}
-}
-
-function withSearchPathOption(options: string | null, schema: string): string {
-	const searchPathOption = `-c search_path=${schema},public`;
-	const existingOptions = options?.trim();
-
-	if (!existingOptions) {
-		return searchPathOption;
-	}
-
-	return `${existingOptions} ${searchPathOption}`;
 }
