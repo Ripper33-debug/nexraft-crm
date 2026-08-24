@@ -174,14 +174,14 @@ writeFileSync(
 		launcherType: "Nodejs",
 	}),
 );
-writeFileSync(
-	join(outDir, "config.json"),
-	JSON.stringify({
-		version: 3,
-		routes: [{ src: "/(.*)", dest: "/api/index" }],
-		...(crons.length > 0 ? { crons } : {}),
-	}),
-);
+const outputConfig = {
+	version: 3,
+	routes: [{ src: "/(.*)", dest: "/api/index" }],
+};
+if (crons.length > 0) {
+	outputConfig.crons = crons;
+}
+writeFileSync(join(outDir, "config.json"), JSON.stringify(outputConfig));
 
 console.log(`✓ built ${outDir}`);
 
