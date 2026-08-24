@@ -8,7 +8,7 @@ import {
 
 describe("workspaceSlug", () => {
 	it("is the company name a rep can read in the address bar", () => {
-		expect(workspaceSlug("Nexraft")).toBe("comp-ai");
+		expect(workspaceSlug("Nexraft")).toBe("nexraft");
 		expect(workspaceSlug("Acme")).toBe("acme");
 		expect(workspaceSlug("Northwind Savings Group")).toBe(
 			"northwind-savings-group",
@@ -45,6 +45,6 @@ describe("workspaceSlug", () => {
 	});
 
 	it("gives one name one answer, whoever asks", () => {
-		expect(workspaceSlug("Nexraft")).toBe(workspaceSlug("comp  ai"));
+		expect(workspaceSlug("Nexraft")).toBe(workspaceSlug("nexraft"));
 	});
 });
