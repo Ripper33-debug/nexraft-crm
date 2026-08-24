@@ -1,6 +1,7 @@
 import "@crm/env/load";
 
 import { PrismaPg } from "@prisma/adapter-pg";
+import { databaseUrlWithSchema } from "./database-url";
 import { type Prisma, PrismaClient } from "./generated/prisma/client";
 
 const connectionString =
@@ -15,7 +16,7 @@ function liveDatabase(): string {
 		);
 	}
 
-	return url;
+	return databaseUrlWithSchema(url);
 }
 
 function testDatabase(): string {

@@ -2,6 +2,7 @@ import "@crm/env/load";
 
 import path from "node:path";
 import { defineConfig, env } from "prisma/config";
+import { databaseUrlWithSchema } from "./src/database-url";
 
 export default defineConfig({
 	schema: path.join("prisma", "schema.prisma"),
@@ -10,6 +11,6 @@ export default defineConfig({
 		seed: "bun run prisma/seed.ts",
 	},
 	datasource: {
-		url: env("DATABASE_URL"),
+		url: databaseUrlWithSchema(env("DATABASE_URL")),
 	},
 });
