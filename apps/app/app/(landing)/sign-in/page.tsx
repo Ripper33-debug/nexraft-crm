@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { AuthHeading, AuthShell } from "@/components/auth-shell";
 import { getSession } from "@/lib/session";
 import { getServerQueryClient, getServerTrpc } from "@/lib/trpc/server";
+import { workspaceHomePath } from "@/lib/workspace-home";
 import { PasscodeSignIn } from "./passcode-sign-in";
 import { SocialSignIn } from "./social-sign-in";
 import { type SsoProvider, SsoSignIn } from "./sso-sign-in";
@@ -69,7 +70,7 @@ async function SignIn({
 	]);
 
 	if (session) {
-		redirect("/");
+		redirect(await workspaceHomePath());
 	}
 
 	const configured: MailboxProviderId[] = [];

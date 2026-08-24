@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { redirect, unstable_rethrow } from "next/navigation";
+import { connection } from "next/server";
 import { AgentSection } from "@/components/landing/agent-section";
 import { LandingAnalytics } from "@/components/landing/analytics";
 import { CapabilitiesSection } from "@/components/landing/capabilities-section";
@@ -7,6 +9,8 @@ import { Hero } from "@/components/landing/hero";
 import { LandingFooter } from "@/components/landing/landing-footer";
 import { LandingNav } from "@/components/landing/landing-nav";
 import { ProductShot } from "@/components/landing/product-shot/product-shot";
+import { getSession } from "@/lib/session";
+import { workspaceHomePath } from "@/lib/workspace-home";
 
 export const metadata: Metadata = {
 	title: "The CRM for agents",
@@ -14,7 +18,15 @@ export const metadata: Metadata = {
 		"The first agentic CRM experience — durable research agents that read your inbox, keep every record current and book their own follow-ups.",
 };
 
-export default function Home() {
+export default async function Home() {
+	await connection();
+
+	const session = await currentSession();
+
+	if (session) {
+		redirect(await workspaceHomePath());
+	}
+
 	return (
 		<div className="dark flex min-h-svh w-full flex-col items-center overflow-clip bg-background font-sans text-foreground">
 			<LandingNav />
@@ -27,4 +39,14 @@ export default function Home() {
 			<LandingAnalytics />
 		</div>
 	);
+}
+
+async function currentSession() {
+	try {
+		return await getSession();
+	} catch (error) {
+		unstable_rethrow(error);
+		console.error("Landing: could not read the session.", error);
+		return null;
+	}
 }
