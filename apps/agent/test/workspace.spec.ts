@@ -118,7 +118,7 @@ describe("a profile belongs to the website it was read from", () => {
 describe("the website has to be somewhere a fetch can go", () => {
 	it("takes a bare domain and gives back a URL", () => {
 		expect(websiteUrl("nexraft.com")).toBe("https://nexraft.com");
-		expect(websiteUrl(" WWW.Trycomp.ai/ ")).toBe("https://www.nexraft.com");
+		expect(websiteUrl(" WWW.Nexraft.com/ ")).toBe("https://www.nexraft.com");
 	});
 
 	it("keeps a scheme it can fetch, and a path that means something", () => {
