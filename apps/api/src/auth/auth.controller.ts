@@ -71,6 +71,7 @@ export class AuthController {
 			authenticated: true,
 			user: session.user,
 			expiresAt: session.expiresAt.toISOString(),
+			redirectTo: session.redirectTo,
 		};
 	}
 

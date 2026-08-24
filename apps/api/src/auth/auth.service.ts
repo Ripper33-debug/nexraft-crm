@@ -10,6 +10,7 @@ import {
 	isWorkspaceEmail,
 	primaryWorkspaceDomain,
 	SESSION_COOKIE_NAME,
+	WORKSPACE_ID,
 } from "@crm/auth";
 import type { Db } from "@crm/db";
 import { CACHE_MANAGER } from "@nestjs/cache-manager";
@@ -104,6 +105,7 @@ export class AuthService {
 		user: { id: string; email: string };
 		expiresAt: Date;
 		cookie: string;
+		redirectTo: string;
 	}> {
 		const expected = configuredPasscode();
 
@@ -147,6 +149,10 @@ export class AuthService {
 		});
 
 		const workspaceId = await ensureWorkspaceMembership(user.id);
+		const workspace = await this.db.organization.findUnique({
+			where: { id: workspaceId ?? WORKSPACE_ID },
+			select: { slug: true },
+		});
 		const token = randomBytes(32).toString("hex");
 		const expiresAt = new Date(Date.now() + PASSCODE_SESSION_SECONDS * 1000);
 
@@ -167,6 +173,7 @@ export class AuthService {
 			user,
 			expiresAt,
 			cookie: sessionCookie(token, expiresAt),
+			redirectTo: workspace?.slug ? `/${workspace.slug}` : "/",
 		};
 	}
 

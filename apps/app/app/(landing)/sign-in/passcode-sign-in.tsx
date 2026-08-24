@@ -4,7 +4,6 @@ import { Button } from "@crm/ui/components/button";
 import { Field, FieldLabel } from "@crm/ui/components/field";
 import { Input } from "@crm/ui/components/input";
 import { Spinner } from "@crm/ui/components/spinner";
-import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useId, useState } from "react";
 import { toast } from "sonner";
@@ -17,9 +16,17 @@ const errorResponse = z
 	})
 	.passthrough();
 
+const successResponse = z
+	.object({
+		redirectTo: z
+			.string()
+			.regex(/^\/(?!\/)/)
+			.optional(),
+	})
+	.passthrough();
+
 export function PasscodeSignIn() {
 	const id = useId();
-	const router = useRouter();
 	const [passcode, setPasscode] = useState("");
 	const [pending, setPending] = useState(false);
 
@@ -46,8 +53,11 @@ export function PasscodeSignIn() {
 			return;
 		}
 
-		router.replace("/");
-		router.refresh();
+		const body = successResponse.safeParse(
+			await response.json().catch(() => null),
+		);
+
+		window.location.assign(body.success ? (body.data.redirectTo ?? "/") : "/");
 	}
 
 	return (
