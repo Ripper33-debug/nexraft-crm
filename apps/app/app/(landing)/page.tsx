@@ -9,6 +9,7 @@ import { Hero } from "@/components/landing/hero";
 import { LandingFooter } from "@/components/landing/landing-footer";
 import { LandingNav } from "@/components/landing/landing-nav";
 import { ProductShot } from "@/components/landing/product-shot/product-shot";
+import { isMarketing } from "@/lib/env";
 import { getSession } from "@/lib/session";
 import { workspaceHomePath } from "@/lib/workspace-home";
 
@@ -27,6 +28,14 @@ export default async function Home() {
 
 	if (session) {
 		redirect(await workspaceHomePath());
+	}
+
+	// The proxy only lets an anonymous request reach this page when
+	// IS_MARKETING is on. A request that carries a session cookie better-auth
+	// rejects (expired, or minted under another name) gets through it, though —
+	// that is a visitor who needs the sign-in form, not the marketing page.
+	if (!isMarketing()) {
+		redirect("/sign-in");
 	}
 
 	return (
